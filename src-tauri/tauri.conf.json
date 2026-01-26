@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "xgtools",
         "width": 800,
         "height": 600,
