@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import TitleBar from './components/TitleBar.vue';
+import { useDark } from '@vueuse/core'; // 引入 useDark
 
 import HomeView from './views/Home.vue';
 
@@ -13,6 +14,10 @@ const menuItems = [
   { id: 'Translate', label: '翻译', icon: 'icon-[lucide--book-type]' },
   { id: 'Convert', label: '格式转换', icon: 'icon-[lucide--refresh-ccw]' },
 ];
+
+// 初始化暗黑模式 (这就够了，它会自动生效)
+useDark();
+
 </script>
 
 <template>
