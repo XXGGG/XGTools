@@ -24,7 +24,9 @@ let nextId = 0; // 下一个按键项的唯一 ID 计数器
 let unlisten: (() => void) | null = null;// 事件监听取消函数
 let unlistenConfig: (() => void) | null = null; // 配置监听取消函数
 let unlistenMove: (() => void) | null = null;
+let unlistenAvoidMouse: (() => void) | null = null; // 避免鼠标监听取消函数
 const isEditMode = ref(false);// 是否编辑模式
+const isAvoidMouse = ref(false);// 是否躲避鼠标
 
 // 配置
 const MAX_ITEMS = 4; // 最大显示按键项数量
@@ -38,7 +40,25 @@ const PADDING = 20;
 // right-top: 从上往下，靠右
 type LayoutMode = 'left-bottom' | 'right-bottom' | 'left-top' | 'right-top';
 const layoutMode = ref<LayoutMode>('right-bottom');
-    
+
+// 四个角落的判断范围
+const handleMouseEnter = () => {
+    if (isAvoidMouse.value && !isEditMode.value) {
+        // 鼠标移入时，判断范围，自动启动智能布局
+        // console.log('鼠标移入时，判断范围，自动启动智能布局');
+        // console.log('layoutMode.value', layoutMode.value);
+        if (layoutMode.value === 'left-bottom') {
+            updateWindowPosition('right-bottom');//从左边去右边
+        } else if (layoutMode.value === 'right-bottom') {
+            updateWindowPosition('left-bottom');//从右边去左边
+        } else if (layoutMode.value === 'left-top') {
+            updateWindowPosition('right-top');//从左边去右边
+        } else if (layoutMode.value === 'right-top') {
+            updateWindowPosition('left-top');//从右边去左边
+        }
+    }
+}
+
 // 按键映射表 (在这里修改别名)
 // 格式: '原始键名': '显示名称'
 const keyMap: Record<string, string> = {
@@ -146,7 +166,7 @@ const addKeyToDisplay = (displayText: string) => {
 };
 
 // 辅助函数：更新窗口位置 (右下角)
-const updateWindowPosition = async () => {
+const updateWindowPosition = async (mode: LayoutMode = layoutMode.value) => {
     const win = getCurrentWindow(); // 获取当前窗口实例
     const monitor = await currentMonitor(); // 获取当前窗口所在的屏幕
 
@@ -157,8 +177,24 @@ const updateWindowPosition = async () => {
         const winWidth = 270;
         const winHeight = 300;
 
-        const x = logicalScreenWidth - winWidth - PADDING;
-        const y = logicalScreenHeight - winHeight - PADDING - 60;
+        let x = logicalScreenWidth - winWidth - PADDING;
+        let y = logicalScreenHeight - winHeight - PADDING - 60;
+        if(mode === 'left-bottom'){
+            x = PADDING;
+            y = logicalScreenHeight - winHeight - PADDING - 60;
+        }
+        else if(mode === 'right-bottom'){
+            x = logicalScreenWidth - winWidth - PADDING;
+            y = logicalScreenHeight - winHeight - PADDING - 60;
+        }
+        else if(mode === 'left-top'){
+            x = PADDING;
+            y = PADDING;
+        }
+        else if(mode === 'right-top'){
+            x = logicalScreenWidth - winWidth - PADDING;
+            y = PADDING;
+        }   
 
         await win.setPosition(new LogicalPosition(x, y));
     }
@@ -259,15 +295,36 @@ onMounted(async () => {
 
     const win = getCurrentWindow();// 获取当前窗口实例
 
+    // 恢复位置
+    await restoreWindowPosition();
+
+    // 是否要躲避鼠标
+    isAvoidMouse.value = await store.get('avoid_mouse') || false;
+    // 监听避免鼠标配置变更
+    unlistenAvoidMouse = await listen('toggle-avoid-mouse', async (event: any) => {
+        const enabled = event.payload;
+        isAvoidMouse.value = enabled;
+
+        // 如果开启躲避鼠标，就不要穿透
+        await win.setIgnoreCursorEvents(!enabled);
+        if (isEditMode.value) {
+            // 只要编辑状态在，就不要穿透
+            await win.setIgnoreCursorEvents(false);
+        }
+    });
+
     try {
         // 默认开启鼠标穿透 (忽略鼠标事件)
-        await win.setIgnoreCursorEvents(true);
+        if (!isAvoidMouse.value) {
+            // console.log('开启鼠标穿透 (忽略鼠标事件)');
+            await win.setIgnoreCursorEvents(true);
+        }else {
+            // console.log('关闭鼠标穿透 (不忽略鼠标事件)');
+            await win.setIgnoreCursorEvents(false);
+        }
     } catch (e) {
         console.error('setIgnoreCursorEvents failed:', e);
     }
-
-    // 恢复位置
-    await restoreWindowPosition();
 
     // 监听配置变更事件
     unlistenConfig = await listen('toggle-key-visualizer-edit', async (event: any) => {
@@ -276,6 +333,10 @@ onMounted(async () => {
         // 如果是编辑模式，不忽略鼠标 (可以点击/拖拽)
         // 如果是正常模式，忽略鼠标 (穿透)
         await win.setIgnoreCursorEvents(!enabled);
+        if (isAvoidMouse.value && !enabled) {
+            // 如果没有在编辑模式 ，且 开启了躲避鼠标
+            await win.setIgnoreCursorEvents(false);
+        }
 
         if (enabled) {
             // 编辑模式下，显示并置顶，确保用户能看到
@@ -370,12 +431,17 @@ onUnmounted(() => {
     if (unlisten) unlisten(); //移除输入事件监听
     if (unlistenConfig) unlistenConfig(); //移除配置变更事件监听
     if (unlistenMove) unlistenMove();  // <-- 添加这一行！
+    if (unlistenAvoidMouse) unlistenAvoidMouse(); //移除避免鼠标事件监听
 });
 </script>
 
 
 
 <template>
+    <!-- 检测鼠标驶入 -->
+    <div v-if="isAvoidMouse && !isEditMode" @mouseover="handleMouseEnter" 
+        class="absolute top-0 left-0 right-0 bottom-0 z-100">
+    </div>
     <!-- 
     根容器
     isEditMode=true: 显示背景，允许鼠标事件 (pointer-events-auto)

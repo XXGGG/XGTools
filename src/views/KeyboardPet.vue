@@ -7,6 +7,7 @@ import { LogicalSize } from '@tauri-apps/api/window';
 
 const isKeyVisOpen = ref(false); // 是否打开按键可视化窗口
 const isEditMode = ref(false);  // 是否编辑模式
+const isAvoidMouse = ref(false); // 是否躲避鼠标
 const store = new LazyStore('settings.json');
 
 // 切换编辑模式
@@ -41,6 +42,15 @@ const resetWindowPosition = async () => {
     }
 };
 
+// 切换躲避鼠标
+const toggleAvoidMouse = async () => {
+    // 发送躲避事件
+    isAvoidMouse.value = !isAvoidMouse.value;
+    await emit('toggle-avoid-mouse', isAvoidMouse.value);
+    // 6. 同步配置到 store
+    await store.set('avoid_mouse', isAvoidMouse.value);
+};
+
 // 检查窗口状态并同步配置
 const checkWindowState = async () => {
     // 1. 初始化 store
@@ -59,6 +69,9 @@ const checkWindowState = async () => {
     if (savedState && !isKeyVisOpen.value) {
         await toggleKeyVis();
     }
+
+    // 5. 是否有开启躲避鼠标
+    isAvoidMouse.value = await store.get<boolean>('avoid_mouse') || false;    
 };
 
 onMounted(() => {
@@ -168,6 +181,13 @@ onUnmounted(() => {
             </div>
 
             <div class="flex items-center gap-2">
+                <!-- 躲避按钮 (仅开启时显示) -->
+                <button v-if="isKeyVisOpen" @click="toggleAvoidMouse" class="flex p-2 rounded-lg transition-colors"
+                    :class="isAvoidMouse ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'hover:bg-accent text-muted-foreground hover:text-foreground'"
+                    title="躲避鼠标">
+                    <span class="icon-[lucide--square-dashed-mouse-pointer] w-6 h-6" />
+                </button>
+
                 <!-- 重置位置按钮 (仅开启时显示) -->
                 <button v-if="isKeyVisOpen" @click="resetWindowPosition"
                     class="flex p-2 rounded-lg transition-colors hover:bg-accent text-muted-foreground hover:text-foreground"
