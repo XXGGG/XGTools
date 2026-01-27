@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-
+import { getCurrentWindow, currentMonitor, LogicalPosition } from '@tauri-apps/api/window';
+// 引入 store 插件
+import { LazyStore } from '@tauri-apps/plugin-store';
+const store = new LazyStore('settings.json');
 
 // 定义输入事件负载接口
 interface InputPayload {
@@ -25,6 +27,7 @@ const isEditMode = ref(false);// 是否编辑模式
 
 // 配置
 const MAX_ITEMS = 4; // 最大显示按键项数量
+const PADDING = 20;
 
 // 按键映射表 (在这里修改别名)
 // 格式: '原始键名': '显示名称'
@@ -132,7 +135,113 @@ const addKeyToDisplay = (displayText: string) => {
     }
 };
 
+// 辅助函数：更新窗口位置 (右下角)
+const updateWindowPosition = async () => {
+    const win = getCurrentWindow(); // 获取当前窗口实例
+    const monitor = await currentMonitor(); // 获取当前窗口所在的屏幕
+
+    if (monitor) {
+        const scaleFactor = monitor.scaleFactor; // 获取屏幕缩放因子
+        const logicalScreenWidth = monitor.size.width / scaleFactor;
+        const logicalScreenHeight = monitor.size.height / scaleFactor;
+        const winWidth = 270;
+        const winHeight = 300;
+
+        const x = logicalScreenWidth - winWidth - PADDING;
+        const y = logicalScreenHeight - winHeight - PADDING - 60;
+
+        await win.setPosition(new LogicalPosition(x, y));
+    }
+};
+
+// 检测窗口位置并更新布局模式
+// const updateLayoutMode = async () => {
+//     try {
+//         const win = getCurrentWindow();
+//         const pos = await win.outerPosition();
+//         const size = await win.outerSize();
+//         const monitor = await currentMonitor();
+
+//         if (monitor) {
+//             const factor = monitor.scaleFactor;
+//             // 窗口中心点的逻辑坐标
+//             const windowCenterX = (pos.x + size.width / 2) / factor;
+//             const windowCenterY = (pos.y + size.height / 2) / factor;
+
+//             // 屏幕中心点
+//             const screenCenterX = monitor.size.width / factor / 2;
+//             const screenCenterY = monitor.size.height / factor / 2;
+
+//             // 判断窗口在屏幕的哪个象限
+//             const isLeft = windowCenterX < screenCenterX;
+//             const isTop = windowCenterY < screenCenterY;
+
+//             if (isLeft && isTop) {
+//                 layoutMode.value = 'left-top';
+//             } else if (!isLeft && isTop) {
+//                 layoutMode.value = 'right-top';
+//             } else if (isLeft && !isTop) {
+//                 layoutMode.value = 'left-bottom';
+//             } else {
+//                 layoutMode.value = 'right-bottom';
+//             }
+
+//         }
+//     } catch (err) {
+//         console.error('Failed to update layout mode:', err);
+//     }
+// };
+
+// 保存窗口位置
+const saveWindowPosition = async () => {
+    try {
+        const win = getCurrentWindow();
+        const pos = await win.outerPosition(); // Returns PhysicalPosition
+        const monitor = await currentMonitor();
+
+        if (monitor) {
+            const factor = monitor.scaleFactor;
+            // 转换为逻辑坐标保存，防止 DPI 缩放导致的偏移
+            const logicalX = pos.x / factor;
+            const logicalY = pos.y / factor;
+
+            await store.set('key_visualizer_position', { x: logicalX, y: logicalY });
+            await store.save();
+            console.log('Window position saved (Logical):', { x: logicalX, y: logicalY });
+
+            // 更新布局模式
+            // await updateLayoutMode();
+        }
+    } catch (err) {
+        console.error('Failed to save window position:', err);
+    }
+};
+
+// 恢复窗口位置
+const restoreWindowPosition = async () => {
+    try {
+        const savedPos = await store.get<{ x: number, y: number }>('key_visualizer_position');
+        if (savedPos && typeof savedPos.x === 'number' && typeof savedPos.y === 'number') {
+            const win = getCurrentWindow();
+            await win.setPosition(new LogicalPosition(savedPos.x, savedPos.y));
+            console.log('Window position restored:', savedPos);
+        } else {
+            await updateWindowPosition();// 恢复默认位置
+            console.log('No saved position found. Restored to default position.');
+        }
+        // 恢复位置后更新布局模式
+        // await updateLayoutMode();
+    } catch (err) {
+        console.error('Failed to restore window position:', err);
+        await updateWindowPosition();// 恢复默认位置
+        // await updateLayoutMode();
+    }
+};
+
 onMounted(async () => {
+
+    // 初始化 Store
+    await store.init();
 
     // 强制设置透明背景
     document.documentElement.style.backgroundColor = 'transparent';
@@ -147,6 +256,8 @@ onMounted(async () => {
         console.error('setIgnoreCursorEvents failed:', e);
     }
 
+    // 恢复位置
+    await restoreWindowPosition();
 
     // 监听配置变更事件
     unlistenConfig = await listen('toggle-key-visualizer-edit', async (event: any) => {
@@ -161,8 +272,19 @@ onMounted(async () => {
             await win.show();
             await win.setFocus();
         } else {
+            // 退出编辑模式时，保存位置
+            await saveWindowPosition(); //添加这一行，确保退出编辑模式时保存位置
         }
     });
+
+    // 监听重置位置事件
+    await listen('reset-key-visualizer-position', async () => {
+        console.log('Resetting window position...');
+        await updateWindowPosition(); // 恢复默认位置
+        await saveWindowPosition();   // 保存新位置
+    });
+
+
 
     // 监听输入事件
     unlisten = await listen<InputPayload>('input-event', (event) => {

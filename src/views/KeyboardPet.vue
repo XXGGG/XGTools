@@ -2,12 +2,12 @@
 import { ref, onMounted } from 'vue';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit } from '@tauri-apps/api/event';
-// import { LazyStore } from '@tauri-apps/plugin-store';
+import { LazyStore } from '@tauri-apps/plugin-store';
 import { LogicalSize } from '@tauri-apps/api/window';
 
 const isKeyVisOpen = ref(false); // 是否打开按键可视化窗口
 const isEditMode = ref(false);  // 是否编辑模式
-// const store = new LazyStore('settings.json');
+const store = new LazyStore('settings.json');
 
 // 切换编辑模式
 const toggleEditMode = async () => {
@@ -44,10 +44,10 @@ const resetWindowPosition = async () => {
 // 检查窗口状态并同步配置
 const checkWindowState = async () => {
     // 1. 初始化 store
-    // await store.init();
+    await store.init();
 
     // 2. 获取保存的配置
-    // const savedState = await store.get<boolean>('key_visualizer_enabled');
+    const savedState = await store.get<boolean>('key_visualizer_enabled');
 
     // 3. 检查当前窗口是否真的存在
     const win = await WebviewWindow.getByLabel('key_visualizer');
@@ -56,10 +56,9 @@ const checkWindowState = async () => {
     }
 
     // 4. 如果配置是开启的，但窗口没开 (比如应用刚启动)，则自动开启
-    // if (savedState && !isKeyVisOpen.value) {
-    //     console.log('Auto-opening Key Visualizer based on saved settings...');
-    //     await toggleKeyVis();
-    // }
+    if (savedState && !isKeyVisOpen.value) {
+        await toggleKeyVis();
+    }
 };
 
 onMounted(() => {
@@ -106,8 +105,8 @@ const toggleKeyVis = async () => {
             // 窗口打开状态
             isKeyVisOpen.value = true;
             // 保存状态
-            // await store.set('key_visualizer_enabled', true);
-            // await store.save();
+            await store.set('key_visualizer_enabled', true);
+            await store.save();
             return;
         }
 
@@ -122,8 +121,8 @@ const toggleKeyVis = async () => {
             await emit('toggle-key-visualizer-edit', false);
 
             // 保存状态
-            // await store.set('key_visualizer_enabled', false);
-            // await store.save();
+            await store.set('key_visualizer_enabled', false);
+            await store.save();
         } else {
             // 否则窗口就打开
             await win.show();
@@ -143,8 +142,8 @@ const toggleKeyVis = async () => {
             }
 
             // 保存状态
-            // await store.set('key_visualizer_enabled', true);
-            // await store.save();
+            await store.set('key_visualizer_enabled', true);
+            await store.save();
         }
     } catch (error) {
         console.error('Toggle error:', error);
