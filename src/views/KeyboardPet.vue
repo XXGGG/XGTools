@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit } from '@tauri-apps/api/event';
 import { LazyStore } from '@tauri-apps/plugin-store';
@@ -150,6 +150,10 @@ const toggleKeyVis = async () => {
         alert('操作失败: ' + String(error));
     }
 };
+onUnmounted(() => {
+    // 组件卸载时，发送关闭编辑模式事件
+    emit('toggle-key-visualizer-edit', false);
+});
 </script>
 
 <template>
