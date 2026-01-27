@@ -22,6 +22,8 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
-    "core:window:allow-set-ignore-cursor-events"
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-size",
+    "store:default"
   ]
 }

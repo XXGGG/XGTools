@@ -4,6 +4,9 @@ import TitleBar from './components/TitleBar.vue';
 import { useDark } from '@vueuse/core'; // 引入 useDark
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import KeyVisualizerWindow from './KeyVisualizerWindow.vue'; //【窗口】显示按键
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';// 引入 WebviewWindow 用于创建窗口
+import { emit } from '@tauri-apps/api/event'; // 引入 emit 用于事件通信
+import { LazyStore } from '@tauri-apps/plugin-store'; // 引入 Store
 
 import HomeView from './views/Home.vue';
 import KeyboardPetView from './views/KeyboardPet.vue';//【页面】键盘桌宠
@@ -30,7 +33,51 @@ onMounted(async () => {
     isKeyVisualizer.value = true;
     return; // 如果是副窗口，就只做副窗口该做的事
   }
-  // ... 主窗口逻辑
+
+  // 初始化 Store
+  const store = new LazyStore('settings.json');
+  await store.init();
+
+  // --- 恢复按键显示窗口状态 ---
+  try {
+    // 1. 从 Store 中获取之前 key_visualizer_enabled 的状态
+    const savedKeyVisState = await store.get<boolean>('key_visualizer_enabled');
+    const isKeyVisOpen = ref(false); // 临时变量用于逻辑判断
+
+    // 检查当前窗口是否存在
+    let win = await WebviewWindow.getByLabel('key_visualizer');
+    if (win) {
+      isKeyVisOpen.value = await win.isVisible();
+    }
+
+    if (savedKeyVisState && !isKeyVisOpen.value) {
+      if (!win) {
+        // 动态创建窗口
+        win = new WebviewWindow('key_visualizer', {
+          url: 'index.html',
+          title: '',
+          width: 270,
+          height: 300,
+          decorations: false,
+          shadow: false,
+          transparent: true,
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          resizable: false,
+          visible: true
+        });
+
+        // 确保新建窗口处于非编辑模式
+        await emit('toggle-key-visualizer-edit', false);
+      } else {
+        await win.show();
+        await win.setFocus();
+        await emit('toggle-key-visualizer-edit', false);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to restore Key Visualizer state:', err);
+  }
 });
 </script>
 
