@@ -20,6 +20,20 @@
         "minHeight": 600,
         "decorations": false,
         "shadow": true
+      },
+      {
+        "label": "key_visualizer",
+        "title": "KeyVisualizer",
+        "url": "index.html", 
+        "width": 270,
+        "height": 300,
+        "decorations": false,
+        "shadow": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false
       }
     ],
     "security": {
