@@ -3,9 +3,60 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
+use std::thread; // 引入线程库，用于在后台运行输入监听
+use rdev::{listen, EventType}; // 引入 rdev 库
+use tauri::Emitter; // 记得引入这个，用于发送事件到前端
+// Emitter 用于发送事件到前端，如按键事件、鼠标事件等
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+// 定义发送给前端的数据结构
+#[derive(serde::Serialize, Clone)]
+struct InputPayload {
+    event_type: String,
+    key: String,
+}
+
+// 初始化监听器函数
+fn init_input_listener(app: tauri::AppHandle) {
+    thread::spawn(move || {
+        // listen 会阻塞当前线程，所以必须放在 thread::spawn 里
+        if let Err(error) = listen(move |event| {
+            let payload = match event.event_type {
+                // KeyPress 是按键按下事件，我们监听它
+                EventType::KeyPress(key) => Some(InputPayload {
+                    event_type: "KeyPress".to_string(),
+                    key: format!("{:?}", key), // 格式化为 KeyA, Num1 等
+                }),
+                // KeyRelease 是按键释放事件，我们也监听它
+                EventType::KeyRelease(key) => Some(InputPayload {
+                    event_type: "KeyRelease".to_string(),
+                    key: format!("{:?}", key),
+                }),
+                // 我们也可以监听鼠标，但为了性能，这里只演示按键
+                EventType::ButtonPress(btn) => Some(InputPayload {
+                    event_type: "ButtonPress".to_string(),
+                    key: format!("{:?}", btn),
+                }),
+                // ButtonRelease 是鼠标按钮释放事件，我们也监听它
+                EventType::ButtonRelease(btn) => Some(InputPayload {
+                    event_type: "ButtonRelease".to_string(),
+                    key: format!("{:?}", btn),
+                }),
+                _ => None,
+            };
+            
+            if let Some(p) = payload {
+                // 发送事件给所有窗口
+                let _ = app.emit("input-event", p);
+            }
+        }) {
+            println!("Error: {:?}", error);
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -15,6 +66,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet])
         .setup(|app| {
+            // 初始化输入监听器
+            init_input_listener(app.handle().clone());
+
             // 1. 创建菜单项 (使用 Builder 模式)
             // "quit": ID 为 quit，显示文本 "退出"
             let quit_i = MenuItemBuilder::with_id("quit", "退出").build(app)?;

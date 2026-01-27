@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import TitleBar from './components/TitleBar.vue';
 import { useDark } from '@vueuse/core'; // 引入 useDark
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import KeyVisualizerWindow from './KeyVisualizerWindow.vue'; //【窗口】显示按键
 
 import HomeView from './views/Home.vue';
+import KeyboardPetView from './views/KeyboardPet.vue';//【页面】键盘桌宠
 
 const currentView = ref('Home');  // 定义当前显示的页面，默认是 'Home'
 // 定义菜单项
@@ -18,12 +21,25 @@ const menuItems = [
 // 初始化暗黑模式 (这就够了，它会自动生效)
 useDark();
 
+// 定义是否显示键盘可视化窗口
+const isKeyVisualizer = ref(false);
+
+onMounted(async () => {
+  const win = getCurrentWindow(); // 获取当前窗口实例
+  if (win.label === 'key_visualizer') {
+    isKeyVisualizer.value = true;
+    return; // 如果是副窗口，就只做副窗口该做的事
+  }
+  // ... 主窗口逻辑
+});
 </script>
 
 <template>
 
+  <KeyVisualizerWindow v-if="isKeyVisualizer" />
+
   <!-- 整个应用容器：全屏，flex 布局 -->
-  <div class="h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col">
+  <div v-else class="h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col">
 
     <!-- 1. 顶部标题栏 -->
     <TitleBar />
@@ -65,6 +81,7 @@ useDark();
           <!-- 根据 currentView 显示不同组件 -->
           <div :key="currentView" class="h-full w-full">
             <HomeView v-if="currentView === 'Home'" />
+            <KeyboardPetView v-else-if="currentView === 'KeyboardPet'" />
 
             <!-- 还没做的功能先显示这个 -->
             <div v-else class="h-full flex flex-col items-center justify-center text-muted-foreground">
