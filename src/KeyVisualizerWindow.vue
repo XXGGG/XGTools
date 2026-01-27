@@ -23,12 +23,22 @@ const keys = ref<KeyItem[]>([]); // 按键项列表
 let nextId = 0; // 下一个按键项的唯一 ID 计数器
 let unlisten: (() => void) | null = null;// 事件监听取消函数
 let unlistenConfig: (() => void) | null = null; // 配置监听取消函数
+let unlistenMove: (() => void) | null = null;
 const isEditMode = ref(false);// 是否编辑模式
 
 // 配置
 const MAX_ITEMS = 4; // 最大显示按键项数量
 const PADDING = 20;
 
+
+// 布局模式：根据窗口在屏幕上的位置决定
+// left-bottom: 从下往上，靠左
+// right-bottom: 从下往上，靠右 (默认)
+// left-top: 从上往下，靠左
+// right-top: 从上往下，靠右
+type LayoutMode = 'left-bottom' | 'right-bottom' | 'left-top' | 'right-top';
+const layoutMode = ref<LayoutMode>('right-bottom');
+    
 // 按键映射表 (在这里修改别名)
 // 格式: '原始键名': '显示名称'
 const keyMap: Record<string, string> = {
@@ -155,42 +165,42 @@ const updateWindowPosition = async () => {
 };
 
 // 检测窗口位置并更新布局模式
-// const updateLayoutMode = async () => {
-//     try {
-//         const win = getCurrentWindow();
-//         const pos = await win.outerPosition();
-//         const size = await win.outerSize();
-//         const monitor = await currentMonitor();
+const updateLayoutMode = async () => {
+    try {
+        const win = getCurrentWindow();
+        const pos = await win.outerPosition();
+        const size = await win.outerSize();
+        const monitor = await currentMonitor();
 
-//         if (monitor) {
-//             const factor = monitor.scaleFactor;
-//             // 窗口中心点的逻辑坐标
-//             const windowCenterX = (pos.x + size.width / 2) / factor;
-//             const windowCenterY = (pos.y + size.height / 2) / factor;
+        if (monitor) {
+            const factor = monitor.scaleFactor;
+            // 窗口中心点的逻辑坐标
+            const windowCenterX = (pos.x + size.width / 2) / factor;
+            const windowCenterY = (pos.y + size.height / 2) / factor;
 
-//             // 屏幕中心点
-//             const screenCenterX = monitor.size.width / factor / 2;
-//             const screenCenterY = monitor.size.height / factor / 2;
+            // 屏幕中心点
+            const screenCenterX = monitor.size.width / factor / 2;
+            const screenCenterY = monitor.size.height / factor / 2;
 
-//             // 判断窗口在屏幕的哪个象限
-//             const isLeft = windowCenterX < screenCenterX;
-//             const isTop = windowCenterY < screenCenterY;
+            // 判断窗口在屏幕的哪个象限
+            const isLeft = windowCenterX < screenCenterX;
+            const isTop = windowCenterY < screenCenterY;
 
-//             if (isLeft && isTop) {
-//                 layoutMode.value = 'left-top';
-//             } else if (!isLeft && isTop) {
-//                 layoutMode.value = 'right-top';
-//             } else if (isLeft && !isTop) {
-//                 layoutMode.value = 'left-bottom';
-//             } else {
-//                 layoutMode.value = 'right-bottom';
-//             }
+            if (isLeft && isTop) {
+                layoutMode.value = 'left-top';
+            } else if (!isLeft && isTop) {
+                layoutMode.value = 'right-top';
+            } else if (isLeft && !isTop) {
+                layoutMode.value = 'left-bottom';
+            } else {
+                layoutMode.value = 'right-bottom';
+            }
 
-//         }
-//     } catch (err) {
-//         console.error('Failed to update layout mode:', err);
-//     }
-// };
+        }
+    } catch (err) {
+        console.error('Failed to update layout mode:', err);
+    }
+};
 
 // 保存窗口位置
 const saveWindowPosition = async () => {
@@ -210,7 +220,7 @@ const saveWindowPosition = async () => {
             console.log('Window position saved (Logical):', { x: logicalX, y: logicalY });
 
             // 更新布局模式
-            // await updateLayoutMode();
+            await updateLayoutMode();
         }
     } catch (err) {
         console.error('Failed to save window position:', err);
@@ -230,11 +240,11 @@ const restoreWindowPosition = async () => {
             console.log('No saved position found. Restored to default position.');
         }
         // 恢复位置后更新布局模式
-        // await updateLayoutMode();
+        await updateLayoutMode();
     } catch (err) {
         console.error('Failed to restore window position:', err);
         await updateWindowPosition();// 恢复默认位置
-        // await updateLayoutMode();
+        await updateLayoutMode();
     }
 };
 
@@ -284,6 +294,10 @@ onMounted(async () => {
         await saveWindowPosition();   // 保存新位置
     });
 
+    // 监听窗口移动事件，实时更新布局模式
+    unlistenMove = await win.onMoved(async () => {
+        await updateLayoutMode();
+    });
 
 
     // 监听输入事件
@@ -355,6 +369,7 @@ onMounted(async () => {
 onUnmounted(() => {
     if (unlisten) unlisten(); //移除输入事件监听
     if (unlistenConfig) unlistenConfig(); //移除配置变更事件监听
+    if (unlistenMove) unlistenMove();  // <-- 添加这一行！
 });
 </script>
 
@@ -365,23 +380,40 @@ onUnmounted(() => {
     根容器
     isEditMode=true: 显示背景，允许鼠标事件 (pointer-events-auto)
     isEditMode=false: 透明背景，禁止鼠标事件 (pointer-events-none)
+
+    布局模式:
+    - left-bottom: 从下往上，靠左
+    - right-bottom: 从下往上，靠右 (默认)
+    - left-top: 从上往下，靠左
+    - right-top: 从上往下，靠右
   -->
-    <div class="h-full w-full flex flex-col-reverse items-end p-0 overflow-hidden transition-colors duration-300 relative"
-        :class="{
-            'bg-black border-2 border-dashed border-yellow-400 pointer-events-auto': isEditMode,
-            'bg-transparent pointer-events-none': !isEditMode
-        }">
+    <div class="h-full w-full flex p-0 overflow-hidden transition-colors duration-300 relative" :class="[
+        // 编辑模式样式
+        isEditMode ? 'bg-black border-2 border-dashed border-yellow-400 pointer-events-auto' : 'bg-transparent pointer-events-none',
+        // 纵向方向：bottom 模式从下往上 (flex-col-reverse)，top 模式从上往下 (flex-col)
+        layoutMode.includes('bottom') ? 'flex-col-reverse' : 'flex-col',
+        // 横向对齐：left 靠左 (items-start)，right 靠右 (items-end)
+        layoutMode.includes('left') ? 'items-start' : 'items-end'
+    ]">
         <!-- 拖拽区域：仅在编辑模式下存在，覆盖全屏 -->
         <div v-if="isEditMode" data-tauri-drag-region class="absolute inset-0 z-0 cursor-move"></div>
 
         <!-- 提示文字 -->
-        <div v-if="isEditMode" class="absolute top-2 left-2 text-yellow-400 font-bold text-xs pointer-events-none z-10">
+        <div v-if="isEditMode" class="absolute top-2 left-2 text-yellow-400 font-bold text-xs pointer-events-none z-20">
             Drag to Move
         </div>
 
         <!-- 按键列表容器 (z-10 确保在拖拽层之上) -->
-        <TransitionGroup name="list" tag="div"
-            class="flex flex-col-reverse items-end w-full z-10 pointer-events-none pb-2 pr-2">
+        <TransitionGroup :name="layoutMode.includes('bottom') ? 'list-bottom' : 'list-top'" tag="div"
+            class="flex w-full z-10 pointer-events-none" :class="[
+                // 纵向方向
+                layoutMode.includes('bottom') ? 'flex-col-reverse' : 'flex-col',
+                // 横向对齐
+                layoutMode.includes('left') ? 'items-start' : 'items-end',
+                // 内边距：根据位置调整
+                layoutMode.includes('bottom') ? 'pb-2' : 'pt-2',
+                layoutMode.includes('left') ? 'pl-2' : 'pr-2'
+            ]">
             <div v-for="(item, index) in keys" :key="item.id" class="mb-2 transition-all duration-300" :class="{
                 'opacity-100 scale-100': index === 0,
                 'opacity-70 scale-90': index === 1,
@@ -389,7 +421,7 @@ onUnmounted(() => {
                 'opacity-10 scale-75': index >= 3
             }">
                 <div
-                    class="bg-black/70 text-white px-4 py-2 rounded-lg backdrop-blur-sm font-mono font-bold text-xl border border-white/10">
+                    class="px-4 py-2 rounded-lg backdrop-blur-sm font-mono font-bold text-xl border shadow-sm transition-colors duration-300 bg-white/80 text-zinc-900 border-zinc-200/5 dark:bg-zinc-950/80 dark:text-zinc-50 dark:border-zinc-800/50">
                     {{ item.key }}
                 </div>
             </div>
@@ -398,24 +430,45 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.list-move,
-.list-enter-active,
-.list-leave-active {
+/* 从下往上布局的动画 (bottom 模式) */
+.list-bottom-move,
+.list-bottom-enter-active,
+.list-bottom-leave-active {
     transition: all 0.3s ease;
 }
 
-.list-enter-from {
+.list-bottom-enter-from {
     opacity: 0;
     transform: translateY(20px);
 }
 
-.list-leave-to {
+.list-bottom-leave-to {
     opacity: 0;
     transform: translateY(-20px);
 }
 
-/* 确保列表项在移动时绝对定位，实现平滑过渡 */
-.list-leave-active {
+.list-bottom-leave-active {
+    position: absolute;
+}
+
+/* 从上往下布局的动画 (top 模式) */
+.list-top-move,
+.list-top-enter-active,
+.list-top-leave-active {
+    transition: all 0.3s ease;
+}
+
+.list-top-enter-from {
+    opacity: 0;
+    transform: translateY(-20px);
+}
+
+.list-top-leave-to {
+    opacity: 0;
+    transform: translateY(20px);
+}
+
+.list-top-leave-active {
     position: absolute;
 }
 </style>
