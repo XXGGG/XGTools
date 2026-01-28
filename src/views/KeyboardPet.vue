@@ -8,6 +8,7 @@ import { LogicalSize } from '@tauri-apps/api/window';
 const isKeyVisOpen = ref(false); // 是否打开按键可视化窗口
 const isEditMode = ref(false);  // 是否编辑模式
 const isAvoidMouse = ref(false); // 是否躲避鼠标
+const isAutoClear = ref(false); // 是否启用自动清除
 const store = new LazyStore('settings.json');
 
 // 切换编辑模式
@@ -71,12 +72,29 @@ const checkWindowState = async () => {
     }
 
     // 5. 是否有开启躲避鼠标
-    isAvoidMouse.value = await store.get<boolean>('avoid_mouse') || false;    
+    isAvoidMouse.value = await store.get<boolean>('avoid_mouse') || false; 
+        
+    // ✅ 新增：恢复自动清除配置
+    isAutoClear.value = await store.get<boolean>('auto_clear_enabled') || false;
 };
 
 onMounted(() => {
     checkWindowState();
 });
+
+// 切换自动清除
+const toggleAutoClear = async () => {
+    isAutoClear.value = !isAutoClear.value;
+
+    // 发送事件到 KeyVisualizerWindow
+    await emit('toggle-auto-clear', isAutoClear.value);
+
+    // 保存配置到 store
+    await store.set('auto_clear_enabled', isAutoClear.value);
+    await store.save();
+
+    console.log('自动清除功能:', isAutoClear.value ? '已开启' : '已关闭');
+};
 
 // 切换按键可视化窗口
 const toggleKeyVis = async () => {
@@ -181,9 +199,17 @@ onUnmounted(() => {
             </div>
 
             <div class="flex items-center gap-2">
+                <!-- ✅ 新增：自动清除按钮 (在躲避按钮之前) -->
+                <button v-if="isKeyVisOpen" @click="toggleAutoClear" class="flex p-2 rounded-lg transition-colors"
+                    :class="isAutoClear
+                        ? 'bg-blue-500 text-white hover:bg-blue-600'
+                        : 'hover:bg-accent text-muted-foreground hover:text-foreground'" title="自动清除">
+                    <span class="icon-[lucide--eraser] w-6 h-6" />
+                </button>
+
                 <!-- 躲避按钮 (仅开启时显示) -->
                 <button v-if="isKeyVisOpen" @click="toggleAvoidMouse" class="flex p-2 rounded-lg transition-colors"
-                    :class="isAvoidMouse ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'hover:bg-accent text-muted-foreground hover:text-foreground'"
+                    :class="isAvoidMouse ? 'bg-green-500 text-white hover:bg-green-600' : 'hover:bg-accent text-muted-foreground hover:text-foreground'"
                     title="躲避鼠标">
                     <span class="icon-[lucide--square-dashed-mouse-pointer] w-6 h-6" />
                 </button>
