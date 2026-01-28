@@ -25,8 +25,11 @@ let unlisten: (() => void) | null = null;// 事件监听取消函数
 let unlistenConfig: (() => void) | null = null; // 配置监听取消函数
 let unlistenMove: (() => void) | null = null;
 let unlistenAvoidMouse: (() => void) | null = null; // 避免鼠标监听取消函数
+let clearTimer: ReturnType<typeof setInterval> | null = null;// 定时器引用（用于控制定时器的启动和停止）
 const isEditMode = ref(false);// 是否编辑模式
 const isAvoidMouse = ref(false);// 是否躲避鼠标
+const isAutoClear = ref(false);// 是否启用自动清除功能
+const AUTO_CLEAR_DELAY = 3000; // 3秒后自动清除 // 自动清除的延迟时间（毫秒）
 
 // 配置
 const MAX_ITEMS = 4; // 最大显示按键项数量
@@ -163,6 +166,8 @@ const addKeyToDisplay = (displayText: string) => {
     if (keys.value.length > MAX_ITEMS) {
         keys.value.pop();
     }
+
+    startClearTimer();
 };
 
 // 辅助函数：更新窗口位置 (右下角)
@@ -424,7 +429,65 @@ onMounted(async () => {
             addKeyToDisplay(combo.join(' + '));
         }
     });
+
+    // ✅ 新增：恢复自动清除配置
+    isAutoClear.value = await store.get('auto_clear_enabled') || false;
+    console.log('自动清除功能状态:', isAutoClear.value);
+
+    // ✅ 新增：监听自动清除配置变更
+    const unlistenAutoClear = await listen('toggle-auto-clear', async (event: any) => {
+        const enabled = event.payload;
+        isAutoClear.value = enabled;
+
+        if (enabled) {
+            // 如果开启了自动清除，且当前有按键，立即启动定时器
+            if (keys.value.length > 0) {
+                startClearTimer();
+            }
+        } else {
+            // 如果关闭了自动清除，停止定时器
+            stopClearTimer();
+        }
+    });
 });
+
+// 启动自动清除定时器
+const startClearTimer = () => {
+    // 如果定时器已经在运行，不要重复启动
+    if (clearTimer !== null) return;
+
+    // 如果功能未开启，不启动定时器
+    if (!isAutoClear.value) return;
+
+    // 启动定时器，每 500ms 检查一次
+    clearTimer = setInterval(() => {
+        if (keys.value.length === 0) {
+            // 如果列表已经清空，停止定时器
+            stopClearTimer();
+            return;
+        }
+
+        // 检查最后一个按键是否超时
+        const lastKey = keys.value[keys.value.length - 1];
+        const timePassed = Date.now() - lastKey.timestamp;
+
+        if (timePassed > AUTO_CLEAR_DELAY) {
+            // 移除最后一个按键
+            keys.value.pop();
+        }
+    }, 500);
+
+    console.log('自动清除定时器已启动');
+};
+
+// 停止自动清除定时器
+const stopClearTimer = () => {
+    if (clearTimer !== null) {
+        clearInterval(clearTimer);
+        clearTimer = null;
+        console.log('自动清除定时器已停止');
+    }
+};
 
 // 组件卸载时，移除事件监听
 onUnmounted(() => {
@@ -432,6 +495,8 @@ onUnmounted(() => {
     if (unlistenConfig) unlistenConfig(); //移除配置变更事件监听
     if (unlistenMove) unlistenMove();  // <-- 添加这一行！
     if (unlistenAvoidMouse) unlistenAvoidMouse(); //移除避免鼠标事件监听
+    // ✅ 确保有这一行：清理自动清除定时器
+    stopClearTimer();
 });
 </script>
 
@@ -514,7 +579,7 @@ onUnmounted(() => {
 }
 
 .list-bottom-leave-active {
-    position: absolute;
+    position: relative;
 }
 
 /* 从上往下布局的动画 (top 模式) */
@@ -535,6 +600,6 @@ onUnmounted(() => {
 }
 
 .list-top-leave-active {
-    position: absolute;
+    position: relative;
 }
 </style>
