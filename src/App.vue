@@ -10,11 +10,14 @@ import { LazyStore } from '@tauri-apps/plugin-store'; // 引入 Store
 
 import HomeView from './views/Home.vue';
 import KeyboardPetView from './views/KeyboardPet.vue';//【页面】键盘桌宠
+import DockView from './views/Dock.vue'; //【页面】启动台设置
+import DockWindow from './dock/DockWindow.vue'; //【窗口】启动台
 
 const currentView = ref('Home');  // 定义当前显示的页面，默认是 'Home'
 // 定义菜单项
 const menuItems = [
   { id: 'Home', label: '主页', icon: 'icon-[lucide--house]' },
+  { id: 'Dock', label: '启动台', icon: 'icon-[lucide--layout-grid]' },
   { id: 'KeyboardPet', label: '键盘桌宠', icon: 'icon-[lucide--keyboard]' },
   { id: 'Screenshot', label: '截图', icon: 'icon-[lucide--focus]' },
   { id: 'Translate', label: '翻译', icon: 'icon-[lucide--book-type]' },
@@ -26,12 +29,18 @@ useDark();
 
 // 定义是否显示键盘可视化窗口
 const isKeyVisualizer = ref(false);
+// 定义是否为 Dock 窗口
+const isDockWindow = ref(false);
 
 onMounted(async () => {
   const win = getCurrentWindow(); // 获取当前窗口实例
   if (win.label === 'key_visualizer') {
     isKeyVisualizer.value = true;
     return; // 如果是副窗口，就只做副窗口该做的事
+  }
+  if (win.label === 'dock') {
+    isDockWindow.value = true;
+    return; // 如果是 Dock 窗口，只渲染 DockWindow
   }
 
   // 初始化 Store
@@ -84,6 +93,7 @@ onMounted(async () => {
 <template>
 
   <KeyVisualizerWindow v-if="isKeyVisualizer" />
+  <DockWindow v-else-if="isDockWindow" />
 
   <!-- 整个应用容器：全屏，flex 布局 -->
   <div v-else class="h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col">
@@ -128,6 +138,7 @@ onMounted(async () => {
           <!-- 根据 currentView 显示不同组件 -->
           <div :key="currentView" class="h-full w-full">
             <HomeView v-if="currentView === 'Home'" />
+            <DockView v-else-if="currentView === 'Dock'" />
             <KeyboardPetView v-else-if="currentView === 'KeyboardPet'" />
 
             <!-- 还没做的功能先显示这个 -->

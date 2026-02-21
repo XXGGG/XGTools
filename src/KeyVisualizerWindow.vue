@@ -25,6 +25,7 @@ let unlisten: (() => void) | null = null;// 事件监听取消函数
 let unlistenConfig: (() => void) | null = null; // 配置监听取消函数
 let unlistenMove: (() => void) | null = null;
 let unlistenAvoidMouse: (() => void) | null = null; // 避免鼠标监听取消函数
+let unlistenAutoClear: (() => void) | null = null; // 自动清除监听取消函数
 let clearTimer: ReturnType<typeof setInterval> | null = null;// 定时器引用（用于控制定时器的启动和停止）
 const isEditMode = ref(false);// 是否编辑模式
 const isAvoidMouse = ref(false);// 是否躲避鼠标
@@ -435,7 +436,7 @@ onMounted(async () => {
     console.log('自动清除功能状态:', isAutoClear.value);
 
     // ✅ 新增：监听自动清除配置变更
-    const unlistenAutoClear = await listen('toggle-auto-clear', async (event: any) => {
+    unlistenAutoClear = await listen('toggle-auto-clear', async (event: any) => {
         const enabled = event.payload;
         isAutoClear.value = enabled;
 
@@ -495,6 +496,7 @@ onUnmounted(() => {
     if (unlistenConfig) unlistenConfig(); //移除配置变更事件监听
     if (unlistenMove) unlistenMove();  // <-- 添加这一行！
     if (unlistenAvoidMouse) unlistenAvoidMouse(); //移除避免鼠标事件监听
+    if (unlistenAutoClear) unlistenAutoClear(); //移除自动清除事件监听
     // ✅ 确保有这一行：清理自动清除定时器
     stopClearTimer();
 });

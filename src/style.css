@@ -119,6 +119,10 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* dock 窗口需要透明背景 */
+  body.dock-window {
+    background: transparent !important;
+  }
   html,
   body,
   #app {
