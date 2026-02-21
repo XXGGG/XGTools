@@ -5,7 +5,7 @@
   "identifier": "com.tauri-app.xgtools",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:5173",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
@@ -24,7 +24,7 @@
       {
         "label": "key_visualizer",
         "title": "key_visualizer",
-        "url": "index.html", 
+        "url": "index.html",
         "width": 270,
         "height": 300,
         "decorations": false,
@@ -33,6 +33,16 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
+        "visible": false
+      },
+      {
+        "label": "dock",
+        "url": "index.html",
+        "maximizable": true,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
         "visible": false
       }
     ],

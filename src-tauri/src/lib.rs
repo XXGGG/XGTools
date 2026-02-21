@@ -1,56 +1,48 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
+mod dock_commands;
+
+#[cfg(windows)]
+mod icon_extractor;
+
+use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
-use std::thread; // 引入线程库，用于在后台运行输入监听
-use rdev::{listen, EventType}; // 引入 rdev 库
-use tauri::Emitter; // 记得引入这个，用于发送事件到前端
-// Emitter 用于发送事件到前端，如按键事件、鼠标事件等
+use std::thread;
+use rdev::{listen, EventType};
+use tauri::Emitter;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-// 定义发送给前端的数据结构
 #[derive(serde::Serialize, Clone)]
 struct InputPayload {
     event_type: String,
     key: String,
 }
 
-// 初始化监听器函数
 fn init_input_listener(app: tauri::AppHandle) {
     thread::spawn(move || {
-        // listen 会阻塞当前线程，所以必须放在 thread::spawn 里
         if let Err(error) = listen(move |event| {
             let payload = match event.event_type {
-                // KeyPress 是按键按下事件，我们监听它
                 EventType::KeyPress(key) => Some(InputPayload {
                     event_type: "KeyPress".to_string(),
-                    key: format!("{:?}", key), // 格式化为 KeyA, Num1 等
+                    key: format!("{:?}", key),
                 }),
-                // KeyRelease 是按键释放事件，我们也监听它
                 EventType::KeyRelease(key) => Some(InputPayload {
                     event_type: "KeyRelease".to_string(),
                     key: format!("{:?}", key),
                 }),
-                // 我们也可以监听鼠标，但为了性能，这里只演示按键
                 EventType::ButtonPress(btn) => Some(InputPayload {
                     event_type: "ButtonPress".to_string(),
                     key: format!("{:?}", btn),
                 }),
-                // ButtonRelease 是鼠标按钮释放事件，我们也监听它
                 EventType::ButtonRelease(btn) => Some(InputPayload {
                     event_type: "ButtonRelease".to_string(),
                     key: format!("{:?}", btn),
                 }),
                 _ => None,
             };
-            
+
             if let Some(p) = payload {
-                // 发送事件给所有窗口
                 let _ = app.emit("input-event", p);
             }
         }) {
@@ -64,57 +56,79 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .invoke_handler(tauri::generate_handler![
+            // Dock commands
+            dock_commands::get_apps,
+            dock_commands::save_apps,
+            dock_commands::launch_app,
+            dock_commands::extract_icon,
+            dock_commands::resolve_lnk,
+            dock_commands::get_apps_dir,
+            dock_commands::scan_start_menu,
+            dock_commands::get_start_menu_cache,
+            dock_commands::extract_start_menu_icon,
+            dock_commands::save_start_menu_cache,
+            dock_commands::get_settings,
+            dock_commands::save_settings,
+            dock_commands::update_shortcut,
+            dock_commands::refresh_all_icons,
+            dock_commands::update_acrylic,
+            dock_commands::save_custom_icon,
+            dock_commands::get_custom_icons,
+            dock_commands::delete_custom_icon,
+            dock_commands::rename_custom_icon,
+        ])
         .setup(|app| {
-            // 初始化输入监听器
+            // --- Input listener (for key visualizer) ---
             init_input_listener(app.handle().clone());
 
-            // 1. 创建菜单项 (使用 Builder 模式)
-            // "quit": ID 为 quit，显示文本 "退出"
-            let quit_i = MenuItemBuilder::with_id("quit", "退出").build(app)?;
-            // "show": ID 为 show，显示文本 "显示主界面"
-            let show_i = MenuItemBuilder::with_id("show", "显示主界面").build(app)?;
+            // --- System Tray ---
+            // 原生菜单作为右键菜单项，前端监听菜单事件
+            let show_main = MenuItem::with_id(app, "show", "打开主界面", true, None::<&str>)?;
+            let show_dock = MenuItem::with_id(app, "show_dock", "显示启动台", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_main, &show_dock, &quit])?;
 
-            // 2. 构建菜单
-            let menu = MenuBuilder::new(app)
-                .items(&[&show_i, &quit_i]) // 注意顺序：显示在上面，退出在下面
-                .build()?;
-
-            // 3. 构建托盘图标
-            let _tray = TrayIconBuilder::new()
-                // 设置图标 (这里复用应用的主图标)
+            TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                // 绑定菜单
+                .tooltip("XGTools")
                 .menu(&menu)
-                // 允许左键点击显示菜单 (Windows 上习惯左键单击显示应用，右键显示菜单，这里可以根据需求调整)
                 .show_menu_on_left_click(false)
-                // 4. 处理菜单点击事件 (右键菜单项被点击)
                 .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
+                    match event.id.as_ref() {
                         "quit" => {
-                            app.exit(0); // 彻底退出程序
+                            app.exit(0);
                         }
                         "show" => {
-                            // 找到主窗口并显示、置顶
                             if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
                         }
+                        "show_dock" => {
+                            let _ = app.emit("toggle-dock", true);
+                            if let Some(win) = app.get_webview_window("dock") {
+                                let _ = win.maximize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
                         _ => {}
                     }
                 })
-                // 5. 处理托盘图标本身的点击事件
                 .on_tray_icon_event(|tray, event| {
-                    // 监听左键单击 (Left Click) 且是鼠标抬起 (Up) 的时刻
+                    // 左键：打开主窗口
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
                     } = event
                     {
-                        // 左键单击托盘图标：显示主窗口
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
@@ -122,16 +136,88 @@ pub fn run() {
                         }
                     }
                 })
-                .build(app)?; // 完成构建
+                .build(app)?;
+
+            // --- Ensure app data directory exists (for Dock) ---
+            let app_dir = app.path().app_data_dir()?;
+            if !app_dir.exists() {
+                std::fs::create_dir_all(&app_dir)?;
+            }
+            let icons_dir = app_dir.join("icons");
+            if !icons_dir.exists() {
+                std::fs::create_dir_all(&icons_dir)?;
+            }
+            let apps_file = app_dir.join("apps.json");
+            if !apps_file.exists() {
+                std::fs::write(&apps_file, "[]")?;
+            }
+
+            // --- Read dock settings ---
+            let dock_settings = {
+                let settings_file = app_dir.join("settings.json");
+                if settings_file.exists() {
+                    std::fs::read_to_string(&settings_file)
+                        .ok()
+                        .and_then(|content| serde_json::from_str::<dock_commands::Settings>(&content).ok())
+                } else {
+                    None
+                }
+            };
+            let settings_ref = dock_settings.as_ref();
+
+            // --- Apply window vibrancy effect on dock window ---
+            #[cfg(windows)]
+            if let Some(win) = app.get_webview_window("dock") {
+                use window_vibrancy::apply_acrylic;
+                let (r, g, b, a) = settings_ref
+                    .map(|s| (s.acrylic_r, s.acrylic_g, s.acrylic_b, s.acrylic_a))
+                    .unwrap_or((0, 0, 0, 180));
+                let _ = apply_acrylic(&win, Some((r, g, b, a)));
+            }
+
+            // --- Global Shortcut for Dock ---
+            let shortcut_str = settings_ref
+                .map(|s| s.shortcut.clone())
+                .unwrap_or_else(|| "Ctrl+Alt+D".to_string());
+
+            let shortcut = dock_commands::parse_shortcut_str(&shortcut_str)
+                .unwrap_or_else(|_| {
+                    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+                    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyD)
+                });
+
+            app.handle().plugin(
+                tauri_plugin_global_shortcut::Builder::new()
+                    .with_handler(move |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            #[cfg(windows)]
+                            {
+                                use winapi::um::winuser::{keybd_event, KEYEVENTF_KEYUP, VK_MENU, VK_CONTROL};
+                                unsafe {
+                                    keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
+                                    keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
+                                }
+                            }
+                            if let Some(win) = app.get_webview_window("dock") {
+                                let _ = win.maximize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                                let _ = win.eval("window.__toggleDock && window.__toggleDock()");
+                            }
+                        }
+                    })
+                    .build(),
+            )?;
+            app.global_shortcut().register(shortcut)?;
 
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // 1. 阻止默认的关闭行为
-                api.prevent_close();
-                // 2. 隐藏窗口 (视觉效果等同于最小化到托盘)
-                window.hide().unwrap();
+                if window.label() == "main" {
+                    api.prevent_close();
+                    window.hide().unwrap();
+                }
             }
         })
         .run(tauri::generate_context!())
