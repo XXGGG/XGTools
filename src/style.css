@@ -123,6 +123,10 @@
   body.dock-window {
     background: transparent !important;
   }
+  /* 截图窗口需要透明背景 */
+  body.screenshot-window {
+    background: transparent !important;
+  }
   html,
   body,
   #app {

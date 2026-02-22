@@ -44,6 +44,21 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false
+      },
+      {
+        "label": "screenshot",
+        "url": "index.html",
+        "decorations": false,
+        "shadow": false,
+        "transparent": true,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "width": 1,
+        "height": 1,
+        "visible": false,
+        "focus": false,
+        "backgroundThrottling": "disabled"
       }
     ],
     "security": {
@@ -59,6 +74,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "resources/ocr/*": "resources/ocr/"
+    }
   }
 }

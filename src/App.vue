@@ -12,6 +12,8 @@ import HomeView from './views/Home.vue';
 import KeyboardPetView from './views/KeyboardPet.vue';//【页面】键盘桌宠
 import DockView from './views/Dock.vue'; //【页面】启动台设置
 import DockWindow from './dock/DockWindow.vue'; //【窗口】启动台
+import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'; //【窗口】截图
+import PinWindow from './screenshot/PinWindow.vue'; //【窗口】钉图
 
 const currentView = ref('Home');  // 定义当前显示的页面，默认是 'Home'
 // 定义菜单项
@@ -31,6 +33,10 @@ useDark();
 const isKeyVisualizer = ref(false);
 // 定义是否为 Dock 窗口
 const isDockWindow = ref(false);
+// 定义是否为截图窗口
+const isScreenshotWindow = ref(false);
+// 定义是否为钉图窗口
+const isPinWindow = ref(false);
 
 onMounted(async () => {
   const win = getCurrentWindow(); // 获取当前窗口实例
@@ -40,7 +46,15 @@ onMounted(async () => {
   }
   if (win.label === 'dock') {
     isDockWindow.value = true;
-    return; // 如果是 Dock 窗口，只渲染 DockWindow
+    return;
+  }
+  if (win.label === 'screenshot') {
+    isScreenshotWindow.value = true;
+    return;
+  }
+  if (win.label.startsWith('pin_')) {
+    isPinWindow.value = true;
+    return;
   }
 
   // 初始化 Store
@@ -87,6 +101,7 @@ onMounted(async () => {
   } catch (err) {
     console.error('Failed to restore Key Visualizer state:', err);
   }
+
 });
 </script>
 
@@ -94,6 +109,8 @@ onMounted(async () => {
 
   <KeyVisualizerWindow v-if="isKeyVisualizer" />
   <DockWindow v-else-if="isDockWindow" />
+  <ScreenshotWindow v-else-if="isScreenshotWindow" />
+  <PinWindow v-else-if="isPinWindow" />
 
   <!-- 整个应用容器：全屏，flex 布局 -->
   <div v-else class="h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col">

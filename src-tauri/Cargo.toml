@@ -31,14 +31,25 @@ tauri-plugin-store = "2"
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-process = "2.3.1"
+arboard = "3.4"
+image = "0.25"
+tokio = { version = "1", features = ["rt", "macros"] }
+xcap = "0.0.14"
+dirs = "6"
+paddle-ocr-rs = "0.6"
+ort = { version = "=2.0.0-rc.10", default-features = false }
+num_cpus = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["shellapi", "winuser", "wingdi", "combaseapi", "objbase", "commoncontrols", "shobjidl_core", "libloaderapi", "unknwnbase", "minwinbase", "wtypesbase", "objidl"] }
-image = "0.25"
 lnk = "0.5"
 window-vibrancy = "0.5"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+uiautomation = "0.24"
 
-
+# 所有第三方包开优化（参考 Snow-Shot），否则 ONNX Runtime 在 dev 模式下极慢
+[profile.dev.package."*"]
+opt-level = 2
