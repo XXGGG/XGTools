@@ -1,6 +1,59 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
+
+// ─── 全局快捷键绑定 ──────────────────────────────────
+
+/// 运行时快捷键绑定，handler 通过 Arc<Mutex<>> 动态读取
+#[derive(Clone)]
+pub struct ShortcutBindings {
+    pub dock: Option<tauri_plugin_global_shortcut::Shortcut>,
+    pub screenshot: Option<tauri_plugin_global_shortcut::Shortcut>,
+    pub screenshot_translate: Option<tauri_plugin_global_shortcut::Shortcut>,
+}
+
+#[derive(Deserialize)]
+pub struct AllShortcuts {
+    pub dock_shortcut: Option<String>,
+    pub screenshot_shortcut: Option<String>,
+    pub screenshot_translate_shortcut: Option<String>,
+}
+
+/// 统一更新所有快捷键（原子操作：先全部注销再注册）
+#[tauri::command]
+pub fn update_all_shortcuts(
+    app: tauri::AppHandle,
+    shortcuts: AllShortcuts,
+    bindings: tauri::State<'_, Arc<Mutex<ShortcutBindings>>>,
+) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| format!("Failed to unregister shortcuts: {}", e))?;
+
+    let dock = shortcuts.dock_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
+    let screenshot = shortcuts.screenshot_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
+    let ss_translate = shortcuts.screenshot_translate_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
+
+    if let Some(sc) = dock {
+        app.global_shortcut().register(sc).map_err(|e| format!("注册 Dock 快捷键失败: {}", e))?;
+    }
+    if let Some(sc) = screenshot {
+        app.global_shortcut().register(sc).map_err(|e| format!("注册截图快捷键失败: {}", e))?;
+    }
+    if let Some(sc) = ss_translate {
+        app.global_shortcut().register(sc).map_err(|e| format!("注册截图翻译快捷键失败: {}", e))?;
+    }
+
+    let mut b = bindings.lock().unwrap();
+    b.dock = dock;
+    b.screenshot = screenshot;
+    b.screenshot_translate = ss_translate;
+
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppEntry {

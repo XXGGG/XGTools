@@ -3,12 +3,14 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { readFile, readTextFile } from '@tauri-apps/plugin-fs'
-import { unregisterAll } from '@tauri-apps/plugin-global-shortcut'
+import { LazyStore } from '@tauri-apps/plugin-store'
 import { VueDraggable } from 'vue-draggable-plus'
 import { Cropper } from 'vue-advanced-cropper'
 import 'vue-advanced-cropper/dist/style.css'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
+import { Slider } from '@/components/ui/slider'
+import { Input } from '@/components/ui/input'
 import type { AppEntry, CustomIcon } from '../types'
 
 interface StartMenuEntry {
@@ -32,6 +34,8 @@ interface Settings {
   padding_horizontal: number
   icon_glow: number
 }
+
+const screenshotStore = new LazyStore('settings.json')
 
 // --- State ---
 const currentTab = ref<'general' | 'apps' | 'icons'>('general')
@@ -165,23 +169,33 @@ watch([showNames, iconSize, hoverScale, iconGlow, paddingTop, paddingHorizontal]
   saveSettings()
 })
 
-watch(dockEnabled, async (val) => {
-  if (!settingsLoaded.value) return
+async function syncAllShortcuts() {
   try {
-    if (val) {
-      await invoke('update_shortcut', { shortcutStr: shortcutKey.value })
-    } else {
-      try { await unregisterAll() } catch (_) { /* ignore */ }
-    }
-    await saveSettings()
+    await screenshotStore.init()
+    const ssEnabled = (await screenshotStore.get<boolean>('screenshot_enabled')) ?? true
+    const ssShortcut = (await screenshotStore.get<string>('screenshot_shortcut')) ?? 'Ctrl+Alt+A'
+    const stEnabled = (await screenshotStore.get<boolean>('screenshot_translate_enabled')) ?? false
+    const stShortcut = (await screenshotStore.get<string>('screenshot_translate_shortcut')) ?? ''
+    await invoke('update_all_shortcuts', {
+      shortcuts: {
+        dock_shortcut: dockEnabled.value ? shortcutKey.value : null,
+        screenshot_shortcut: ssEnabled ? ssShortcut : null,
+        screenshot_translate_shortcut: stEnabled && stShortcut ? stShortcut : null,
+      }
+    })
   } catch (e) {
-    console.error('Failed to toggle dock:', e)
+    console.error('Failed to sync shortcuts:', e)
   }
+}
+
+watch(dockEnabled, async () => {
+  if (!settingsLoaded.value) return
+  await saveSettings()
+  await syncAllShortcuts()
 })
 
 // Shortcut recorder
-async function startRecordingShortcut() {
-  try { await unregisterAll() } catch (_) { /* ignore */ }
+function startRecordingShortcut() {
   isRecordingShortcut.value = true
   recordingKeys.value = ''
 }
@@ -224,21 +238,21 @@ function handleShortcutKeydown(e: KeyboardEvent) {
 async function applyShortcut(shortcutStr: string) {
   const oldShortcut = shortcutKey.value
   try {
-    await invoke('update_shortcut', { shortcutStr })
     shortcutKey.value = shortcutStr
     await saveSettings()
+    await syncAllShortcuts()
   } catch (e) {
     console.error('Failed to update shortcut:', e)
     shortcutKey.value = oldShortcut
     recordingKeys.value = ''
-    try { await invoke('update_shortcut', { shortcutStr: oldShortcut }) } catch (_) { /* ignore */ }
+    await saveSettings()
+    await syncAllShortcuts()
   }
 }
 
-async function cancelRecording() {
+function cancelRecording() {
   isRecordingShortcut.value = false
   recordingKeys.value = ''
-  try { await invoke('update_shortcut', { shortcutStr: shortcutKey.value }) } catch (_) { /* ignore */ }
 }
 
 async function loadApps() {
@@ -623,7 +637,7 @@ async function saveIconName(id: string) {
             <p class="text-xs text-muted-foreground">{{ iconSize }}px</p>
           </div>
         </div>
-        <input type="range" :min="64" :max="128" :step="4" v-model.number="iconSize" class="w-36 accent-primary" />
+        <Slider :model-value="[iconSize]" @update:model-value="(v) => iconSize = v![0]" :min="64" :max="128" :step="4" class="w-36" />
       </div>
 
       <!-- Hover Scale -->
@@ -637,7 +651,7 @@ async function saveIconName(id: string) {
             <p class="text-xs text-muted-foreground">{{ hoverScale.toFixed(2) }}x</p>
           </div>
         </div>
-        <input type="range" :min="1" :max="1.5" :step="0.05" v-model.number="hoverScale" class="w-36 accent-primary" />
+        <Slider :model-value="[hoverScale]" @update:model-value="(v) => hoverScale = v![0]" :min="1" :max="1.5" :step="0.05" class="w-36" />
       </div>
 
       <!-- Icon Glow -->
@@ -651,7 +665,7 @@ async function saveIconName(id: string) {
             <p class="text-xs text-muted-foreground">{{ iconGlow === 0 ? '关闭' : iconGlow + 'px' }}</p>
           </div>
         </div>
-        <input type="range" :min="0" :max="20" :step="1" v-model.number="iconGlow" class="w-36 accent-primary" />
+        <Slider :model-value="[iconGlow]" @update:model-value="(v) => iconGlow = v![0]" :min="0" :max="20" :step="1" class="w-36" />
       </div>
 
       <!-- Padding Top -->
@@ -665,7 +679,7 @@ async function saveIconName(id: string) {
             <p class="text-xs text-muted-foreground">{{ paddingTop }}px</p>
           </div>
         </div>
-        <input type="range" :min="64" :max="128" :step="4" v-model.number="paddingTop" class="w-36 accent-primary" />
+        <Slider :model-value="[paddingTop]" @update:model-value="(v) => paddingTop = v![0]" :min="64" :max="128" :step="4" class="w-36" />
       </div>
 
       <!-- Padding Horizontal -->
@@ -679,7 +693,7 @@ async function saveIconName(id: string) {
             <p class="text-xs text-muted-foreground">{{ paddingHorizontal }}px</p>
           </div>
         </div>
-        <input type="range" :min="64" :max="128" :step="4" v-model.number="paddingHorizontal" class="w-36 accent-primary" />
+        <Slider :model-value="[paddingHorizontal]" @update:model-value="(v) => paddingHorizontal = v![0]" :min="64" :max="128" :step="4" class="w-36" />
       </div>
 
 
@@ -806,11 +820,11 @@ async function saveIconName(id: string) {
           />
         </div>
         <div class="flex items-center gap-2">
-          <input
+          <Input
             v-model="cropIconName"
             type="text"
             placeholder="图标名称"
-            class="flex-1 h-9 px-3 rounded-md border bg-transparent text-sm outline-none focus:border-ring transition-colors"
+            class="flex-1"
           />
           <Button @click="confirmCrop" :disabled="isSavingIcon">
             {{ isSavingIcon ? '保存中...' : '确认裁剪' }}
@@ -838,10 +852,10 @@ async function saveIconName(id: string) {
             </div>
             <!-- Editable name -->
             <div v-if="editingIconId === icon.id" class="w-full">
-              <input
+              <Input
                 v-model="editingIconName"
                 type="text"
-                class="w-full h-6 px-1 text-[10px] text-center rounded border bg-transparent outline-none focus:border-ring transition-colors"
+                class="h-6 px-1 text-[10px] text-center rounded"
                 @keydown.enter="saveIconName(icon.id)"
                 @blur="saveIconName(icon.id)"
                 @keydown.escape="editingIconId = null"
@@ -888,11 +902,10 @@ async function saveIconName(id: string) {
               <span v-else class="icon-[lucide--box] w-8 h-8 text-muted-foreground" />
             </div>
             <div class="flex-1 space-y-2">
-              <input
+              <Input
                 v-model="editName"
                 type="text"
                 placeholder="应用名称"
-                class="w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none focus:border-ring transition-colors"
               />
               <div class="flex gap-1.5">
                 <Button variant="outline" size="sm" @click="showIconPicker = !showIconPicker">
@@ -965,11 +978,9 @@ async function saveIconName(id: string) {
 
           <!-- Form -->
           <div class="flex flex-col gap-2.5">
-            <input v-model="newName" type="text" placeholder="名称"
-              class="h-9 px-3 rounded-md border bg-transparent text-sm outline-none focus:border-ring transition-colors" />
+            <Input v-model="newName" type="text" placeholder="名称" />
             <div class="flex gap-2">
-              <input v-model="newPath" type="text" placeholder="可执行文件路径"
-                class="flex-1 h-9 px-3 rounded-md border bg-transparent text-sm outline-none focus:border-ring transition-colors font-mono" />
+              <Input v-model="newPath" type="text" placeholder="可执行文件路径" class="flex-1 font-mono" />
               <Button variant="outline" size="sm" @click="handleBrowse">浏览</Button>
             </div>
             <div class="flex justify-end mt-1">
@@ -1022,12 +1033,12 @@ async function saveIconName(id: string) {
                 <span v-if="tab === 'all'" class="ml-1 opacity-60">{{ startMenuApps.length }}</span>
               </button>
             </div>
-            <input
+            <Input
               v-if="startMenuApps.length > 0"
               v-model="scanSearch"
               type="text"
               placeholder="搜索..."
-              class="w-full h-8 px-3 rounded-md border bg-transparent text-xs outline-none focus:border-ring transition-colors"
+              class="h-8 text-xs"
             />
           </div>
 

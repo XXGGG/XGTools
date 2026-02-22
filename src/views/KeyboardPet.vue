@@ -4,6 +4,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit } from '@tauri-apps/api/event';
 import { LazyStore } from '@tauri-apps/plugin-store';
 import { LogicalSize } from '@tauri-apps/api/window';
+import { Button } from '@/components/ui/button';
 
 const isKeyVisOpen = ref(false); // 是否打开按键可视化窗口
 const isEditMode = ref(false);  // 是否编辑模式
@@ -199,41 +200,41 @@ onUnmounted(() => {
             </div>
 
             <div class="flex items-center gap-2">
-                <!-- ✅ 新增：自动清除按钮 (在躲避按钮之前) -->
-                <button v-if="isKeyVisOpen" @click="toggleAutoClear" class="flex p-2 rounded-lg transition-colors"
+                <!-- 自动清除按钮 (在躲避按钮之前) -->
+                <Button v-if="isKeyVisOpen" variant="ghost" size="icon" @click="toggleAutoClear"
                     :class="isAutoClear
-                        ? 'bg-blue-500 text-white hover:bg-blue-600'
-                        : 'hover:bg-accent text-muted-foreground hover:text-foreground'" title="自动清除">
-                    <span class="icon-[lucide--eraser] w-6 h-6" />
-                </button>
+                        ? 'bg-blue-500 text-white hover:bg-blue-600 hover:text-white'
+                        : 'text-muted-foreground hover:text-foreground'" title="自动清除">
+                    <span class="icon-[lucide--eraser] w-5 h-5" />
+                </Button>
 
                 <!-- 躲避按钮 (仅开启时显示) -->
-                <button v-if="isKeyVisOpen" @click="toggleAvoidMouse" class="flex p-2 rounded-lg transition-colors"
-                    :class="isAvoidMouse ? 'bg-green-500 text-white hover:bg-green-600' : 'hover:bg-accent text-muted-foreground hover:text-foreground'"
+                <Button v-if="isKeyVisOpen" variant="ghost" size="icon" @click="toggleAvoidMouse"
+                    :class="isAvoidMouse ? 'bg-green-500 text-white hover:bg-green-600 hover:text-white' : 'text-muted-foreground hover:text-foreground'"
                     title="躲避鼠标">
-                    <span class="icon-[lucide--square-dashed-mouse-pointer] w-6 h-6" />
-                </button>
+                    <span class="icon-[lucide--square-dashed-mouse-pointer] w-5 h-5" />
+                </Button>
 
                 <!-- 重置位置按钮 (仅开启时显示) -->
-                <button v-if="isKeyVisOpen" @click="resetWindowPosition"
-                    class="flex p-2 rounded-lg transition-colors hover:bg-accent text-muted-foreground hover:text-foreground"
+                <Button v-if="isKeyVisOpen" variant="ghost" size="icon" @click="resetWindowPosition"
+                    class="text-muted-foreground hover:text-foreground"
                     title="重置位置">
-                    <span class="icon-[lucide--rotate-ccw] w-6 h-6" />
-                </button>
+                    <span class="icon-[lucide--rotate-ccw] w-5 h-5" />
+                </Button>
 
                 <!-- 移动/调整位置按钮 (仅开启时显示) -->
-                <button v-if="isKeyVisOpen" @click="toggleEditMode" class="flex p-2 rounded-lg transition-colors"
-                    :class="isEditMode ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'hover:bg-accent text-muted-foreground hover:text-foreground'"
+                <Button v-if="isKeyVisOpen" variant="ghost" size="icon" @click="toggleEditMode"
+                    :class="isEditMode ? 'bg-yellow-500 text-white hover:bg-yellow-600 hover:text-white' : 'text-muted-foreground hover:text-foreground'"
                     title="调整位置">
-                    <span class="icon-[lucide--move] w-6 h-6" />
-                </button>
+                    <span class="icon-[lucide--move] w-5 h-5" />
+                </Button>
 
                 <!-- 开关按钮 -->
-                <button @click="toggleKeyVis" class="flex p-2 rounded-lg transition-colors"
-                    :class="isKeyVisOpen ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-accent'"
+                <Button variant="ghost" size="icon" @click="toggleKeyVis"
+                    :class="isKeyVisOpen ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:text-foreground'"
                     :title="isKeyVisOpen ? '关闭显示' : '开启显示'">
-                    <span :class="isKeyVisOpen? 'icon-[lucide--eye]' : 'icon-[lucide--eye-off]'" class="w-6 h-6" />
-                </button>
+                    <span :class="isKeyVisOpen ? 'icon-[lucide--eye]' : 'icon-[lucide--eye-off]'" class="w-5 h-5" />
+                </Button>
             </div>
         </div>
 
@@ -249,10 +250,9 @@ onUnmounted(() => {
                     可爱的键盘桌宠，即将来袭。
                 </p>
             </div>
-            <button disabled
-                class="px-8 py-3 bg-muted text-muted-foreground rounded-full font-medium cursor-not-allowed">
+            <Button disabled variant="secondary" class="rounded-full px-8">
                 开发中...
-            </button>
+            </Button>
         </div>
     </div>
 </template>

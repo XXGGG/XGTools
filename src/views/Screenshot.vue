@@ -1,23 +1,32 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { Switch } from '@/components/ui/switch'
+import { Slider } from '@/components/ui/slider'
+import { Button } from '@/components/ui/button'
 
 const store = new LazyStore('settings.json')
 const settingsLoaded = ref(false)
 
 // --- State ---
 const screenshotEnabled = ref(true)
+const screenshotShortcut = ref('Ctrl+Alt+A')
 const autoBgShadow = ref(false)
 const bgColor = ref('transparent')
 const bgPadding = ref(32)
 const shadowBlur = ref(30)
 const cornerRadius = ref(8)
 
+// 快捷键录制
+const isRecordingShortcut = ref(false)
+const recordingKeys = ref('')
+
 // --- Load / Save ---
 async function loadSettings() {
   await store.init()
   screenshotEnabled.value = (await store.get<boolean>('screenshot_enabled')) ?? true
+  screenshotShortcut.value = (await store.get<string>('screenshot_shortcut')) ?? 'Ctrl+Alt+A'
   autoBgShadow.value = (await store.get<boolean>('screenshot_auto_bg_shadow')) ?? false
   bgColor.value = (await store.get<string>('screenshot_bg_color')) ?? 'transparent'
   bgPadding.value = (await store.get<number>('screenshot_bg_padding')) ?? 32
@@ -28,6 +37,7 @@ async function loadSettings() {
 
 async function saveSettings() {
   await store.set('screenshot_enabled', screenshotEnabled.value)
+  await store.set('screenshot_shortcut', screenshotShortcut.value)
   await store.set('screenshot_auto_bg_shadow', autoBgShadow.value)
   await store.set('screenshot_bg_color', bgColor.value)
   await store.set('screenshot_bg_padding', bgPadding.value)
@@ -40,8 +50,100 @@ onMounted(loadSettings)
 
 watch(
   [screenshotEnabled, autoBgShadow, bgColor, bgPadding, shadowBlur, cornerRadius],
-  () => { if (settingsLoaded.value) saveSettings() },
+  () => {
+    if (settingsLoaded.value) {
+      saveSettings()
+      // 开关变化时同步快捷键注册状态
+      if (settingsLoaded.value) syncAllShortcuts()
+    }
+  },
 )
+
+// --- 收集所有快捷键并统一更新 ---
+async function syncAllShortcuts() {
+  try {
+    const dockSettings = await invoke<{ shortcut: string }>('get_settings')
+    const stEnabled = (await store.get<boolean>('screenshot_translate_enabled')) ?? false
+    const stShortcut = (await store.get<string>('screenshot_translate_shortcut')) ?? ''
+    await invoke('update_all_shortcuts', {
+      shortcuts: {
+        dock_shortcut: dockSettings.shortcut,
+        screenshot_shortcut: screenshotEnabled.value ? screenshotShortcut.value : null,
+        screenshot_translate_shortcut: stEnabled && stShortcut ? stShortcut : null,
+      }
+    })
+  } catch (e) {
+    console.error('Failed to sync shortcuts:', e)
+  }
+}
+
+// --- 快捷键录制 ---
+function startRecordingShortcut() {
+  isRecordingShortcut.value = true
+  recordingKeys.value = ''
+}
+
+function handleShortcutKeydown(e: KeyboardEvent) {
+  if (!isRecordingShortcut.value) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.key === 'Escape') { cancelRecording(); return }
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return
+
+  const parts: string[] = []
+  if (e.ctrlKey) parts.push('Ctrl')
+  if (e.altKey) parts.push('Alt')
+  if (e.shiftKey) parts.push('Shift')
+  if (e.metaKey) parts.push('Super')
+  if (parts.length === 0) return
+
+  let key = e.key.toUpperCase()
+  if (e.code.startsWith('Key')) key = e.code.slice(3)
+  else if (e.code.startsWith('Digit')) key = e.code.slice(5)
+  else if (e.code.startsWith('F') && /^F\d+$/.test(e.code)) key = e.code
+  else {
+    const keyMap: Record<string, string> = {
+      ' ': 'Space', 'ENTER': 'Enter', 'TAB': 'Tab',
+      'BACKSPACE': 'Backspace', 'DELETE': 'Delete',
+      'ARROWUP': 'Up', 'ARROWDOWN': 'Down',
+      'ARROWLEFT': 'Left', 'ARROWRIGHT': 'Right',
+    }
+    key = keyMap[key] || key
+  }
+
+  parts.push(key)
+  const shortcutStr = parts.join('+')
+  recordingKeys.value = shortcutStr
+  isRecordingShortcut.value = false
+  applyShortcut(shortcutStr)
+}
+
+async function applyShortcut(shortcutStr: string) {
+  const oldShortcut = screenshotShortcut.value
+  try {
+    screenshotShortcut.value = shortcutStr
+    await saveSettings()
+    await syncAllShortcuts()
+  } catch (e) {
+    console.error('Failed to update shortcut:', e)
+    screenshotShortcut.value = oldShortcut
+    recordingKeys.value = ''
+    await saveSettings()
+    await syncAllShortcuts()
+  }
+}
+
+function cancelRecording() {
+  isRecordingShortcut.value = false
+  recordingKeys.value = ''
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleShortcutKeydown)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleShortcutKeydown)
+})
 
 // 背景颜色选项
 const bgColorPresets = [
@@ -66,7 +168,7 @@ const bgColorPresets = [
           </div>
           <div>
             <h3 class="font-medium">开启截图</h3>
-            <p class="text-xs text-muted-foreground">启用后可通过 Ctrl+Alt+A 截图</p>
+            <p class="text-xs text-muted-foreground">启用截图功能与全局快捷键</p>
           </div>
         </div>
         <Switch :model-value="screenshotEnabled" @update:model-value="screenshotEnabled = $event" />
@@ -74,6 +176,27 @@ const bgColorPresets = [
 
       <!-- 以下设置仅在开启时可用 -->
       <div :class="{ 'opacity-40 pointer-events-none select-none': !screenshotEnabled }" class="space-y-3 transition-opacity duration-300">
+
+        <!-- 截图快捷键 -->
+        <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+          <div class="flex items-center gap-3">
+            <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+              <span class="icon-[lucide--keyboard] w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="font-medium">截图快捷键</h3>
+              <p class="text-xs text-muted-foreground">快速启动截图</p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            class="min-w-[120px] font-mono"
+            @click="isRecordingShortcut ? cancelRecording() : startRecordingShortcut()"
+          >
+            {{ isRecordingShortcut ? '按下组合键...' : screenshotShortcut }}
+          </Button>
+        </div>
 
         <!-- 背景与投影 -->
         <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
@@ -133,7 +256,7 @@ const bgColorPresets = [
                 <p class="text-xs text-muted-foreground">{{ bgPadding }}px</p>
               </div>
             </div>
-            <input type="range" v-model.number="bgPadding" min="8" max="80" step="4" class="w-32 accent-primary" />
+            <Slider :model-value="[bgPadding]" @update:model-value="(v) => bgPadding = v![0]" :min="8" :max="80" :step="4" class="w-32" />
           </div>
 
           <!-- 圆角 -->
@@ -147,7 +270,7 @@ const bgColorPresets = [
                 <p class="text-xs text-muted-foreground">{{ cornerRadius }}px</p>
               </div>
             </div>
-            <input type="range" v-model.number="cornerRadius" min="0" max="24" step="2" class="w-32 accent-primary" />
+            <Slider :model-value="[cornerRadius]" @update:model-value="(v) => cornerRadius = v![0]" :min="0" :max="24" :step="2" class="w-32" />
           </div>
 
           <!-- 阴影强度 -->
@@ -161,7 +284,7 @@ const bgColorPresets = [
                 <p class="text-xs text-muted-foreground">{{ shadowBlur }}px</p>
               </div>
             </div>
-            <input type="range" v-model.number="shadowBlur" min="0" max="60" step="2" class="w-32 accent-primary" />
+            <Slider :model-value="[shadowBlur]" @update:model-value="(v) => shadowBlur = v![0]" :min="0" :max="60" :step="2" class="w-32" />
           </div>
 
         </div>
