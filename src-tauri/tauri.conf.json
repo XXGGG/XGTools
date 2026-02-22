@@ -47,6 +47,7 @@
       },
       {
         "label": "screenshot",
+        "title": "XGTools Screenshot Overlay",
         "url": "index.html",
         "decorations": false,
         "shadow": false,

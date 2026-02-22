@@ -11,14 +11,10 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::Manager;
 
 use std::thread;
-use std::sync::atomic::{AtomicBool, Ordering};
 use rdev::{listen, EventType};
 use tauri::Emitter;
 
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-
-/// 截图是否正在执行（防止快捷键重入）
-static SCREENSHOT_BUSY: AtomicBool = AtomicBool::new(false);
 
 #[derive(serde::Serialize, Clone)]
 struct InputPayload {
@@ -85,6 +81,7 @@ pub fn run() {
             ocr: std::sync::Mutex::new(None),
             initializing: std::sync::atomic::AtomicBool::new(false),
         })
+        .manage(window_detect::ComThread::spawn())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -114,6 +111,7 @@ pub fn run() {
             dock_commands::delete_custom_icon,
             dock_commands::rename_custom_icon,
             // Screenshot commands
+            screenshot_commands::get_cursor_position,
             screenshot_commands::capture_screen,
             screenshot_commands::get_monitor_info,
             screenshot_commands::copy_screenshot_to_clipboard,
@@ -122,15 +120,15 @@ pub fn run() {
             screenshot_commands::save_screenshot_to_path,
             screenshot_commands::save_screenshot_file,
             screenshot_commands::cleanup_temp_screenshot,
-            screenshot_commands::screenshot_done,
             // OCR commands
             ocr_commands::ocr_init,
             ocr_commands::ocr_detect,
             ocr_commands::ocr_release,
             // Window detection
+            window_detect::init_ui_elements,
+            window_detect::init_ui_elements_cache,
+            window_detect::get_element_from_position,
             window_detect::get_visible_windows,
-            window_detect::scan_ui_elements,
-            window_detect::get_element_at_point,
         ])
         .setup(|app| {
             // --- Input listener (for key visualizer) ---
@@ -139,8 +137,9 @@ pub fn run() {
             // --- System Tray ---
             let show_main = MenuItem::with_id(app, "show", "打开主界面", true, None::<&str>)?;
             let show_dock = MenuItem::with_id(app, "show_dock", "显示启动台", true, None::<&str>)?;
+            let force_close_screenshot = MenuItem::with_id(app, "force_close_screenshot", "强制结束截图", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_main, &show_dock, &quit])?;
+            let menu = Menu::with_items(app, &[&force_close_screenshot, &show_main, &show_dock, &quit])?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -165,6 +164,17 @@ pub fn run() {
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }
+                        }
+                        "force_close_screenshot" => {
+                            // 强制关闭截图窗口
+                            if let Some(win) = app.get_webview_window("screenshot") {
+                                use tauri::PhysicalPosition;
+                                let _ = win.set_always_on_top(false);
+                                let _ = win.set_position(PhysicalPosition::new(-10000i32, -10000i32));
+                                let _ = win.hide();
+                            }
+                            // 通知前端重置状态
+                            let _ = app.emit("force-cancel-screenshot", ());
                         }
                         _ => {}
                     }
@@ -265,25 +275,9 @@ pub fn run() {
                         }
 
                         if shortcut == &screenshot_shortcut_clone {
-                            // 仿 Snow-Shot: AtomicBool 防重入
-                            if SCREENSHOT_BUSY.compare_exchange(
-                                false, true, Ordering::SeqCst, Ordering::SeqCst
-                            ).is_err() {
-                                return;
-                            }
-
-                            if let Some(win) = app.get_webview_window("screenshot") {
-                                use tauri::PhysicalPosition;
-                                let _ = win.set_position(PhysicalPosition::new(-10000i32, -10000i32));
-                                let _ = win.show();
-                                let app_handle = app.clone();
-                                std::thread::spawn(move || {
-                                    std::thread::sleep(std::time::Duration::from_millis(50));
-                                    let _ = app_handle.emit("execute-screenshot", ());
-                                });
-                            } else {
-                                SCREENSHOT_BUSY.store(false, Ordering::SeqCst);
-                            }
+                            // 仿 Snow-Shot：快捷键回调只负责 emit 事件
+                            // 防重入由前端 capturing flag 控制
+                            let _ = app.emit("execute-screenshot", ());
                         } else {
                             // Dock 快捷键
                             if let Some(win) = app.get_webview_window("dock") {

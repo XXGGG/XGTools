@@ -9,6 +9,25 @@ pub struct MonitorInfo {
     pub height: u32,
 }
 
+/// 获取当前鼠标绝对坐标
+#[tauri::command]
+pub fn get_cursor_position() -> Result<(i32, i32), String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+        use windows::Win32::Foundation::POINT;
+        let mut pt = POINT { x: 0, y: 0 };
+        unsafe {
+            GetCursorPos(&mut pt).map_err(|e| format!("GetCursorPos failed: {}", e))?;
+        }
+        Ok((pt.x, pt.y))
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Not supported on this platform".to_string())
+    }
+}
+
 /// 截取主显示器，返回 RGBA 原始像素 + 头部24字节(含显示器信息)
 /// 格式: [img_w:u32][img_h:u32][mon_x:i32][mon_y:i32][mon_w:u32][mon_h:u32][rgba_pixels...]
 /// 一次 IPC 同时返回截图数据和显示器信息，省掉额外的 get_monitor_info 调用
@@ -112,20 +131,44 @@ pub async fn copy_screenshot_to_clipboard(
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
-/// 直接从原始像素数据复制到剪贴板
+/// 从 RGBA 像素数据复制到剪贴板（CF_DIB 格式，Windows 原生位图）
+/// 接收二进制 body：[width:u32_le][height:u32_le][rgba_pixels...]
 #[tauri::command]
 pub async fn copy_rgba_to_clipboard(
-    rgba_data: Vec<u8>,
-    width: u32,
-    height: u32,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<(), String> {
+    let raw = match request.body() {
+        tauri::ipc::InvokeBody::Raw(data) => data.clone(),
+        _ => return Err("Expected raw binary data".to_string()),
+    };
+
+    if raw.len() < 8 {
+        return Err("Data too short".to_string());
+    }
+
+    let width = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize;
+    let height = u32::from_le_bytes([raw[4], raw[5], raw[6], raw[7]]) as usize;
+    let rgba_data = &raw[8..];
+
+    let expected = width * height * 4;
+    if rgba_data.len() < expected {
+        return Err(format!(
+            "RGBA data size mismatch: expected {} ({}x{}x4), got {}",
+            expected, width, height, rgba_data.len()
+        ));
+    }
+
+    let rgba_data = rgba_data[..expected].to_vec();
+    let w = width;
+    let h = height;
+
     tokio::task::spawn_blocking(move || {
         let mut clipboard = arboard::Clipboard::new()
             .map_err(|e| format!("Failed to open clipboard: {}", e))?;
 
         let img_data = arboard::ImageData {
-            width: width as usize,
-            height: height as usize,
+            width: w,
+            height: h,
             bytes: rgba_data.into(),
         };
 
@@ -196,8 +239,3 @@ pub async fn cleanup_temp_screenshot(image_path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 通知截图流程结束，释放快捷键重入锁
-#[tauri::command]
-pub fn screenshot_done() {
-    crate::SCREENSHOT_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
-}

@@ -1,22 +1,25 @@
 import { invoke } from '@tauri-apps/api/core'
+import Flatbush from 'flatbush'
 
-export interface WindowRect {
-  x: number // 物理像素（屏幕坐标）
-  y: number
-  w: number
-  h: number
-}
+// ─── 类型定义（与 Rust 端一致，min/max 格式） ──────────
 
-/** 后端返回的元素矩形（物理像素） */
+/** 后端返回的元素矩形（物理像素，屏幕坐标） */
 export interface ElementRect {
-  x: number
-  y: number
-  w: number
-  h: number
+  min_x: number
+  min_y: number
+  max_x: number
+  max_y: number
 }
 
+/** 后端返回的窗口元素 */
+export interface WindowElement {
+  element_rect: ElementRect
+  window_id: number
+}
+
+/** 显示用矩形（CSS 像素，相对截图窗口） */
 export interface SnapRect {
-  x: number // CSS 像素（相对截图窗口）
+  x: number
   y: number
   w: number
   h: number
@@ -28,17 +31,14 @@ function rectsEqual(a: SnapRect | null, b: SnapRect | null): boolean {
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
 }
 
-/**
- * 窗口吸附管理器
- *
- * 架构：
- * - 截图前调用 scan_ui_elements() 预扫描所有窗口的 UI 元素树到 Rust 缓存
- * - 截图期间 get_element_at_point() 从缓存查询（纯内存，几乎零延迟）
- * - 不再有截图窗口遮挡 element_from_point 的问题
- */
+// ─── WindowSnapManager ────────────────────────────────
+
 export class WindowSnapManager {
-  /** 所有可见窗口列表（物理像素坐标，z-order 排序） */
-  private windows: WindowRect[] = []
+  /** Flatbush RTree（窗口级空间索引） */
+  private rTree: Flatbush | undefined
+  /** 窗口元素列表（与 RTree 索引对应） */
+  private windowElements: ElementRect[] = []
+
   /** 缩放因子 */
   private scaleFactor = 1
   /** 显示器偏移（物理像素） */
@@ -48,6 +48,9 @@ export class WindowSnapManager {
   private monitorW = 0
   private monitorH = 0
 
+  /** Flatbush 就绪（允许窗口级查询） */
+  private initReady = false
+
   /** 当前吸附的目标矩形（CSS 像素），null 表示无吸附 */
   snapRect: SnapRect | null = null
 
@@ -56,32 +59,26 @@ export class WindowSnapManager {
   private animStart: SnapRect | null = null
   private animTarget: SnapRect | null = null
   private animStartTime = 0
-  private readonly ANIM_DURATION = 100 // ms
+  private readonly ANIM_DURATION = 100
 
   /** 元素层级列表（CSS 像素）：[0]=最深子元素, [last]=根窗口 */
   private elementLevels: SnapRect[] = []
-  /** 当前选中的层级索引（滚轮切换，跨查询保持） */
+  /** 当前选中的层级索引 */
   private currentLevel = 0
 
   /** 异步查询状态 */
   private queryRunning = false
   private pendingQuery: { cssX: number; cssY: number } | null = null
+  /** 上次查询的鼠标位置（用于检测鼠标是否移动了，重置 level） */
+  private lastQueryPos: { cssX: number; cssY: number } | null = null
 
   /** 异步结果回调 */
   onAsyncUpdate?: () => void
 
-  /** 预扫描 UI 元素树（必须在截图窗口显示之前调用！） */
-  async scanElements() {
-    try {
-      const count = await invoke<number>('scan_ui_elements')
-      console.log(`[WindowSnap] Scanned ${count} UI elements`)
-    } catch (e) {
-      console.error('[WindowSnap] scan_ui_elements failed:', e)
-    }
-  }
-
-  /** 从 Rust 后端获取可见窗口列表 */
-  async fetchWindows(
+  /**
+   * 初始化：获取窗口列表构建 Flatbush + 后台初始化 UIElements
+   */
+  async init(
     scaleFactor: number,
     monitorX: number,
     monitorY: number,
@@ -93,35 +90,57 @@ export class WindowSnapManager {
     this.monitorY = monitorY
     this.monitorW = monitorW
     this.monitorH = monitorH
+
+    console.warn(`[WindowSnap] init: sf=${scaleFactor}, mon=(${monitorX},${monitorY}), size=(${monitorW}x${monitorH})`)
+
+    // 1. 获取窗口列表（独立于 UIElements，不走 COM thread）
+    let windowElements: WindowElement[]
     try {
-      this.windows = await invoke<WindowRect[]>('get_visible_windows')
+      windowElements = await invoke<WindowElement[]>('get_visible_windows')
+      console.warn(`[WindowSnap] got ${windowElements.length} windows`)
     } catch (e) {
-      console.error('[WindowSnap] Failed to fetch windows:', e)
-      this.windows = []
+      console.error('[WindowSnap] get_visible_windows FAILED:', e)
+      return
     }
+
+    // 2. 构建 Flatbush RTree
+    this.windowElements = []
+    windowElements.forEach((we) => {
+      this.windowElements.push(we.element_rect)
+    })
+    if (this.windowElements.length > 0) {
+      this.rTree = new Flatbush(this.windowElements.length)
+      this.windowElements.forEach((r) => {
+        this.rTree!.add(r.min_x, r.min_y, r.max_x, r.max_y)
+      })
+      this.rTree.finish()
+    }
+
+    // 3. Flatbush 就绪 → 立即允许窗口级查询
+    this.initReady = true
+    console.warn(`[WindowSnap] READY: ${this.windowElements.length} windows in Flatbush`)
+
+    // 深度检测已禁用（透明窗口下 UIAutomation 会穿透到被遮挡窗口）
+    // 只使用 Flatbush 窗口级吸附
   }
 
-  /** 命中检测：找到包含鼠标点(物理像素)的最上层窗口，返回物理像素坐标 */
-  private hitTestWindow(physX: number, physY: number): WindowRect | null {
-    for (const w of this.windows) {
-      if (
-        physX >= w.x &&
-        physX < w.x + w.w &&
-        physY >= w.y &&
-        physY < w.y + w.h
-      ) {
-        return w
-      }
-    }
-    return null
+  /**
+   * Flatbush 窗口级命中检测
+   * 返回命中的窗口索引列表（索引小 = z-order 高）
+   */
+  private hitTestWindow(physX: number, physY: number): number[] {
+    if (!this.rTree) return []
+    const indices = this.rTree.search(physX, physY, physX, physY)
+    indices.sort((a, b) => a - b)
+    return indices
   }
 
-  /** 物理像素 → CSS 像素，裁剪到显示器可视区域 */
-  private physToCSS(px: number, py: number, pw: number, ph: number): SnapRect | null {
-    let rx = (px - this.monitorX) / this.scaleFactor
-    let ry = (py - this.monitorY) / this.scaleFactor
-    let rw = pw / this.scaleFactor
-    let rh = ph / this.scaleFactor
+  /** 物理像素 ElementRect → CSS 像素 SnapRect，裁剪到可视区域 */
+  private physToCSS(r: ElementRect): SnapRect | null {
+    let rx = (r.min_x - this.monitorX) / this.scaleFactor
+    let ry = (r.min_y - this.monitorY) / this.scaleFactor
+    let rw = (r.max_x - r.min_x) / this.scaleFactor
+    let rh = (r.max_y - r.min_y) / this.scaleFactor
 
     const right = Math.min(rx + rw, this.monitorW)
     const bottom = Math.min(ry + rh, this.monitorH)
@@ -134,16 +153,26 @@ export class WindowSnapManager {
     return { x: rx, y: ry, w: rw, h: rh }
   }
 
+
   /** 鼠标移动时更新吸附目标 */
   update(cssX: number, cssY: number) {
+    if (!this.initReady) return
+    // 鼠标移动到新位置 → 重置层级到 0（z-order 最高的顶层窗口）
+    // 用户可以滚轮切换到更底层的窗口
+    if (!this.lastQueryPos || Math.abs(cssX - this.lastQueryPos.cssX) > 2 || Math.abs(cssY - this.lastQueryPos.cssY) > 2) {
+      this.currentLevel = 0
+    }
+    this.lastQueryPos = { cssX, cssY }
     this.pendingQuery = { cssX, cssY }
-
     if (!this.queryRunning) {
       this.runQueryLoop()
     }
   }
 
-  /** 异步查询循环（从 Rust 缓存查询，几乎零延迟） */
+  /**
+   * 异步查询循环
+   * 两层策略：Flatbush 窗口级 + UIAutomation 深度检测
+   */
   private async runQueryLoop() {
     this.queryRunning = true
 
@@ -154,41 +183,14 @@ export class WindowSnapManager {
       const physX = Math.round(cssX * this.scaleFactor + this.monitorX)
       const physY = Math.round(cssY * this.scaleFactor + this.monitorY)
 
-      // 先用窗口列表的 z-order 确定鼠标在哪个窗口上
-      const topWindow = this.hitTestWindow(physX, physY)
+      // 1. Flatbush 窗口级命中
+      const windowIndices = this.hitTestWindow(physX, physY)
+      const windowLevels: SnapRect[] = windowIndices
+        .map((idx) => this.physToCSS(this.windowElements[idx]))
+        .filter((r): r is SnapRect => r !== null)
 
-      let elements: ElementRect[] | null = null
-      if (topWindow) {
-        try {
-          // 传入顶层窗口信息，Rust 只查询该窗口的子元素
-          elements = await invoke<ElementRect[]>('get_element_at_point', {
-            x: physX,
-            y: physY,
-            topWindowX: topWindow.x,
-            topWindowY: topWindow.y,
-            topWindowW: topWindow.w,
-            topWindowH: topWindow.h,
-          })
-        } catch {
-          // 查询失败
-        }
-      }
-
-      // 处理结果
-      if (elements && elements.length > 0) {
-        this.elementLevels = elements
-          .map(e => this.physToCSS(e.x, e.y, e.w, e.h))
-          .filter((r): r is SnapRect => r !== null)
-      } else if (topWindow) {
-        // 缓存无子元素结果，使用窗口本身作为吸附目标
-        this.elementLevels = []
-        const windowRect = this.physToCSS(topWindow.x, topWindow.y, topWindow.w, topWindow.h)
-        if (windowRect) {
-          this.elementLevels = [windowRect]
-        }
-      } else {
-        this.elementLevels = []
-      }
+      // 只使用窗口级命中（Flatbush 预缓存数据，不实时调 UIAutomation）
+      this.elementLevels = windowLevels
 
       // 保持层级索引有效
       if (this.currentLevel >= this.elementLevels.length) {
@@ -218,14 +220,16 @@ export class WindowSnapManager {
     }
   }
 
-  /** 滚轮切换层级 */
+  /** 滚轮切换层级（向下滚=更底层窗口，向上滚=更顶层窗口） */
   cycleLevel(delta: number): boolean {
     if (this.elementLevels.length <= 1) return false
 
     const prev = this.currentLevel
     if (delta > 0) {
+      // 向下滚 → 更底层窗口（index 增大）
       this.currentLevel = Math.min(this.currentLevel + 1, this.elementLevels.length - 1)
     } else {
+      // 向上滚 → 更顶层窗口（index 减小）
       this.currentLevel = Math.max(this.currentLevel - 1, 0)
     }
 
@@ -236,7 +240,7 @@ export class WindowSnapManager {
     return false
   }
 
-  /** 获取层级信息（用于 UI 显示） */
+  /** 获取层级信息 */
   get levelInfo(): { current: number; total: number } {
     return {
       current: this.currentLevel,
@@ -278,7 +282,8 @@ export class WindowSnapManager {
 
   /** 重置所有状态 */
   reset() {
-    this.windows = []
+    this.rTree = undefined
+    this.windowElements = []
     this.snapRect = null
     this.animRect = null
     this.animStart = null
@@ -287,5 +292,7 @@ export class WindowSnapManager {
     this.currentLevel = 0
     this.queryRunning = false
     this.pendingQuery = null
+    this.lastQueryPos = null
+    this.initReady = false
   }
 }
