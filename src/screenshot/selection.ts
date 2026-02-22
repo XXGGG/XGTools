@@ -26,6 +26,8 @@ export class SelectionManager {
   // 鼠标位置（CSS 像素）
   mouseX = 0
   mouseY = 0
+  /** 是否已收到过真实鼠标事件 */
+  hasMousePosition = false
 
   // 画布尺寸
   private scaleFactor = 1
@@ -61,6 +63,7 @@ export class SelectionManager {
     this.rect = { x: 0, y: 0, w: 0, h: 0 }
     this.resizeEdge = ResizeEdge.None
     this.pending = false
+    this.hasMousePosition = false
   }
 
   // ============ 鼠标事件处理 ============
@@ -121,6 +124,7 @@ export class SelectionManager {
     const y = e.clientY
     this.mouseX = x
     this.mouseY = y
+    this.hasMousePosition = true
 
     // 待定状态：检测拖拽距离
     if (this.pending) {
@@ -319,8 +323,8 @@ export class SelectionManager {
       this.drawSizeLabel(ctx, px, py, pw, ph, sf)
     }
 
-    // 十字辅助线 + 放大镜取色器（仅在 Idle 和 Creating 时显示）
-    if (this.state === SelectState.Idle || this.state === SelectState.Creating) {
+    // 十字辅助线 + 放大镜取色器（仅在 Idle 和 Creating 时显示，且需要有真实鼠标位置）
+    if ((this.state === SelectState.Idle || this.state === SelectState.Creating) && this.hasMousePosition) {
       // 窗口吸附高亮（仅 Idle 状态）
       if (this.state === SelectState.Idle) {
         this.drawSnapHighlight(ctx, sf)

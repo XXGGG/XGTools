@@ -385,7 +385,8 @@ function initSelectionManager() {
   selMgr.onStateChange = (state) => {
     if (state === SelectState.Selected) {
       showToolbar.value = true
-      updateToolbarPosition()
+      // 等 DOM 渲染后再定位，确保能取到真实宽度
+      nextTick(() => updateToolbarPosition())
     } else if (state === SelectState.Idle) {
       showToolbar.value = false
       currentTool.value = DrawTool.None
@@ -407,9 +408,9 @@ function updateToolbarPosition() {
   const screenH = imgHeight / scaleFactor
   const screenW = imgWidth / scaleFactor
 
-  // 工具栏宽度，先取 DOM 实际宽度
+  // 工具栏宽度，取 DOM 实际宽度（fallback 用较大值保证不截断）
   const toolbarEl = document.querySelector('.toolbar') as HTMLElement | null
-  const toolbarW = toolbarEl ? toolbarEl.offsetWidth : 520
+  const toolbarW = toolbarEl ? toolbarEl.offsetWidth : 700
 
   // 水平定位：选区右对齐（仿 Snow-Shot: max_x - toolbarWidth）
   let tx = r.x + r.w - toolbarW
@@ -482,25 +483,35 @@ async function copyToClipboard() {
   // 绘制背景截图
   cropCtx.drawImage(bgCanvas, psx, psy, psw, psh, 0, 0, psw, psh)
 
-  // 绘制标注层（绝对坐标系：裁剪画布原点在选区左上角，需偏移）
+  // 绘制标注层
   cropCtx.save()
   cropCtx.translate(-psx, -psy)
   annMgr.drawAll(cropCtx, sf)
   cropCtx.restore()
 
-  // 先关窗口，剪贴板后台写，体感更快
-  cancelCapture()
+  // 仿 Snow-Shot：先视觉隐藏（opacity=0），但窗口仍在，保证 IPC 可用
+  if (containerRef.value) {
+    containerRef.value.style.opacity = '0'
+  }
+  await appWindow.setIgnoreCursorEvents(true).catch(() => {})
 
-  const imageData = cropCtx.getImageData(0, 0, psw, psh)
   try {
-    await invoke('copy_rgba_to_clipboard', {
-      rgbaData: Array.from(imageData.data),
-      width: psw,
-      height: psh,
-    })
+    // 获取 RGBA 像素数据，用二进制 IPC 传输（不走 JSON 序列化）
+    // 仿 Snow-Shot：invoke 第二个参数直接传 ArrayBuffer → Rust 收到 InvokeBody::Raw
+    const imageData = cropCtx.getImageData(0, 0, psw, psh)
+    // 构造二进制 buffer：[width:u32_le][height:u32_le][rgba_pixels...]
+    const buf = new ArrayBuffer(8 + imageData.data.byteLength)
+    const view = new DataView(buf)
+    view.setUint32(0, psw, true)
+    view.setUint32(4, psh, true)
+    new Uint8Array(buf, 8).set(imageData.data)
+    await invoke('copy_rgba_to_clipboard', buf)
   } catch (err) {
     console.error('Failed to copy to clipboard:', err)
   }
+
+  // 剪贴板写入完成后再关窗口
+  cancelCapture()
 }
 
 // ============ 保存到文件 ============
@@ -752,16 +763,6 @@ function getOcrBlockStyle(block: OcrTextBlock) {
 
 // ============ 取消截图 ============
 
-/** 仿 Snow-Shot: 延迟释放 busy 锁，防快速连续截图时状态覆盖 */
-let _screenshotDoneTimer: ReturnType<typeof setTimeout> | null = null
-function releaseScreenshotBusy() {
-  if (_screenshotDoneTimer) clearTimeout(_screenshotDoneTimer)
-  _screenshotDoneTimer = setTimeout(() => {
-    invoke('screenshot_done').catch(() => {})
-    _screenshotDoneTimer = null
-  }, 256)
-}
-
 function cancelCapture() {
   capturing.value = false
   showToolbar.value = false
@@ -774,12 +775,14 @@ function cancelCapture() {
   selMgr?.reset()
   annMgr.reset()
   windowSnapMgr.reset()
+  // 清掉 inline cursor，让 CSS 的 crosshair 下次直接生效
+  if (containerRef.value) {
+    containerRef.value.style.cursor = ''
+  }
   // 先移到屏幕外再隐藏，避免下次 show 时闪烁旧内容
   appWindow.setAlwaysOnTop(false).catch(() => {})
   appWindow.setPosition(new PhysicalPosition(-10000, -10000)).catch(() => {})
   appWindow.hide().catch(() => {})
-  // 仿 Snow-Shot: 延迟释放 Rust 侧快捷键重入锁
-  releaseScreenshotBusy()
 }
 
 // ============ 鼠标事件 ============
@@ -1031,8 +1034,6 @@ function onKeyDown(e: KeyboardEvent) {
     return
   }
 
-  // Tab 键：无操作（深度检测始终启用）
-
   // 取色器快捷键（Idle / Creating 状态）
   if (selMgr && (selMgr.state === SelectState.Idle || selMgr.state === SelectState.Creating)) {
     // Shift → 切换颜色格式
@@ -1082,9 +1083,37 @@ function onKeyDown(e: KeyboardEvent) {
 
 // ============ 截图入口 ============
 
+/** 防止 executeScreenshot 并发执行 */
+let _executeLock = false
+
 async function executeScreenshot() {
-  console.log('[Screenshot] executeScreenshot called, capturing:', capturing.value)
-  if (capturing.value) return
+  // 防并发：如果上一次 executeScreenshot 还在 await 中，直接忽略
+  if (_executeLock) return
+  _executeLock = true
+
+  try {
+    await _doExecuteScreenshot()
+  } finally {
+    _executeLock = false
+  }
+}
+
+async function _doExecuteScreenshot() {
+  // 如果上次截图还在进行，先同步重置状态（不走 cancelCapture 的隐藏窗口逻辑）
+  if (capturing.value) {
+    capturing.value = false
+    showToolbar.value = false
+    showOptions.value = false
+    currentTool.value = DrawTool.None
+    ocrResults.value = []
+    ocrLoading.value = false
+    ocrMode.value = false
+    cancelTextEditor()
+    selMgr?.reset()
+    annMgr.reset()
+    windowSnapMgr.reset()
+  }
+
   capturing.value = true
   scaleFactor = window.devicePixelRatio
   showToolbar.value = false
@@ -1092,12 +1121,14 @@ async function executeScreenshot() {
   currentTool.value = DrawTool.None
   annMgr.reset()
 
-  try {
-    // 预扫描 UI 元素树（后台运行，不阻塞截图显示）
-    windowSnapMgr.scanElements().catch(e => {
-      console.warn('[Screenshot] scanElements failed (non-fatal):', e)
-    })
+  // 恢复上次遗留的状态
+  if (containerRef.value) {
+    containerRef.value.style.opacity = '1'
+    containerRef.value.style.cursor = ''  // 清掉 inline，让 CSS crosshair 生效
+  }
+  await appWindow.setIgnoreCursorEvents(false).catch(() => {})
 
+  try {
     // 截屏（必须等待完成）
     const rawData = await invoke<ArrayBuffer>('capture_screen')
     const dv = new DataView(rawData)
@@ -1145,8 +1176,12 @@ async function executeScreenshot() {
     selMgr!.init(imgWidth, imgHeight, scaleFactor)
     redraw()
 
-    // 获取可见窗口列表（不阻塞主流程）
-    windowSnapMgr.fetchWindows(scaleFactor, monX, monY, cssW, cssH)
+    // 初始化窗口吸附
+    try {
+      await windowSnapMgr.init(scaleFactor, monX, monY, cssW, cssH)
+    } catch (e) {
+      console.warn('[Screenshot] windowSnap init failed (non-fatal):', e)
+    }
 
     // 异步查询回调 → 触发重绘
     windowSnapMgr.onAsyncUpdate = () => {
@@ -1166,6 +1201,18 @@ async function executeScreenshot() {
 
     await nextTick()
     containerRef.value?.focus()
+
+    // 主动获取鼠标位置初始化取色器+十字线（不等 mousemove）
+    // 注意：不触发 windowSnapMgr.update()，吸附高亮等用户真正移动鼠标时再开始
+    try {
+      const [absX, absY] = await invoke<[number, number]>('get_cursor_position')
+      const cssX = (absX - monX) / scaleFactor
+      const cssY = (absY - monY) / scaleFactor
+      selMgr!.mouseX = cssX
+      selMgr!.mouseY = cssY
+      selMgr!.hasMousePosition = true
+      redraw()
+    } catch {}
   } catch (err) {
     console.error('[Screenshot] executeScreenshot failed:', err)
     cancelCapture()
@@ -1173,17 +1220,23 @@ async function executeScreenshot() {
 }
 
 
-let unlistenScreenshot: (() => void) | null = null
+let _unlistens: (() => void)[] = []
 
 onMounted(async () => {
   document.body.classList.add('screenshot-window')
   await appWindow.hide()
 
-  // 监听截图事件（Rust 侧先 show 窗口再 emit，确保事件可达）
-  unlistenScreenshot = await listen('execute-screenshot', () => {
-    console.log('[Screenshot] execute-screenshot event received')
+  // 监听截图事件
+  _unlistens.push(await listen('execute-screenshot', () => {
     executeScreenshot()
-  })
+  }))
+
+  // 监听强制取消事件（托盘菜单）
+  _unlistens.push(await listen('force-cancel-screenshot', () => {
+    _executeLock = false
+    capturing.value = false
+    cancelCapture()
+  }))
 
   // 预热 OCR 模型（后台加载，不阻塞）
   invoke('ocr_init').then(() => {
@@ -1192,7 +1245,7 @@ onMounted(async () => {
   }).catch(e => console.warn('[OCR] pre-warm failed:', e))
 })
 
-onUnmounted(() => { unlistenScreenshot?.() })
+onUnmounted(() => { _unlistens.forEach(fn => fn()) })
 
 // ============ 工具定义 ============
 
@@ -1738,7 +1791,8 @@ const tools = [
   backdrop-filter: blur(12px);
   opacity: 0;
   animation: fade-in 200ms ease-out forwards;
-  flex-wrap: wrap;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 @keyframes fade-in {

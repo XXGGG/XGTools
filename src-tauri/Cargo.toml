@@ -35,6 +35,10 @@ arboard = "3.4"
 image = "0.25"
 tokio = { version = "1", features = ["rt", "macros"] }
 xcap = "0.0.14"
+rtree_rs = "0.1.4"
+atree = "0.5.2"
+rayon = "1.10"
+thiserror = "2"
 dirs = "6"
 paddle-ocr-rs = "0.6"
 ort = { version = "=2.0.0-rc.10", default-features = false }
@@ -47,8 +51,9 @@ tauri-plugin-autostart = "2"
 winapi = { version = "0.3", features = ["shellapi", "winuser", "wingdi", "combaseapi", "objbase", "commoncontrols", "shobjidl_core", "libloaderapi", "unknwnbase", "minwinbase", "wtypesbase", "objidl"] }
 lnk = "0.5"
 window-vibrancy = "0.5"
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }
 uiautomation = "0.24"
+clipboard-win = "5"
 
 # 所有第三方包开优化（参考 Snow-Shot），否则 ONNX Runtime 在 dev 模式下极慢
 [profile.dev.package."*"]
