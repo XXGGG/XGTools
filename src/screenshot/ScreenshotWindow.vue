@@ -465,6 +465,29 @@ function drawAnnotations() {
   ctx.restore()
 }
 
+// ============ 窗口圆角裁剪 ============
+
+/** 如果是窗口吸附且有圆角，用 roundRect clip 裁剪，圆角外变透明 */
+function applyCornerRadiusClip(srcCanvas: HTMLCanvasElement, cornerRadius: number, sf: number): HTMLCanvasElement {
+  if (cornerRadius <= 0) return srcCanvas
+
+  const cr = Math.round(cornerRadius * sf)
+  const w = srcCanvas.width
+  const h = srcCanvas.height
+
+  const out = document.createElement('canvas')
+  out.width = w
+  out.height = h
+  const ctx = out.getContext('2d')!
+
+  ctx.beginPath()
+  ctx.roundRect(0, 0, w, h, cr)
+  ctx.clip()
+  ctx.drawImage(srcCanvas, 0, 0)
+
+  return out
+}
+
 // ============ 背景投影处理 ============
 
 /** 如果开启了"自动添加背景与投影"，将截图画布包裹进带背景、圆角、多层阴影的新画布 */
@@ -488,12 +511,55 @@ async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement): Promise<HTM
   const totalW = sw + pad * 2 + extra * 2
   const totalH = sh + pad * 2 + extra * 2
 
+  const imgX = extra + pad
+  const imgY = extra + pad
+  const innerR = Math.round(r * 0.6)
+
+  // 1. 在离屏 canvas 上画阴影（避免污染主画布）
+  //    思路：离屏画布上画一个黑色圆角矩形 + shadow → 再擦掉黑色块 → 只剩阴影
+  const shadowCanvas = document.createElement('canvas')
+  shadowCanvas.width = totalW
+  shadowCanvas.height = totalH
+  const sctx = shadowCanvas.getContext('2d')!
+
+  // 三层阴影参数: [blur倍率, offsetY倍率, opacity]
+  const shadowLayers: [number, number, number][] = [
+    [0.3, 0.08, 0.14],   // 近处：小模糊、紧贴，较浓
+    [0.8, 0.3,  0.10],   // 中层：中等模糊与偏移
+    [2.0, 0.8,  0.07],   // 远处：大模糊、大偏移，最淡
+  ]
+
+  for (const [blurMul, offsetMul, alpha] of shadowLayers) {
+    sctx.save()
+    sctx.shadowColor = `rgba(0,0,0,${alpha})`
+    sctx.shadowBlur = blur * blurMul
+    sctx.shadowOffsetX = 0
+    sctx.shadowOffsetY = blur * offsetMul
+    sctx.beginPath()
+    sctx.roundRect(imgX, imgY, sw, sh, innerR)
+    sctx.fillStyle = '#000'
+    sctx.fill()
+    sctx.restore()
+  }
+
+  // 擦掉黑色填充块，只留阴影
+  sctx.save()
+  sctx.globalCompositeOperation = 'destination-out'
+  sctx.beginPath()
+  sctx.roundRect(imgX, imgY, sw, sh, innerR)
+  sctx.fill()
+  sctx.restore()
+
+  // 2. 组合到最终画布
   const out = document.createElement('canvas')
   out.width = totalW
   out.height = totalH
   const ctx = out.getContext('2d')!
 
-  // 1. 背景色填充（带圆角）— 透明则跳过
+  // 先画阴影层
+  ctx.drawImage(shadowCanvas, 0, 0)
+
+  // 背景色填充（带圆角）— 透明则跳过
   const bgX = extra
   const bgY = extra
   const bgW = sw + pad * 2
@@ -505,45 +571,8 @@ async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement): Promise<HTM
     ctx.fill()
   }
 
-  // 2. 多层投影：三层不同强度 + 偏移，制造浮空层次感
-  const imgX = extra + pad
-  const imgY = extra + pad
-  const innerR = Math.round(r * 0.6)
-
-  // 三层阴影参数: [blur倍率, offsetY倍率, opacity]
-  const shadowLayers: [number, number, number][] = [
-    [0.3, 0.08, 0.14],   // 近处：小模糊、紧贴，较浓
-    [0.8, 0.3,  0.10],   // 中层：中等模糊与偏移
-    [2.0, 0.8,  0.07],   // 远处：大模糊、大偏移，最淡
-  ]
-
-  for (const [blurMul, offsetMul, alpha] of shadowLayers) {
-    ctx.save()
-    ctx.shadowColor = `rgba(0,0,0,${alpha})`
-    ctx.shadowBlur = blur * blurMul
-    ctx.shadowOffsetX = 0
-    ctx.shadowOffsetY = blur * offsetMul
-    ctx.beginPath()
-    ctx.roundRect(imgX, imgY, sw, sh, innerR)
-    // 将填充形状画到画布外，只保留阴影
-    ctx.fillStyle = '#000'
-    // clip 反向：用 globalCompositeOperation 只画阴影
-    ctx.fill()
-    ctx.restore()
-  }
-
-  // 3. 用截图内容覆盖掉阴影层的黑色填充区域
-  //    先用 destination-out 清除填充区，再绘制截图
+  // 绘制截图内容（圆角裁剪）
   ctx.save()
-  ctx.globalCompositeOperation = 'destination-out'
-  ctx.beginPath()
-  ctx.roundRect(imgX, imgY, sw, sh, innerR)
-  ctx.fill()
-  ctx.restore()
-
-  // 4. 裁剪圆角 + 绘制截图内容
-  ctx.save()
-  ctx.globalCompositeOperation = 'source-over'
   ctx.beginPath()
   ctx.roundRect(imgX, imgY, sw, sh, innerR)
   ctx.clip()
@@ -581,8 +610,11 @@ async function copyToClipboard() {
   annMgr.drawAll(cropCtx, sf)
   cropCtx.restore()
 
+  // 窗口圆角裁剪
+  const croppedCanvas = applyCornerRadiusClip(cropCanvas, selMgr.snapCornerRadius, sf)
+
   // 背景投影处理
-  const finalCanvas = await applyBgShadowIfEnabled(cropCanvas)
+  const finalCanvas = await applyBgShadowIfEnabled(croppedCanvas)
   const fw = finalCanvas.width
   const fh = finalCanvas.height
 
@@ -636,8 +668,11 @@ async function saveToFile(fast = false) {
   annMgr.drawAll(cropCtx, sf)
   cropCtx.restore()
 
+  // 窗口圆角裁剪
+  const croppedCanvas = applyCornerRadiusClip(cropCanvas, selMgr.snapCornerRadius, sf)
+
   // 背景投影处理
-  const finalCanvas = await applyBgShadowIfEnabled(cropCanvas)
+  const finalCanvas = await applyBgShadowIfEnabled(croppedCanvas)
 
   // 转为 PNG blob
   const blob = await new Promise<Blob | null>(resolve => finalCanvas.toBlob(resolve, 'image/png'))

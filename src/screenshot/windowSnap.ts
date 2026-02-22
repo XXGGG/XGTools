@@ -15,6 +15,7 @@ export interface ElementRect {
 export interface WindowElement {
   element_rect: ElementRect
   window_id: number
+  corner_radius: number
 }
 
 /** 显示用矩形（CSS 像素，相对截图窗口） */
@@ -38,6 +39,8 @@ export class WindowSnapManager {
   private rTree: Flatbush | undefined
   /** 窗口元素列表（与 RTree 索引对应） */
   private windowElements: ElementRect[] = []
+  /** 窗口圆角半径列表（与 windowElements 平行） */
+  private windowCornerRadii: number[] = []
 
   /** 缩放因子 */
   private scaleFactor = 1
@@ -63,8 +66,12 @@ export class WindowSnapManager {
 
   /** 元素层级列表（CSS 像素）：[0]=最深子元素, [last]=根窗口 */
   private elementLevels: SnapRect[] = []
+  /** 元素层级对应的原始窗口索引（与 elementLevels 平行） */
+  private elementLevelWindowIndices: number[] = []
   /** 当前选中的层级索引 */
   private currentLevel = 0
+  /** 当前吸附窗口的圆角半径 */
+  private currentCornerRadius = 0
 
   /** 异步查询状态 */
   private queryRunning = false
@@ -105,8 +112,10 @@ export class WindowSnapManager {
 
     // 2. 构建 Flatbush RTree
     this.windowElements = []
+    this.windowCornerRadii = []
     windowElements.forEach((we) => {
       this.windowElements.push(we.element_rect)
+      this.windowCornerRadii.push(we.corner_radius)
     })
     if (this.windowElements.length > 0) {
       this.rTree = new Flatbush(this.windowElements.length)
@@ -185,17 +194,27 @@ export class WindowSnapManager {
 
       // 1. Flatbush 窗口级命中
       const windowIndices = this.hitTestWindow(physX, physY)
-      const windowLevels: SnapRect[] = windowIndices
-        .map((idx) => this.physToCSS(this.windowElements[idx]))
-        .filter((r): r is SnapRect => r !== null)
+      const windowLevels: SnapRect[] = []
+      const windowLevelIndices: number[] = []
+      for (const idx of windowIndices) {
+        const r = this.physToCSS(this.windowElements[idx])
+        if (r) {
+          windowLevels.push(r)
+          windowLevelIndices.push(idx)
+        }
+      }
 
       // 只使用窗口级命中（Flatbush 预缓存数据，不实时调 UIAutomation）
       this.elementLevels = windowLevels
+      this.elementLevelWindowIndices = windowLevelIndices
 
       // 保持层级索引有效
       if (this.currentLevel >= this.elementLevels.length) {
         this.currentLevel = Math.max(0, this.elementLevels.length - 1)
       }
+
+      // 更新圆角半径
+      this.updateCornerRadius()
 
       // 更新吸附矩形
       if (this.elementLevels.length > 0) {
@@ -220,6 +239,21 @@ export class WindowSnapManager {
     }
   }
 
+  /** 更新当前吸附窗口的圆角半径 */
+  private updateCornerRadius() {
+    if (this.elementLevelWindowIndices.length > 0 && this.currentLevel < this.elementLevelWindowIndices.length) {
+      const winIdx = this.elementLevelWindowIndices[this.currentLevel]
+      this.currentCornerRadius = this.windowCornerRadii[winIdx] ?? 0
+    } else {
+      this.currentCornerRadius = 0
+    }
+  }
+
+  /** 获取当前吸附窗口的圆角半径 (CSS px) */
+  getCornerRadius(): number {
+    return this.currentCornerRadius
+  }
+
   /** 滚轮切换层级（向下滚=更底层窗口，向上滚=更顶层窗口） */
   cycleLevel(delta: number): boolean {
     if (this.elementLevels.length <= 1) return false
@@ -234,6 +268,7 @@ export class WindowSnapManager {
     }
 
     if (this.currentLevel !== prev) {
+      this.updateCornerRadius()
       this.setSnapTarget(this.elementLevels[this.currentLevel])
       return true
     }
@@ -284,12 +319,15 @@ export class WindowSnapManager {
   reset() {
     this.rTree = undefined
     this.windowElements = []
+    this.windowCornerRadii = []
     this.snapRect = null
     this.animRect = null
     this.animStart = null
     this.animTarget = null
     this.elementLevels = []
+    this.elementLevelWindowIndices = []
     this.currentLevel = 0
+    this.currentCornerRadius = 0
     this.queryRunning = false
     this.pendingQuery = null
     this.lastQueryPos = null

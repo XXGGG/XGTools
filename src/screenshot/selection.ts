@@ -42,6 +42,8 @@ export class SelectionManager {
 
   /** 窗口吸附管理器 */
   windowSnap: WindowSnapManager | null = null
+  /** 吸附截取时的窗口圆角半径（CSS px），手动拖选为 0 */
+  snapCornerRadius = 0
 
   /** 状态改变回调 */
   onStateChange?: (state: SelectState) => void
@@ -64,6 +66,7 @@ export class SelectionManager {
     this.resizeEdge = ResizeEdge.None
     this.pending = false
     this.hasMousePosition = false
+    this.snapCornerRadius = 0
   }
 
   // ============ 鼠标事件处理 ============
@@ -134,6 +137,7 @@ export class SelectionManager {
         // 超过阈值 → 手动拖拽创建选区
         this.pending = false
         this.state = SelectState.Creating
+        this.snapCornerRadius = 0
         this.rect = { x: this.dragStartX, y: this.dragStartY, w: 0, h: 0 }
         this.onStateChange?.(this.state)
       }
@@ -176,6 +180,7 @@ export class SelectionManager {
       if (this.windowSnap?.snapRect) {
         const sr = this.windowSnap.snapRect
         this.rect = { x: sr.x, y: sr.y, w: sr.w, h: sr.h }
+        this.snapCornerRadius = this.windowSnap.getCornerRadius()
         this.state = SelectState.Selected
         this.onStateChange?.(this.state)
         return true
@@ -445,14 +450,22 @@ export class SelectionManager {
     const py = rect.y * sf
     const pw = rect.w * sf
     const ph = rect.h * sf
+    const cr = (this.windowSnap.getCornerRadius() ?? 0) * sf
 
-    // 清除遮罩露出截图
+    // 清除遮罩露出截图（圆角路径）
+    ctx.save()
+    ctx.beginPath()
+    ctx.roundRect(px, py, pw, ph, cr)
+    ctx.clip()
     ctx.clearRect(px, py, pw, ph)
+    ctx.restore()
 
-    // 蓝色边框
+    // 蓝色圆角边框
     ctx.strokeStyle = S.borderColor
     ctx.lineWidth = 2 * sf
-    ctx.strokeRect(px, py, pw, ph)
+    ctx.beginPath()
+    ctx.roundRect(px, py, pw, ph, cr)
+    ctx.stroke()
 
     // 层级指示器
     {
