@@ -1,4 +1,7 @@
 mod dock_commands;
+mod screenshot_commands;
+mod ocr_commands;
+mod window_detect;
 
 #[cfg(windows)]
 mod icon_extractor;
@@ -8,10 +11,14 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::Manager;
 
 use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
 use rdev::{listen, EventType};
 use tauri::Emitter;
 
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+/// 截图是否正在执行（防止快捷键重入）
+static SCREENSHOT_BUSY: AtomicBool = AtomicBool::new(false);
 
 #[derive(serde::Serialize, Clone)]
 struct InputPayload {
@@ -51,9 +58,33 @@ fn init_input_listener(app: tauri::AppHandle) {
     });
 }
 
+/// 照搬 Snow-Shot：在截图窗口创建后禁用 DWM 过渡动画
+#[cfg(windows)]
+fn disable_dwm_transitions(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
+
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = HWND(hwnd.0);
+        let disable: i32 = 1;
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_TRANSITIONS_FORCEDISABLED,
+                &disable as *const _ as *const _,
+                std::mem::size_of::<i32>() as u32,
+            );
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(ocr_commands::OcrState {
+            ocr: std::sync::Mutex::new(None),
+            initializing: std::sync::atomic::AtomicBool::new(false),
+        })
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -82,13 +113,30 @@ pub fn run() {
             dock_commands::get_custom_icons,
             dock_commands::delete_custom_icon,
             dock_commands::rename_custom_icon,
+            // Screenshot commands
+            screenshot_commands::capture_screen,
+            screenshot_commands::get_monitor_info,
+            screenshot_commands::copy_screenshot_to_clipboard,
+            screenshot_commands::copy_rgba_to_clipboard,
+            screenshot_commands::save_screenshot,
+            screenshot_commands::save_screenshot_to_path,
+            screenshot_commands::save_screenshot_file,
+            screenshot_commands::cleanup_temp_screenshot,
+            screenshot_commands::screenshot_done,
+            // OCR commands
+            ocr_commands::ocr_init,
+            ocr_commands::ocr_detect,
+            ocr_commands::ocr_release,
+            // Window detection
+            window_detect::get_visible_windows,
+            window_detect::scan_ui_elements,
+            window_detect::get_element_at_point,
         ])
         .setup(|app| {
             // --- Input listener (for key visualizer) ---
             init_input_listener(app.handle().clone());
 
             // --- System Tray ---
-            // 原生菜单作为右键菜单项，前端监听菜单事件
             let show_main = MenuItem::with_id(app, "show", "打开主界面", true, None::<&str>)?;
             let show_dock = MenuItem::with_id(app, "show_dock", "显示启动台", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -122,7 +170,6 @@ pub fn run() {
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
-                    // 左键：打开主窗口
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
@@ -175,29 +222,70 @@ pub fn run() {
                 let _ = apply_acrylic(&win, Some((r, g, b, a)));
             }
 
-            // --- Global Shortcut for Dock ---
-            let shortcut_str = settings_ref
+            // --- 截图窗口：禁用 DWM 过渡动画（照搬 Snow-Shot） ---
+            #[cfg(windows)]
+            if let Some(win) = app.get_webview_window("screenshot") {
+                disable_dwm_transitions(&win);
+                let _ = win.hide();
+            }
+
+            // --- Global Shortcuts ---
+            let dock_shortcut_str = settings_ref
                 .map(|s| s.shortcut.clone())
                 .unwrap_or_else(|| "Ctrl+Alt+D".to_string());
 
-            let shortcut = dock_commands::parse_shortcut_str(&shortcut_str)
+            let dock_shortcut = dock_commands::parse_shortcut_str(&dock_shortcut_str)
                 .unwrap_or_else(|_| {
                     use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
                     Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyD)
                 });
 
+            // 截图快捷键: Ctrl+Alt+A
+            let screenshot_shortcut = {
+                use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+                Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyA)
+            };
+
+            let screenshot_shortcut_clone = screenshot_shortcut;
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
-                    .with_handler(move |app, _shortcut, event| {
-                        if event.state() == ShortcutState::Pressed {
-                            #[cfg(windows)]
-                            {
-                                use winapi::um::winuser::{keybd_event, KEYEVENTF_KEYUP, VK_MENU, VK_CONTROL};
-                                unsafe {
-                                    keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
-                                    keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
-                                }
+                    .with_handler(move |app, shortcut, event| {
+                        // 仿 Snow-Shot: 只在 Released 时触发（防长按重复触发）
+                        if event.state() != ShortcutState::Released {
+                            return;
+                        }
+
+                        #[cfg(windows)]
+                        {
+                            use winapi::um::winuser::{keybd_event, KEYEVENTF_KEYUP, VK_MENU, VK_CONTROL};
+                            unsafe {
+                                keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
+                                keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
                             }
+                        }
+
+                        if shortcut == &screenshot_shortcut_clone {
+                            // 仿 Snow-Shot: AtomicBool 防重入
+                            if SCREENSHOT_BUSY.compare_exchange(
+                                false, true, Ordering::SeqCst, Ordering::SeqCst
+                            ).is_err() {
+                                return;
+                            }
+
+                            if let Some(win) = app.get_webview_window("screenshot") {
+                                use tauri::PhysicalPosition;
+                                let _ = win.set_position(PhysicalPosition::new(-10000i32, -10000i32));
+                                let _ = win.show();
+                                let app_handle = app.clone();
+                                std::thread::spawn(move || {
+                                    std::thread::sleep(std::time::Duration::from_millis(50));
+                                    let _ = app_handle.emit("execute-screenshot", ());
+                                });
+                            } else {
+                                SCREENSHOT_BUSY.store(false, Ordering::SeqCst);
+                            }
+                        } else {
+                            // Dock 快捷键
                             if let Some(win) = app.get_webview_window("dock") {
                                 let _ = win.maximize();
                                 let _ = win.show();
@@ -208,13 +296,16 @@ pub fn run() {
                     })
                     .build(),
             )?;
-            app.global_shortcut().register(shortcut)?;
+            app.global_shortcut().register(dock_shortcut)?;
+            app.global_shortcut().register(screenshot_shortcut)?;
 
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+                let label = window.label();
+                if label == "main" || label == "screenshot" {
+                    // 主窗口和截图窗口不真正关闭，只是隐藏
                     api.prevent_close();
                     window.hide().unwrap();
                 }
