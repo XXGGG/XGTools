@@ -12,6 +12,7 @@ import HomeView from './views/Home.vue';
 import KeyboardPetView from './views/KeyboardPet.vue';//【页面】键盘桌宠
 import DockView from './views/Dock.vue'; //【页面】启动台设置
 import ScreenshotView from './views/Screenshot.vue'; //【页面】截图设置
+import TranslateView from './views/Translate.vue'; //【页面】翻译
 import DockWindow from './dock/DockWindow.vue'; //【窗口】启动台
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'; //【窗口】截图
 import PinWindow from './screenshot/PinWindow.vue'; //【窗口】钉图
@@ -159,6 +160,7 @@ onMounted(async () => {
             <DockView v-else-if="currentView === 'Dock'" />
             <KeyboardPetView v-else-if="currentView === 'KeyboardPet'" />
             <ScreenshotView v-else-if="currentView === 'Screenshot'" />
+            <TranslateView v-else-if="currentView === 'Translate'" />
 
             <!-- 还没做的功能先显示这个 -->
             <div v-else class="h-full flex flex-col items-center justify-center text-muted-foreground">

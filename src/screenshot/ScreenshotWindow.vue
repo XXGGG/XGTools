@@ -388,9 +388,14 @@ function initSelectionManager() {
   selMgr = new SelectionManager(overlayRef.value)
   selMgr.onStateChange = (state) => {
     if (state === SelectState.Selected) {
-      showToolbar.value = true
-      // 等 DOM 渲染后再定位，确保能取到真实宽度
-      nextTick(() => updateToolbarPosition())
+      if (translateMode.value) {
+        // 截图翻译模式：选区完成后直接触发翻译，不显示工具栏
+        runScreenshotTranslate()
+      } else {
+        showToolbar.value = true
+        // 等 DOM 渲染后再定位，确保能取到真实宽度
+        nextTick(() => updateToolbarPosition())
+      }
     } else if (state === SelectState.Idle) {
       showToolbar.value = false
       currentTool.value = DrawTool.None
@@ -783,6 +788,17 @@ const ocrLoading = ref(false)
 const ocrMode = ref(false)
 let ocrInited = false
 
+// ============ 截图翻译 ============
+
+interface TranslateBlock {
+  block: OcrTextBlock
+  translated: string
+}
+
+const translateMode = ref(false)
+const translateResults = ref<TranslateBlock[]>([])
+const translateLoading = ref(false)
+
 async function runOcr() {
   const bgCanvas = canvasRef.value
   if (!selMgr || !bgCanvas) return
@@ -906,6 +922,9 @@ function cancelCapture() {
   ocrResults.value = []
   ocrLoading.value = false
   ocrMode.value = false
+  translateMode.value = false
+  translateResults.value = []
+  translateLoading.value = false
   cancelTextEditor()
   selMgr?.reset()
   annMgr.reset()
@@ -926,8 +945,8 @@ function onMouseDown(e: MouseEvent) {
   e.preventDefault()
   if (!selMgr) return
 
-  // OCR 模式下不处理选区交互（让文字可选）
-  if (ocrMode.value) return
+  // 翻译/OCR 模式下不处理选区交互（让文字可选）
+  if (ocrMode.value || translateResults.value.length > 0 || translateLoading.value) return
 
   // 标注模式（有工具）
   if (currentTool.value !== DrawTool.None && selMgr.state === SelectState.Selected) {
@@ -981,8 +1000,8 @@ function onMouseDown(e: MouseEvent) {
 function onMouseMove(e: MouseEvent) {
   if (!selMgr) return
 
-  // OCR 模式下不处理选区交互
-  if (ocrMode.value) return
+  // 翻译/OCR 模式下不处理选区交互
+  if (ocrMode.value || translateResults.value.length > 0 || translateLoading.value) return
 
   // 标注移动中
   if (annMgr.isMovingSelected) {
@@ -1031,8 +1050,8 @@ function onMouseMove(e: MouseEvent) {
 function onMouseUp(e: MouseEvent) {
   if (!selMgr) return
 
-  // OCR 模式下不处理选区交互
-  if (ocrMode.value) return
+  // 翻译/OCR 模式下不处理选区交互
+  if (ocrMode.value || translateResults.value.length > 0 || translateLoading.value) return
 
   if (annMgr.isMovingSelected || annMgr.isDrawing) {
     annMgr.handleMouseUp(e)
@@ -1089,6 +1108,175 @@ function exitOcrMode() {
   ocrMode.value = false
 }
 
+function exitTranslateMode() {
+  translateResults.value = []
+  translateLoading.value = false
+  translateMode.value = false
+}
+
+function getTranslateBlockStyle(block: OcrTextBlock, translated: string) {
+  if (!selMgr) return {}
+  const r = selMgr.rect
+  const sf = scaleFactor
+
+  const pts = block.box_points
+  const ltx = pts[0].x / sf
+  const lty = pts[0].y / sf
+  const rtx = pts[1].x / sf
+  const rty = pts[1].y / sf
+  const lbx = pts[3].x / sf
+  const lby = pts[3].y / sf
+
+  const w = Math.sqrt((rtx - ltx) ** 2 + (rty - lty) ** 2)
+  const h = Math.sqrt((lbx - ltx) ** 2 + (lby - lty) ** 2)
+  const cx = (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4 / sf
+  const cy = (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4 / sf
+
+  let angle = Math.atan2(rty - lty, rtx - ltx) * 180 / Math.PI
+  if (Math.abs(angle) < 3) angle = 0
+
+  // 动态计算字号：让翻译文本尽量填满原文区域，最小 14px 保证可读
+  const text = translated || ''
+  const cjkCount = (text.match(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g) || []).length
+  const asciiCount = text.length - cjkCount
+  const charWidthFactor = cjkCount + asciiCount * 0.55
+  const fontByH = h * 0.85
+  const fontByW = charWidthFactor > 0 ? w / charWidthFactor : fontByH
+  const fontSize = Math.max(14, Math.min(fontByH, fontByW))
+
+  // 字号可能大于原框，扩展背景区域确保完全覆盖文字
+  const actualH = Math.max(h, fontSize * 1.3)
+  const actualW = Math.max(w, fontSize * charWidthFactor)
+
+  return {
+    position: 'absolute' as const,
+    left: `${r.x + cx - actualW / 2}px`,
+    top: `${r.y + cy - actualH / 2}px`,
+    width: `${actualW}px`,
+    height: `${actualH}px`,
+    transform: `rotate(${angle}deg)`,
+    fontSize: `${fontSize}px`,
+    lineHeight: `${actualH}px`,
+    overflow: 'hidden',
+    whiteSpace: 'nowrap' as const,
+  }
+}
+
+const translateLoadingStyle = computed(() => {
+  if (!selMgr) return {}
+  const r = selMgr.rect
+  return {
+    left: r.x + r.w / 2 - 60 + 'px',
+    top: r.y + r.h / 2 - 16 + 'px',
+  }
+})
+
+async function runScreenshotTranslate() {
+  const bgCanvas = canvasRef.value
+  if (!selMgr || !bgCanvas) return
+
+  const r = selMgr.rect
+  if (r.w < 2 || r.h < 2) return
+
+  translateLoading.value = true
+
+  try {
+    // 1. OCR
+    if (!ocrInited) {
+      await invoke('ocr_init')
+      ocrInited = true
+    }
+
+    const sf = scaleFactor
+    const psx = Math.round(r.x * sf)
+    const psy = Math.round(r.y * sf)
+    const psw = Math.round(r.w * sf)
+    const psh = Math.round(r.h * sf)
+
+    const cropCanvas = document.createElement('canvas')
+    cropCanvas.width = psw
+    cropCanvas.height = psh
+    const cropCtx = cropCanvas.getContext('2d')!
+    cropCtx.drawImage(bgCanvas, psx, psy, psw, psh, 0, 0, psw, psh)
+
+    const pngBlob = await new Promise<Blob | null>(resolve => cropCanvas.toBlob(resolve, 'image/png', 1))
+    if (!pngBlob) throw new Error('Failed to create PNG blob')
+    const pngBuffer = new Uint8Array(await pngBlob.arrayBuffer())
+
+    const result = await invoke<{ text_blocks: OcrTextBlock[]; scale_factor: number }>('ocr_detect', pngBuffer, {
+      headers: { 'x-scale-factor': sf.toFixed(3) },
+    })
+
+    const blocks = result.text_blocks.filter(b => b.text_score > 0.3 && b.text.trim().length > 0)
+    if (blocks.length === 0) {
+      translateLoading.value = false
+      translateMode.value = false
+      return
+    }
+
+    // 2. 读取翻译设置
+    await settingsStore.init()
+    const mode = (await settingsStore.get<string>('translate_mode')) ?? 'free'
+    const freeEngine = (await settingsStore.get<string>('translate_free_engine')) ?? 'google'
+    const aiEngine = (await settingsStore.get<string>('translate_ai_engine')) ?? 'openai'
+    const aiConfigs = (await settingsStore.get<Record<string, { api_key: string; api_url: string; model: string }>>('translate_ai_configs')) ?? {}
+
+    const engine = mode === 'free' ? freeEngine : aiEngine
+    const aiConfig = mode === 'ai' ? aiConfigs[aiEngine] : undefined
+
+    // 3. 确定目标语言
+    const allText = blocks.map(b => b.text).join('')
+    const chineseRatio = (allText.match(/[\u4e00-\u9fff]/g) || []).length / allText.length
+    const targetLang = chineseRatio > 0.3 ? 'en' : 'zh'
+
+    // 4. 翻译
+    if (mode === 'ai' && aiConfig?.api_key) {
+      // AI 引擎：合并所有文本，一次翻译
+      const separator = '\n---BLOCK---\n'
+      const combined = blocks.map(b => b.text).join(separator)
+      const res = await invoke<{ text: string; detected_lang: string | null; engine: string }>('translate', {
+        request: {
+          text: combined,
+          source_lang: 'auto',
+          target_lang: targetLang,
+          engine,
+          ai_config: { api_key: aiConfig.api_key, api_url: aiConfig.api_url || null, model: aiConfig.model || null },
+        },
+      })
+      const parts = res.text.split(/---BLOCK---/)
+      translateResults.value = blocks.map((block, i) => ({
+        block,
+        translated: (parts[i] || '').trim(),
+      }))
+    } else {
+      // 免费引擎：并行翻译每个文本块
+      const results = await Promise.all(
+        blocks.map(async (block) => {
+          try {
+            const res = await invoke<{ text: string; detected_lang: string | null; engine: string }>('translate', {
+              request: {
+                text: block.text,
+                source_lang: 'auto',
+                target_lang: targetLang,
+                engine,
+                ai_config: null,
+              },
+            })
+            return { block, translated: res.text }
+          } catch {
+            return { block, translated: block.text }
+          }
+        })
+      )
+      translateResults.value = results
+    }
+  } catch (err) {
+    console.error('[ScreenshotTranslate] failed:', err)
+  } finally {
+    translateLoading.value = false
+  }
+}
+
 function ocrSelectAll() {
   // 选中 OCR 层中的所有文字
   const ocrLayer = document.querySelector('.ocr-layer')
@@ -1101,6 +1289,16 @@ function ocrSelectAll() {
 }
 
 function onKeyDown(e: KeyboardEvent) {
+  // 翻译模式下的键盘处理
+  if (translateResults.value.length > 0 || translateLoading.value) {
+    if (e.key === 'Escape') {
+      exitTranslateMode()
+      return
+    }
+    // Ctrl+C 由浏览器原生处理（已选中文字时自动复制）
+    return
+  }
+
   // OCR 模式下的键盘处理
   if (ocrMode.value) {
     if (e.key === 'Escape') {
@@ -1243,6 +1441,8 @@ async function _doExecuteScreenshot() {
     ocrResults.value = []
     ocrLoading.value = false
     ocrMode.value = false
+    translateResults.value = []
+    translateLoading.value = false
     cancelTextEditor()
     selMgr?.reset()
     annMgr.reset()
@@ -1366,6 +1566,13 @@ onMounted(async () => {
   _unlistens.push(await listen('execute-screenshot', async () => {
     const enabled = (await settingsStore.get<boolean>('screenshot_enabled')) ?? true
     if (!enabled) return
+    translateMode.value = false
+    executeScreenshot()
+  }))
+
+  // 监听截图翻译事件
+  _unlistens.push(await listen('execute-screenshot-translate', async () => {
+    translateMode.value = true
     executeScreenshot()
   }))
 
@@ -1434,6 +1641,32 @@ const tools = [
         class="ocr-block"
         :style="getOcrBlockStyle(block)"
       >{{ block.text }}</div>
+    </div>
+
+    <!-- 翻译结果覆盖层 -->
+    <div
+      v-if="translateResults.length > 0"
+      class="translate-layer"
+      style="z-index: 11"
+      @mousedown.stop
+      @mousemove.stop
+      @mouseup.stop
+    >
+      <div
+        v-for="(item, idx) in translateResults" :key="idx"
+        class="translate-block"
+        :style="getTranslateBlockStyle(item.block, item.translated)"
+      >{{ item.translated }}</div>
+    </div>
+
+    <!-- 翻译加载中 -->
+    <div
+      v-if="translateLoading"
+      class="translate-loading-overlay"
+      :style="translateLoadingStyle"
+    >
+      <span class="icon-[lucide--loader-2] w-5 h-5 spin text-white" />
+      <span class="text-white text-sm">翻译中...</span>
     </div>
 
     <!-- 工具栏 -->
@@ -2218,6 +2451,40 @@ const tools = [
 }
 .ocr-block::selection {
   background: rgba(64, 150, 255, 0.4);
+}
+
+/* 翻译覆盖层 */
+.translate-layer {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  pointer-events: auto;
+  cursor: text;
+}
+.translate-block {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1e1e1e;
+  font-family: 'Microsoft YaHei', sans-serif;
+  padding: 0 2px;
+  border-radius: 2px;
+  user-select: text;
+  cursor: text;
+  box-sizing: border-box;
+}
+.translate-block::selection {
+  background: rgba(64, 150, 255, 0.4);
+}
+.translate-loading-overlay {
+  position: absolute;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
 }
 
 /* Loading spinner */

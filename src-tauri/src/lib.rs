@@ -2,6 +2,7 @@ mod dock_commands;
 mod screenshot_commands;
 mod ocr_commands;
 mod window_detect;
+mod translate_commands;
 
 #[cfg(windows)]
 mod icon_extractor;
@@ -14,6 +15,7 @@ use std::thread;
 use rdev::{listen, EventType};
 use tauri::Emitter;
 
+use std::sync::{Arc, Mutex};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 #[derive(serde::Serialize, Clone)]
@@ -104,6 +106,7 @@ pub fn run() {
             dock_commands::get_settings,
             dock_commands::save_settings,
             dock_commands::update_shortcut,
+            dock_commands::update_all_shortcuts,
             dock_commands::refresh_all_icons,
             dock_commands::update_acrylic,
             dock_commands::save_custom_icon,
@@ -129,6 +132,9 @@ pub fn run() {
             window_detect::init_ui_elements_cache,
             window_detect::get_element_from_position,
             window_detect::get_visible_windows,
+            // Translate
+            translate_commands::translate,
+            translate_commands::list_models,
         ])
         .setup(|app| {
             // --- Input listener (for key visualizer) ---
@@ -240,6 +246,8 @@ pub fn run() {
             }
 
             // --- Global Shortcuts ---
+
+            // 1. 读取 Dock 快捷键（从 Dock settings.json）
             let dock_shortcut_str = settings_ref
                 .map(|s| s.shortcut.clone())
                 .unwrap_or_else(|| "Ctrl+Alt+D".to_string());
@@ -250,13 +258,51 @@ pub fn run() {
                     Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyD)
                 });
 
-            // 截图快捷键: Ctrl+Alt+A
-            let screenshot_shortcut = {
-                use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
-                Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyA)
+            // 2. 读取截图/截图翻译快捷键（从 tauri-plugin-store 的 settings.json）
+            let store_file = app_dir.join("settings.json");
+            let store_json: Option<serde_json::Value> = if store_file.exists() {
+                std::fs::read_to_string(&store_file)
+                    .ok()
+                    .and_then(|c| serde_json::from_str(&c).ok())
+            } else {
+                None
             };
 
-            let screenshot_shortcut_clone = screenshot_shortcut;
+            let screenshot_shortcut_str = store_json.as_ref()
+                .and_then(|v| v.get("screenshot_shortcut"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Ctrl+Alt+A");
+
+            let screenshot_shortcut = dock_commands::parse_shortcut_str(screenshot_shortcut_str)
+                .unwrap_or_else(|_| {
+                    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+                    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyA)
+                });
+
+            let screenshot_translate_enabled = store_json.as_ref()
+                .and_then(|v| v.get("screenshot_translate_enabled"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            let screenshot_translate_shortcut = if screenshot_translate_enabled {
+                store_json.as_ref()
+                    .and_then(|v| v.get("screenshot_translate_shortcut"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| dock_commands::parse_shortcut_str(s).ok())
+            } else {
+                None
+            };
+
+            // 3. 创建共享快捷键绑定
+            let bindings = Arc::new(Mutex::new(dock_commands::ShortcutBindings {
+                dock: Some(dock_shortcut),
+                screenshot: Some(screenshot_shortcut),
+                screenshot_translate: screenshot_translate_shortcut,
+            }));
+            app.manage(bindings.clone());
+
+            // 4. 注册快捷键 handler（通过 Arc<Mutex<>> 动态派发）
+            let bindings_ref = bindings.clone();
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(move |app, shortcut, event| {
@@ -274,12 +320,12 @@ pub fn run() {
                             }
                         }
 
-                        if shortcut == &screenshot_shortcut_clone {
-                            // 仿 Snow-Shot：快捷键回调只负责 emit 事件
-                            // 防重入由前端 capturing flag 控制
+                        let b = bindings_ref.lock().unwrap();
+                        if b.screenshot.as_ref() == Some(shortcut) {
                             let _ = app.emit("execute-screenshot", ());
-                        } else {
-                            // Dock 快捷键
+                        } else if b.screenshot_translate.as_ref() == Some(shortcut) {
+                            let _ = app.emit("execute-screenshot-translate", ());
+                        } else if b.dock.as_ref() == Some(shortcut) {
                             if let Some(win) = app.get_webview_window("dock") {
                                 let _ = win.maximize();
                                 let _ = win.show();
@@ -290,8 +336,13 @@ pub fn run() {
                     })
                     .build(),
             )?;
+
+            // 5. 注册所有快捷键
             app.global_shortcut().register(dock_shortcut)?;
             app.global_shortcut().register(screenshot_shortcut)?;
+            if let Some(sc) = screenshot_translate_shortcut {
+                app.global_shortcut().register(sc)?;
+            }
 
             Ok(())
         })
