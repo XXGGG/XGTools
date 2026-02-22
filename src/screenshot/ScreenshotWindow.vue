@@ -6,6 +6,7 @@ import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { save } from '@tauri-apps/plugin-dialog'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit as tauriEmit, listen } from '@tauri-apps/api/event'
+import { LazyStore } from '@tauri-apps/plugin-store'
 import { SelectionManager } from './selection'
 import { AnnotationManager } from './annotations'
 import { WindowSnapManager } from './windowSnap'
@@ -37,6 +38,9 @@ const appWindow = getCurrentWindow()
 let selMgr: SelectionManager | null = null
 const annMgr = reactive(new AnnotationManager())
 const windowSnapMgr = new WindowSnapManager()
+
+// 设置 store（截图开关 + 背景投影设置）
+const settingsStore = new LazyStore('settings.json')
 
 // 当前工具
 const currentTool = ref(DrawTool.None)
@@ -461,6 +465,94 @@ function drawAnnotations() {
   ctx.restore()
 }
 
+// ============ 背景投影处理 ============
+
+/** 如果开启了"自动添加背景与投影"，将截图画布包裹进带背景、圆角、多层阴影的新画布 */
+async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement): Promise<HTMLCanvasElement> {
+  const enabled = (await settingsStore.get<boolean>('screenshot_auto_bg_shadow')) ?? false
+  if (!enabled) return srcCanvas
+
+  const bgColor = (await settingsStore.get<string>('screenshot_bg_color')) ?? 'transparent'
+  const padding = (await settingsStore.get<number>('screenshot_bg_padding')) ?? 32
+  const shadowBlurVal = (await settingsStore.get<number>('screenshot_shadow_blur')) ?? 30
+  const radius = (await settingsStore.get<number>('screenshot_corner_radius')) ?? 8
+
+  const sw = srcCanvas.width
+  const sh = srcCanvas.height
+  const sf = scaleFactor
+  const pad = Math.round(padding * sf)
+  const blur = Math.round(shadowBlurVal * sf)
+  const r = Math.round(radius * sf)
+  // 最大阴影层的 blur*3 作为边距，确保阴影不被裁切
+  const extra = Math.round(blur * 3)
+  const totalW = sw + pad * 2 + extra * 2
+  const totalH = sh + pad * 2 + extra * 2
+
+  const out = document.createElement('canvas')
+  out.width = totalW
+  out.height = totalH
+  const ctx = out.getContext('2d')!
+
+  // 1. 背景色填充（带圆角）— 透明则跳过
+  const bgX = extra
+  const bgY = extra
+  const bgW = sw + pad * 2
+  const bgH = sh + pad * 2
+  if (bgColor !== 'transparent') {
+    ctx.beginPath()
+    ctx.roundRect(bgX, bgY, bgW, bgH, r)
+    ctx.fillStyle = bgColor
+    ctx.fill()
+  }
+
+  // 2. 多层投影：三层不同强度 + 偏移，制造浮空层次感
+  const imgX = extra + pad
+  const imgY = extra + pad
+  const innerR = Math.round(r * 0.6)
+
+  // 三层阴影参数: [blur倍率, offsetY倍率, opacity]
+  const shadowLayers: [number, number, number][] = [
+    [0.3, 0.08, 0.14],   // 近处：小模糊、紧贴，较浓
+    [0.8, 0.3,  0.10],   // 中层：中等模糊与偏移
+    [2.0, 0.8,  0.07],   // 远处：大模糊、大偏移，最淡
+  ]
+
+  for (const [blurMul, offsetMul, alpha] of shadowLayers) {
+    ctx.save()
+    ctx.shadowColor = `rgba(0,0,0,${alpha})`
+    ctx.shadowBlur = blur * blurMul
+    ctx.shadowOffsetX = 0
+    ctx.shadowOffsetY = blur * offsetMul
+    ctx.beginPath()
+    ctx.roundRect(imgX, imgY, sw, sh, innerR)
+    // 将填充形状画到画布外，只保留阴影
+    ctx.fillStyle = '#000'
+    // clip 反向：用 globalCompositeOperation 只画阴影
+    ctx.fill()
+    ctx.restore()
+  }
+
+  // 3. 用截图内容覆盖掉阴影层的黑色填充区域
+  //    先用 destination-out 清除填充区，再绘制截图
+  ctx.save()
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.beginPath()
+  ctx.roundRect(imgX, imgY, sw, sh, innerR)
+  ctx.fill()
+  ctx.restore()
+
+  // 4. 裁剪圆角 + 绘制截图内容
+  ctx.save()
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.beginPath()
+  ctx.roundRect(imgX, imgY, sw, sh, innerR)
+  ctx.clip()
+  ctx.drawImage(srcCanvas, imgX, imgY)
+  ctx.restore()
+
+  return out
+}
+
 // ============ 完成截图 → 复制到剪贴板 ============
 
 async function copyToClipboard() {
@@ -489,6 +581,11 @@ async function copyToClipboard() {
   annMgr.drawAll(cropCtx, sf)
   cropCtx.restore()
 
+  // 背景投影处理
+  const finalCanvas = await applyBgShadowIfEnabled(cropCanvas)
+  const fw = finalCanvas.width
+  const fh = finalCanvas.height
+
   // 仿 Snow-Shot：先视觉隐藏（opacity=0），但窗口仍在，保证 IPC 可用
   if (containerRef.value) {
     containerRef.value.style.opacity = '0'
@@ -497,13 +594,13 @@ async function copyToClipboard() {
 
   try {
     // 获取 RGBA 像素数据，用二进制 IPC 传输（不走 JSON 序列化）
-    // 仿 Snow-Shot：invoke 第二个参数直接传 ArrayBuffer → Rust 收到 InvokeBody::Raw
-    const imageData = cropCtx.getImageData(0, 0, psw, psh)
+    const finalCtx = finalCanvas.getContext('2d')!
+    const imageData = finalCtx.getImageData(0, 0, fw, fh)
     // 构造二进制 buffer：[width:u32_le][height:u32_le][rgba_pixels...]
     const buf = new ArrayBuffer(8 + imageData.data.byteLength)
     const view = new DataView(buf)
-    view.setUint32(0, psw, true)
-    view.setUint32(4, psh, true)
+    view.setUint32(0, fw, true)
+    view.setUint32(4, fh, true)
     new Uint8Array(buf, 8).set(imageData.data)
     await invoke('copy_rgba_to_clipboard', buf)
   } catch (err) {
@@ -539,8 +636,11 @@ async function saveToFile(fast = false) {
   annMgr.drawAll(cropCtx, sf)
   cropCtx.restore()
 
+  // 背景投影处理
+  const finalCanvas = await applyBgShadowIfEnabled(cropCanvas)
+
   // 转为 PNG blob
-  const blob = await new Promise<Blob | null>(resolve => cropCanvas.toBlob(resolve, 'image/png'))
+  const blob = await new Promise<Blob | null>(resolve => finalCanvas.toBlob(resolve, 'image/png'))
   if (!blob) return
 
   const arrayBuffer = await blob.arrayBuffer()
@@ -1226,8 +1326,11 @@ onMounted(async () => {
   document.body.classList.add('screenshot-window')
   await appWindow.hide()
 
-  // 监听截图事件
-  _unlistens.push(await listen('execute-screenshot', () => {
+  // 监听截图事件（检查截图开关）
+  await settingsStore.init()
+  _unlistens.push(await listen('execute-screenshot', async () => {
+    const enabled = (await settingsStore.get<boolean>('screenshot_enabled')) ?? true
+    if (!enabled) return
     executeScreenshot()
   }))
 
