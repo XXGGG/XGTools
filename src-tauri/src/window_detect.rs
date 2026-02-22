@@ -25,6 +25,8 @@ use thiserror::Error;
 use windows::Win32::Foundation::HWND;
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowInfo, WINDOWINFO};
+#[cfg(windows)]
+use windows::Win32::Graphics::Dwm::DwmGetWindowAttribute;
 
 // ─── Error ───────────────────────────────────────────────────────
 
@@ -63,6 +65,7 @@ impl From<uiautomation::types::Rect> for ElementRect {
 pub struct WindowElement {
     pub element_rect: ElementRect,
     pub window_id: u32,
+    pub corner_radius: f64,
 }
 
 // ─── ElementLevel ────────────────────────────────────────────────
@@ -785,6 +788,30 @@ pub async fn get_visible_windows() -> Result<Vec<WindowElement>, String> {
                         )
                     };
 
+                // 查询 DWM 圆角偏好 (Win11+)
+                // DWMWA_WINDOW_CORNER_PREFERENCE = 33
+                let corner_radius = {
+                    let mut corner_pref: u32 = 0;
+                    let hr = unsafe {
+                        DwmGetWindowAttribute(
+                            hwnd,
+                            windows::Win32::Graphics::Dwm::DWMWA_WINDOW_CORNER_PREFERENCE,
+                            &mut corner_pref as *mut u32 as *mut _,
+                            mem::size_of::<u32>() as u32,
+                        )
+                    };
+                    if hr.is_ok() {
+                        match corner_pref {
+                            1 => 0.0,  // DONOTROUND
+                            3 => 4.0,  // ROUNDSMALL
+                            _ => 8.0,  // DEFAULT(0) 或 ROUND(2) 均为 8px
+                        }
+                    } else {
+                        // Win10 或 API 不支持 → 默认直角
+                        0.0
+                    }
+                };
+
                 Some(WindowElement {
                     element_rect: ElementRect {
                         min_x: left,
@@ -793,6 +820,7 @@ pub async fn get_visible_windows() -> Result<Vec<WindowElement>, String> {
                         max_y: bottom,
                     },
                     window_id: w.id(),
+                    corner_radius,
                 })
             })
             .collect();
