@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Rust build output
+src-tauri/target/
+src-tauri/bin/screenshot/target/
+
+# Large binaries
+src-tauri/resources/ffmpeg/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
