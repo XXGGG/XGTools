@@ -146,6 +146,8 @@ pub fn run() {
             convert_commands::convert_media,
             convert_commands::scan_folder,
             convert_commands::get_ffmpeg_path,
+            convert_commands::check_ffmpeg,
+            convert_commands::download_ffmpeg,
             convert_commands::cancel_convert,
             convert_commands::resolve_output_dir,
         ])

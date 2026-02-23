@@ -21,6 +21,66 @@ import {
 
 const store = new LazyStore('settings.json')
 
+// ─── FFmpeg check ────────────────────────────────────
+const ffmpegReady = ref(true) // 默认 true 避免闪烁
+const ffmpegChecking = ref(true)
+const ffmpegDownloading = ref(false)
+const ffmpegProgress = ref(0)
+const ffmpegStage = ref('')
+const ffmpegMessage = ref('')
+const ffmpegError = ref('')
+
+let unlistenFfmpegProgress: (() => void) | null = null
+
+async function checkFfmpeg() {
+  ffmpegChecking.value = true
+  try {
+    ffmpegReady.value = await invoke<boolean>('check_ffmpeg')
+  } catch {
+    ffmpegReady.value = false
+  }
+  ffmpegChecking.value = false
+}
+
+async function downloadFfmpeg() {
+  ffmpegDownloading.value = true
+  ffmpegError.value = ''
+  ffmpegProgress.value = 0
+  ffmpegStage.value = 'downloading'
+  ffmpegMessage.value = '正在连接...'
+
+  // Listen for progress
+  unlistenFfmpegProgress = (await listen<{
+    stage: string
+    progress: number
+    message: string
+  }>('ffmpeg-download-progress', (e) => {
+    ffmpegStage.value = e.payload.stage
+    ffmpegProgress.value = Math.round(e.payload.progress * 100)
+    ffmpegMessage.value = e.payload.message
+    if (e.payload.stage === 'error') {
+      ffmpegError.value = e.payload.message
+      ffmpegDownloading.value = false
+    }
+    if (e.payload.stage === 'done') {
+      ffmpegReady.value = true
+      ffmpegDownloading.value = false
+    }
+  })) as unknown as () => void
+
+  try {
+    await invoke('download_ffmpeg')
+  } catch (e: any) {
+    ffmpegError.value = typeof e === 'string' ? e : e?.message || '下载失败'
+    ffmpegDownloading.value = false
+  }
+
+  if (unlistenFfmpegProgress) {
+    unlistenFfmpegProgress()
+    unlistenFfmpegProgress = null
+  }
+}
+
 // ─── State ───────────────────────────────────────────
 const files = ref<FileEntry[]>([])
 const targetFormat = ref('')
@@ -61,6 +121,8 @@ const hasFiles = computed(() => files.value.length > 0)
 
 // ─── Settings persistence ────────────────────────────
 onMounted(async () => {
+  await checkFfmpeg()
+
   await store.init()
   const loc = await store.get<string>('convert_output_location')
   if (loc === 'original' || loc === 'desktop' || loc === 'custom') outputLocation.value = loc
@@ -252,6 +314,7 @@ async function cancelConvert() {
 
 onUnmounted(() => {
   if (unlistenProgress) unlistenProgress()
+  if (unlistenFfmpegProgress) unlistenFfmpegProgress()
 })
 
 // ─── Batch folder ────────────────────────────────────
@@ -376,7 +439,47 @@ function getStatusColor(status: FileEntry['status']) {
 
 <template>
   <div class="h-full w-full flex flex-col p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+
     <div class="flex-1 overflow-hidden flex flex-col gap-4 max-w-3xl mx-auto w-full">
+
+      <!-- FFmpeg missing banner -->
+      <Transition
+        enter-active-class="transition-all duration-300"
+        enter-from-class="opacity-0 -translate-y-2"
+        leave-active-class="transition-all duration-200"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div v-if="!ffmpegChecking && !ffmpegReady" class="border rounded-xl p-4 bg-card/50 backdrop-blur-sm shrink-0">
+          <div class="flex items-start gap-3">
+            <div class="p-2 rounded-lg bg-muted/50 shrink-0 mt-0.5">
+              <span class="icon-[lucide--download] w-5 h-5 text-muted-foreground" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium">需要下载 FFmpeg</p>
+              <p class="text-xs text-muted-foreground mt-0.5">视频/音频格式转换需要 FFmpeg（约 100 MB）。图片转换不受影响。</p>
+              <!-- Download progress -->
+              <div v-if="ffmpegDownloading" class="mt-3 space-y-1.5">
+                <Progress :model-value="ffmpegProgress" class="h-1.5" />
+                <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span v-if="ffmpegStage === 'downloading'" class="icon-[lucide--download] w-3.5 h-3.5 animate-bounce" />
+                  <span v-else-if="ffmpegStage === 'extracting'" class="icon-[lucide--archive] w-3.5 h-3.5 animate-spin" />
+                  {{ ffmpegMessage }}
+                </div>
+              </div>
+              <p v-if="ffmpegError" class="text-xs text-destructive mt-2">{{ ffmpegError }}</p>
+            </div>
+            <Button
+              v-if="!ffmpegDownloading"
+              size="sm"
+              @click="downloadFfmpeg"
+              class="shrink-0"
+            >
+              <span class="icon-[lucide--download] w-3.5 h-3.5 mr-1.5" />
+              一键下载
+            </Button>
+          </div>
+        </div>
+      </Transition>
 
       <!-- Drop Zone -->
       <div

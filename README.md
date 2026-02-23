@@ -97,6 +97,10 @@ cd XGTools
 # 安装依赖
 pnpm install
 
+# 下载 ffmpeg（格式转换功能需要）
+# 将 ffmpeg.exe 和 ffprobe.exe 放入 src-tauri/resources/ffmpeg/ 目录
+# 下载地址: https://github.com/BtbN/FFmpeg-Builds/releases
+
 # 开发模式
 pnpm tauri dev
 

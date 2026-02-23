@@ -6,6 +6,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::io::AsyncWriteExt;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -561,6 +562,173 @@ pub fn cancel_convert(task_id: String, state: tauri::State<'_, ConvertState>) ->
     if let Some(flag) = flags.get(&task_id) {
         flag.store(true, Ordering::Relaxed);
     }
+    Ok(())
+}
+
+// ─── FFmpeg download ────────────────────────────────
+
+const FFMPEG_ZIP_URL: &str =
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+
+/// Get the directory where ffmpeg should live (works in both dev and production)
+fn get_ffmpeg_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    Ok(resource_dir.join("resources/ffmpeg"))
+}
+
+#[tauri::command]
+pub fn check_ffmpeg(app: AppHandle) -> bool {
+    if let Ok(dir) = get_ffmpeg_dir(&app) {
+        dir.join("ffmpeg.exe").exists() && dir.join("ffprobe.exe").exists()
+    } else {
+        false
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub struct FfmpegDownloadProgress {
+    pub stage: String,        // "downloading" | "extracting" | "done" | "error"
+    pub progress: f64,        // 0.0 - 1.0
+    pub message: String,
+}
+
+#[tauri::command]
+pub async fn download_ffmpeg(app: AppHandle) -> Result<(), String> {
+    use futures_util::StreamExt;
+
+    let ffmpeg_dir = get_ffmpeg_dir(&app)?;
+    std::fs::create_dir_all(&ffmpeg_dir)
+        .map_err(|e| format!("Failed to create ffmpeg dir: {}", e))?;
+
+    let emit = |stage: &str, progress: f64, message: &str| {
+        let _ = app.emit(
+            "ffmpeg-download-progress",
+            FfmpegDownloadProgress {
+                stage: stage.into(),
+                progress,
+                message: message.into(),
+            },
+        );
+    };
+
+    emit("downloading", 0.0, "正在连接...");
+
+    // Download the zip
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(FFMPEG_ZIP_URL)
+        .send()
+        .await
+        .map_err(|e| format!("Download failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let msg = format!("Download failed: HTTP {}", resp.status());
+        emit("error", 0.0, &msg);
+        return Err(msg);
+    }
+
+    let total_size = resp.content_length().unwrap_or(0);
+    let tmp_zip = ffmpeg_dir.join("_ffmpeg_download.zip");
+
+    let mut file = tokio::fs::File::create(&tmp_zip)
+        .await
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    let mut downloaded: u64 = 0;
+    let mut stream = resp.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("Write error: {}", e))?;
+        downloaded += chunk.len() as u64;
+
+        if total_size > 0 {
+            let pct = downloaded as f64 / total_size as f64;
+            let mb_done = downloaded as f64 / 1_048_576.0;
+            let mb_total = total_size as f64 / 1_048_576.0;
+            emit(
+                "downloading",
+                pct,
+                &format!("{:.1} / {:.1} MB", mb_done, mb_total),
+            );
+        }
+    }
+    file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
+    drop(file);
+
+    // Extract ffmpeg.exe and ffprobe.exe from the zip
+    emit("extracting", 0.0, "正在解压...");
+
+    // Blocking zip extraction in spawn_blocking
+    let zip_path = tmp_zip.clone();
+    let out_dir = ffmpeg_dir.clone();
+    let app_clone = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::open(&zip_path)
+            .map_err(|e| format!("Failed to open zip: {}", e))?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| format!("Invalid zip: {}", e))?;
+
+        let targets = ["ffmpeg.exe", "ffprobe.exe"];
+        let mut found = 0;
+
+        for i in 0..archive.len() {
+            let mut entry = archive
+                .by_index(i)
+                .map_err(|e| format!("Zip entry error: {}", e))?;
+            let name = entry.name().to_string();
+
+            // Files are inside a subdirectory like ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe
+            for target in &targets {
+                if name.ends_with(&format!("bin/{}", target)) {
+                    let out_path = out_dir.join(target);
+                    let mut out_file = std::fs::File::create(&out_path)
+                        .map_err(|e| format!("Failed to create {}: {}", target, e))?;
+                    std::io::copy(&mut entry, &mut out_file)
+                        .map_err(|e| format!("Failed to extract {}: {}", target, e))?;
+                    found += 1;
+
+                    let _ = app_clone.emit(
+                        "ffmpeg-download-progress",
+                        FfmpegDownloadProgress {
+                            stage: "extracting".into(),
+                            progress: found as f64 / targets.len() as f64,
+                            message: format!("已解压 {}", target),
+                        },
+                    );
+                }
+            }
+        }
+
+        if found < targets.len() {
+            return Err("ffmpeg.exe or ffprobe.exe not found in zip".into());
+        }
+
+        // Cleanup zip
+        let _ = std::fs::remove_file(&zip_path);
+
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|e| {
+        let _ = app.emit(
+            "ffmpeg-download-progress",
+            FfmpegDownloadProgress {
+                stage: "error".into(),
+                progress: 0.0,
+                message: e.clone(),
+            },
+        );
+        e
+    })?;
+
+    emit("done", 1.0, "FFmpeg 已就绪");
     Ok(())
 }
 
