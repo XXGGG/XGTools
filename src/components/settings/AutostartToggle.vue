@@ -1,38 +1,39 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
-import { Switch } from '@/components/ui/switch';
+import { ref, onMounted } from 'vue'
+import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart'
+import { Button } from '@/components/ui/button'
 
-const autostartActive = ref(false);
+const active = ref(false)
 
-// 初始化时检查当前状态
 onMounted(async () => {
-   try {
-      autostartActive.value = await isEnabled();
-   } catch (error) {
-      console.error('Failed to check autostart status:', error);
-   }
-});
+  try {
+    active.value = await isEnabled()
+  } catch {}
+})
 
-// 切换处理函数
-const toggleAutostart = async (checked: boolean) => {
-   try {
-      if (checked) {
-         await enable();
-         console.log('Autostart enabled');
-      } else {
-         await disable();
-         console.log('Autostart disabled');
-      }
-      autostartActive.value = checked;
-   } catch (error) {
-      console.error('Failed to toggle autostart:', error);
-      // 失败时回滚状态
-      autostartActive.value = !checked;
-   }
-};
+async function toggle() {
+  try {
+    if (active.value) {
+      await disable()
+      active.value = false
+    } else {
+      await enable()
+      active.value = true
+    }
+  } catch (e) {
+    console.error('Failed to toggle autostart:', e)
+  }
+}
 </script>
 
 <template>
-      <Switch id="autostart-mode" :model-value="autostartActive" @update:model-value="toggleAutostart" />
+  <Button
+    variant="ghost"
+    size="icon"
+    @click="toggle"
+    :title="active ? '已开启自启' : '开启自启'"
+    :class="active ? 'text-foreground' : 'text-muted-foreground/50'"
+  >
+    <span class="icon-[lucide--power] w-5 h-5" />
+  </Button>
 </template>

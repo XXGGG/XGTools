@@ -1,51 +1,47 @@
 <script setup lang="ts">
-import ModeToggle from "../components/settings/ModeToggle.vue";
-import AutostartToggle from '../components/settings/AutostartToggle.vue';
+import { ref, onMounted } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-shell'
+import ModeToggle from '@/components/settings/ModeToggle.vue'
+import AutostartToggle from '@/components/settings/AutostartToggle.vue'
+
+const version = ref('0.1.0')
+
+onMounted(async () => {
+  try {
+    const v = await invoke<string>('plugin:app|version')
+    if (v) version.value = v
+  } catch {}
+})
 </script>
 
 <template>
-    <div class="h-full flex flex-col p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <!-- 欢迎头部 -->
-        <div class="flex flex-col items-center justify-center space-y-4 py-8">
-            <div class="text-6xl mb-4 hover:scale-110 transition-transform cursor-default">👋</div>
-            <h1 class="text-4xl font-bold bg-linear-to-r from-primary to-purple-600 bg-clip-text text-transparent">
-                Welcome to XGTools
-            </h1>
-        </div>
+  <div class="h-full w-full flex flex-col items-center justify-center animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-        <!-- 快速设置区域 -->
-        <div class="grid gap-4 md:grid-cols-2 max-w-4xl mx-auto w-full">
-            <!-- 1. 外观设置 -->
-            <div
-                class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
-                <div class="flex items-center gap-3">
-                    <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
-                        <div class="icon-[lucide--sun] w-5 h-5"></div>
-                    </div>
-                    <div>
-                        <h3 class="font-medium">外观主题</h3>
-                        <p class="text-xs text-muted-foreground">深色 / 浅色模式</p>
-                    </div>
-                </div>
-                <!-- 切换暗黑模式 -->
-                <ModeToggle />
-            </div>
-
-            <!-- 2. 开机自启 -->
-            <div
-                class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
-                <div class="flex items-center gap-3">
-                    <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
-                        <div class="icon-[lucide--power] w-5 h-5"></div>
-                    </div>
-                    <div>
-                        <h3 class="font-medium">开机自启</h3>
-                        <p class="text-xs text-muted-foreground">跟随系统启动</p>
-                    </div>
-                </div>
-                <!-- 开机自启模块 -->
-                <AutostartToggle />
-            </div>
-        </div>
+    <!-- Logo + Name -->
+    <div class="flex flex-col items-center gap-4 mb-8">
+      <span class="icon-[lucide--box] w-16 h-16" />
+      <h1 class="text-4xl font-bold font-caveat">XGTools</h1>
     </div>
+
+    <!-- Meta -->
+    <div class="flex items-center gap-3 text-xs text-muted-foreground">
+      <span class="font-mono">v{{ version }}</span>
+      <span class="w-px h-3 bg-border" />
+      <button
+        class="hover:text-foreground transition-colors flex items-center gap-1.5"
+        @click="open('https://github.com/XXGGG/XGTools')"
+      >
+        <span class="icon-[lucide--github] w-3.5 h-3.5" />
+        GitHub
+      </button>
+    </div>
+
+    <!-- Settings -->
+    <div class="flex items-center gap-2 mt-6">
+      <ModeToggle />
+      <AutostartToggle />
+    </div>
+
+  </div>
 </template>
