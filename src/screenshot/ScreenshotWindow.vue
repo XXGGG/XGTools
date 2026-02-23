@@ -1653,6 +1653,7 @@ const tools = [
       @mousedown.stop
       @mousemove.stop
       @mouseup.stop
+      @contextmenu.prevent.stop="cancelCapture"
     >
       <div
         v-for="(item, idx) in translateResults" :key="idx"
@@ -2461,7 +2462,7 @@ const tools = [
   top: 0; left: 0;
   width: 100vw; height: 100vh;
   pointer-events: auto;
-  cursor: text;
+  cursor: default;
 }
 .translate-block {
   position: absolute;
