@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, defineAsyncComponent } from 'vue';
 import TitleBar from './components/TitleBar.vue';
 import { useDark } from '@vueuse/core'; // 引入 useDark
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -13,6 +13,7 @@ import KeyboardPetView from './views/KeyboardPet.vue';//【页面】键盘桌宠
 import DockView from './views/Dock.vue'; //【页面】启动台设置
 import ScreenshotView from './views/Screenshot.vue'; //【页面】截图设置
 import TranslateView from './views/Translate.vue'; //【页面】翻译
+const ConvertView = defineAsyncComponent(() => import('./views/Convert.vue')); //【页面】格式转换
 import DockWindow from './dock/DockWindow.vue'; //【窗口】启动台
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'; //【窗口】截图
 import PinWindow from './screenshot/PinWindow.vue'; //【窗口】钉图
@@ -161,6 +162,7 @@ onMounted(async () => {
             <KeyboardPetView v-else-if="currentView === 'KeyboardPet'" />
             <ScreenshotView v-else-if="currentView === 'Screenshot'" />
             <TranslateView v-else-if="currentView === 'Translate'" />
+            <ConvertView v-else-if="currentView === 'Convert'" />
 
             <!-- 还没做的功能先显示这个 -->
             <div v-else class="h-full flex flex-col items-center justify-center text-muted-foreground">

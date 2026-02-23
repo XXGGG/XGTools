@@ -3,6 +3,7 @@ mod screenshot_commands;
 mod ocr_commands;
 mod window_detect;
 mod translate_commands;
+mod convert_commands;
 
 #[cfg(windows)]
 mod icon_extractor;
@@ -84,6 +85,9 @@ pub fn run() {
             initializing: std::sync::atomic::AtomicBool::new(false),
         })
         .manage(window_detect::ComThread::spawn())
+        .manage(convert_commands::ConvertState {
+            cancel_flags: std::sync::Mutex::new(std::collections::HashMap::new()),
+        })
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -135,6 +139,15 @@ pub fn run() {
             // Translate
             translate_commands::translate,
             translate_commands::list_models,
+            // Convert
+            convert_commands::detect_file_type,
+            convert_commands::probe_file,
+            convert_commands::convert_image,
+            convert_commands::convert_media,
+            convert_commands::scan_folder,
+            convert_commands::get_ffmpeg_path,
+            convert_commands::cancel_convert,
+            convert_commands::resolve_output_dir,
         ])
         .setup(|app| {
             // --- Input listener (for key visualizer) ---

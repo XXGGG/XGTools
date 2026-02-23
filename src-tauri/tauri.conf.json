@@ -77,7 +77,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/ocr/*": "resources/ocr/"
+      "resources/ocr/*": "resources/ocr/",
+      "resources/ffmpeg/*": "resources/ffmpeg/"
     }
   }
 }
