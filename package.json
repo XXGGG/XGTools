@@ -24,6 +24,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "flatbush": "^4.5.0",
+    "lucide-vue-next": "^0.575.0",
     "pinia": "^3.0.4",
     "reka-ui": "^2.7.0",
     "tailwind-merge": "^3.4.0",
