@@ -5,7 +5,15 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@font-face {
+  font-family: 'Caveat';
+  src: url('/fonts/Caveat[wght].ttf') format('truetype');
+  font-weight: 400 700;
+  font-display: swap;
+}
+
 @theme inline {
+  --font-caveat: 'Caveat', cursive;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -137,6 +145,13 @@
   }
 }
 
+
+/* 原生日期/时间输入暗色模式适配 */
+.dark input[type="date"],
+.dark input[type="time"],
+.dark input[type="number"] {
+  color-scheme: dark;
+}
 
 /* 隐藏所有滚动条 */
 ::-webkit-scrollbar {

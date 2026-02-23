@@ -575,9 +575,9 @@ async function saveIconName(id: string) {
     <div v-if="currentTab === 'general'" class="flex-1 overflow-y-auto space-y-3 max-w-2xl mx-auto w-full">
 
       <!-- 开启启动台 (始终可操作) -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--layout-grid] w-5 h-5" />
           </div>
           <div>
@@ -592,9 +592,9 @@ async function saveIconName(id: string) {
       <div :class="{ 'opacity-40 pointer-events-none select-none': !dockEnabled }" class="space-y-3 transition-opacity duration-300">
 
       <!-- Global Shortcut -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--keyboard] w-5 h-5" />
           </div>
           <div>
@@ -613,9 +613,9 @@ async function saveIconName(id: string) {
       </div>
 
       <!-- Show Names -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--tag] w-5 h-5" />
           </div>
           <div>
@@ -627,9 +627,9 @@ async function saveIconName(id: string) {
       </div>
 
       <!-- Icon Size -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--maximize-2] w-5 h-5" />
           </div>
           <div>
@@ -641,9 +641,9 @@ async function saveIconName(id: string) {
       </div>
 
       <!-- Hover Scale -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--move-diagonal] w-5 h-5" />
           </div>
           <div>
@@ -655,9 +655,9 @@ async function saveIconName(id: string) {
       </div>
 
       <!-- Icon Glow -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--sparkles] w-5 h-5" />
           </div>
           <div>
@@ -669,9 +669,9 @@ async function saveIconName(id: string) {
       </div>
 
       <!-- Padding Top -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--arrow-up-from-line] w-5 h-5" />
           </div>
           <div>
@@ -683,9 +683,9 @@ async function saveIconName(id: string) {
       </div>
 
       <!-- Padding Horizontal -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--arrow-left-right] w-5 h-5" />
           </div>
           <div>

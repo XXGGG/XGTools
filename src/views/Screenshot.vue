@@ -161,9 +161,9 @@ const bgColorPresets = [
     <div class="flex-1 overflow-y-auto space-y-3 max-w-2xl mx-auto w-full">
 
       <!-- 开启截图 -->
-      <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
         <div class="flex items-center gap-3">
-          <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
             <span class="icon-[lucide--focus] w-5 h-5" />
           </div>
           <div>
@@ -178,9 +178,9 @@ const bgColorPresets = [
       <div :class="{ 'opacity-40 pointer-events-none select-none': !screenshotEnabled }" class="space-y-3 transition-opacity duration-300">
 
         <!-- 截图快捷键 -->
-        <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+        <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
           <div class="flex items-center gap-3">
-            <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+            <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
               <span class="icon-[lucide--keyboard] w-5 h-5" />
             </div>
             <div>
@@ -199,9 +199,9 @@ const bgColorPresets = [
         </div>
 
         <!-- 背景与投影 -->
-        <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+        <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
           <div class="flex items-center gap-3">
-            <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+            <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
               <span class="icon-[lucide--image] w-5 h-5" />
             </div>
             <div>
@@ -216,9 +216,9 @@ const bgColorPresets = [
         <div :class="{ 'opacity-40 pointer-events-none select-none': !autoBgShadow }" class="space-y-3 transition-opacity duration-300 pl-4">
 
           <!-- 背景颜色 -->
-          <div class="p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+          <div class="p-4 border rounded-lg hover:bg-accent/50 transition-colors">
             <div class="flex items-center gap-3 mb-3">
-              <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
                 <span class="icon-[lucide--palette] w-5 h-5" />
               </div>
               <div>
@@ -246,9 +246,9 @@ const bgColorPresets = [
           </div>
 
           <!-- 背景内边距 -->
-          <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+          <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
             <div class="flex items-center gap-3">
-              <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
                 <span class="icon-[lucide--move] w-5 h-5" />
               </div>
               <div>
@@ -260,9 +260,9 @@ const bgColorPresets = [
           </div>
 
           <!-- 圆角 -->
-          <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+          <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
             <div class="flex items-center gap-3">
-              <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
                 <span class="icon-[lucide--square] w-5 h-5" />
               </div>
               <div>
@@ -274,9 +274,9 @@ const bgColorPresets = [
           </div>
 
           <!-- 阴影强度 -->
-          <div class="flex items-center justify-between p-4 border rounded-xl bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-colors shadow-sm">
+          <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
             <div class="flex items-center gap-3">
-              <div class="flex p-2 bg-primary/10 rounded-lg text-primary">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
                 <span class="icon-[lucide--cloud] w-5 h-5" />
               </div>
               <div>
@@ -290,36 +290,52 @@ const bgColorPresets = [
         </div>
 
         <!-- 预览 -->
-        <div v-if="autoBgShadow" class="p-4 border rounded-xl bg-card/50 backdrop-blur-sm shadow-sm">
+        <div v-if="autoBgShadow" class="p-4 border rounded-lg">
           <p class="text-xs text-muted-foreground mb-3">预览效果</p>
-          <div class="flex items-center justify-center p-6"
-            :style="{ background: 'repeating-conic-gradient(#e0e0e0 0% 25%, #f8f8f8 0% 50%) 50%/16px 16px' }">
+          <!-- 外层容器：溢出裁剪，模拟真实导出效果 -->
+          <div class="flex items-center justify-center p-4">
             <div
+              class="rounded-lg overflow-hidden inline-block transition-all duration-200"
               :style="{
-                backgroundColor: bgColor === 'transparent' ? 'transparent' : bgColor,
-                padding: bgPadding + 'px',
-                borderRadius: cornerRadius + 'px',
+                background: bgColor === 'transparent'
+                  ? 'repeating-conic-gradient(#d0d0d0 0% 25%, #f8f8f8 0% 50%) 50%/14px 14px'
+                  : bgColor,
+                outline: '1px dashed rgba(128,128,128,0.4)',
+                outlineOffset: '3px',
               }"
-              class="inline-block"
             >
+              <!-- 内边距层（按 0.5 比例缩放） -->
               <div
-                :style="{
-                  width: '240px',
-                  height: '140px',
-                  borderRadius: (cornerRadius * 0.6) + 'px',
-                  boxShadow: [
-                    `0 ${shadowBlur * 0.1}px ${shadowBlur * 0.3}px rgba(0,0,0,0.12)`,
-                    `0 ${shadowBlur * 0.4}px ${shadowBlur * 0.8}px rgba(0,0,0,0.08)`,
-                    `0 ${shadowBlur}px ${shadowBlur * 2}px rgba(0,0,0,0.06)`,
-                  ].join(', '),
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                }"
-                class="flex items-center justify-center text-white/80 text-sm"
+                class="flex items-center justify-center transition-all duration-200"
+                :style="{ padding: (bgPadding * 0.5) + 'px' }"
               >
-                截图内容
+                <!-- 截图内容（含阴影 + 圆角） -->
+                <div
+                  :style="{
+                    width: '260px',
+                    height: '150px',
+                    borderRadius: (cornerRadius * 0.5) + 'px',
+                    boxShadow: shadowBlur > 0
+                      ? [
+                          `0 ${shadowBlur * 0.08}px ${shadowBlur * 0.2}px rgba(0,0,0,0.14)`,
+                          `0 ${shadowBlur * 0.25}px ${shadowBlur * 0.5}px rgba(0,0,0,0.10)`,
+                          `0 ${shadowBlur * 0.5}px ${shadowBlur}px rgba(0,0,0,0.08)`,
+                        ].join(', ')
+                      : 'none',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  }"
+                  class="flex items-center justify-center text-white/80 text-sm select-none"
+                >
+                  截图内容
+                </div>
               </div>
             </div>
           </div>
+          <!-- 提示信息 -->
+          <p v-if="bgPadding < shadowBlur * 0.8" class="text-xs text-amber-500 mt-2 flex items-center gap-1.5">
+            <span class="icon-[lucide--alert-triangle] w-3.5 h-3.5 shrink-0" />
+            内边距较小，部分阴影会被裁切
+          </p>
         </div>
 
       </div>

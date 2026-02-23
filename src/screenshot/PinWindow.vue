@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { listen } from '@tauri-apps/api/event'
+import { listen, emit as tauriEmit } from '@tauri-apps/api/event'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 
 const imgSrc = ref('')
@@ -59,8 +59,10 @@ function onMouseUp() {
 onMounted(async () => {
   document.body.classList.add('screenshot-window')
 
+  // 监听定向发送给本窗口的图片数据
+  const myLabel = appWindow.label
   unlisten = await listen<{ dataUrl: string; x: number; y: number; w: number; h: number }>(
-    'pin-image-data',
+    `pin-image-data:${myLabel}`,
     async (event) => {
       const { dataUrl, x, y, w, h } = event.payload
       imgSrc.value = dataUrl
@@ -82,6 +84,9 @@ onMounted(async () => {
       await appWindow.setFocus()
     }
   )
+
+  // 通知创建者：listener 已就绪，可以发送数据了
+  await tauriEmit('pin-ready', { label: myLabel })
 })
 
 onUnmounted(() => {

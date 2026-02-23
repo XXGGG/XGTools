@@ -745,9 +745,21 @@ async function pinToScreen() {
 
   cancelCapture()
 
-  // 创建钉图窗口（不透明，避免白闪）
+  // 创建钉图窗口：先监听 ready 信号，等 PinWindow mount 后再发送数据
   try {
-    const pinWin = new WebviewWindow(label, {
+    const unlistenReady = await listen<{ label: string }>('pin-ready', async (event) => {
+      if (event.payload.label !== label) return
+      unlistenReady()
+      await tauriEmit(`pin-image-data:${label}`, {
+        dataUrl,
+        x: psx,
+        y: psy,
+        w: psw,
+        h: psh,
+      })
+    })
+
+    new WebviewWindow(label, {
       url: 'index.html',
       title: 'Pin',
       width: 1,
@@ -759,16 +771,6 @@ async function pinToScreen() {
       skipTaskbar: true,
       resizable: true,
       visible: false,
-    })
-
-    pinWin.once('tauri://created', async () => {
-      await tauriEmit('pin-image-data', {
-        dataUrl,
-        x: psx,
-        y: psy,
-        w: psw,
-        h: psh,
-      })
     })
   } catch (err) {
     console.error('Failed to create pin window:', err)

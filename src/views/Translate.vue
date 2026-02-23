@@ -358,14 +358,14 @@ watch([translateMode, freeEngine, aiEngine], () => {
     <div class="flex-1 flex flex-col overflow-hidden max-w-3xl mx-auto w-full gap-3">
 
       <!-- 顶部栏 -->
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-muted-foreground">当前引擎:</span>
-          <span class="text-xs font-medium px-2 py-0.5 rounded bg-muted">{{ activeEngineLabel }}</span>
-          <span v-if="isUsingFallback" class="text-xs text-amber-400">(AI 不可用, 已回退)</span>
+      <div class="flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2.5">
+          <span class="text-sm text-muted-foreground">当前引擎:</span>
+          <span class="text-sm font-medium px-3 py-1 rounded-md bg-muted">{{ activeEngineLabel }}</span>
+          <span v-if="isUsingFallback" class="text-sm text-amber-400">(AI 不可用, 已回退)</span>
         </div>
-        <Button variant="ghost" size="icon-sm" @click="showSettingsDialog = true" title="翻译设置">
-          <span class="icon-[lucide--settings] w-4 h-4" />
+        <Button variant="ghost" size="sm" @click="showSettingsDialog = true" title="翻译设置">
+          <span class="icon-[lucide--settings] w-5 h-5" />
         </Button>
       </div>
 
