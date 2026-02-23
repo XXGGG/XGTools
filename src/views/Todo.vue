@@ -64,7 +64,7 @@ const dialogForm = ref({
   text: '',
   dueDate: '' as string,
   repeat: 'none' as RepeatType,
-  repeatDay: null as number | null,
+  repeatDay: undefined as number | undefined,
 })
 
 const calendarValue = computed({
@@ -225,7 +225,7 @@ function clearCompleted() {
 
 function openAddDialog() {
   editingId.value = null
-  dialogForm.value = { text: '', dueDate: '', repeat: 'none', repeatDay: null }
+  dialogForm.value = { text: '', dueDate: '', repeat: 'none', repeatDay: undefined }
   dialogOpen.value = true
 }
 
@@ -235,7 +235,7 @@ function editItem(item: TodoItem) {
     text: item.text,
     dueDate: item.dueDate || '',
     repeat: item.repeat,
-    repeatDay: item.repeatDay,
+    repeatDay: item.repeatDay ?? undefined,
   }
   dialogOpen.value = true
 }
@@ -250,7 +250,7 @@ function confirmDialog() {
       item.text = f.text.trim()
       item.dueDate = f.dueDate || null
       item.repeat = f.repeat
-      item.repeatDay = f.repeatDay
+      item.repeatDay = f.repeatDay ?? null
     }
   } else {
     todos.value.push({
@@ -261,7 +261,7 @@ function confirmDialog() {
       completedAt: null,
       dueDate: f.dueDate || null,
       repeat: f.repeat,
-      repeatDay: f.repeatDay,
+      repeatDay: f.repeatDay ?? null,
     })
   }
 
