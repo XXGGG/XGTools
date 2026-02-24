@@ -8,6 +8,14 @@ import type { Annotation, SelectRect, BorderStyle, LineStyle, ArrowType, Endpoin
 let nextId = 1
 function genId() { return `ann_${nextId++}` }
 
+/** 缩放控制点位置 */
+enum ResizeHandle {
+  None = 0,
+  TopLeft, Top, TopRight,
+  Left, Right,
+  BottomLeft, Bottom, BottomRight,
+}
+
 export class AnnotationManager {
   /** 所有已完成的标注 */
   annotations: Annotation[] = []
@@ -85,6 +93,19 @@ export class AnnotationManager {
   selectedId: string | null = null
   /** 是否正在移动选中标注 */
   isMovingSelected = false
+  /** 是否正在缩放选中标注 */
+  isResizing = false
+  /** 当前缩放控制点 */
+  private resizeHandle = ResizeHandle.None
+  /** 缩放前的原始包围盒 */
+  private resizeOrigBounds = { x: 0, y: 0, w: 0, h: 0 }
+  /** 缩放前的原始端点（线条/箭头） */
+  private resizeOrigPoints: { x1: number; y1: number; x2: number; y2: number } | null = null
+  /** 缩放前的原始画笔点（画笔类） */
+  private resizeOrigPenPoints: [number, number][] | null = null
+  /** 缩放起点鼠标位置 */
+  private resizeStartX = 0
+  private resizeStartY = 0
   /** 移动起点 */
   private moveStartX = 0
   private moveStartY = 0
@@ -110,12 +131,78 @@ export class AnnotationManager {
     return [mx, my]
   }
 
+  // ============ 缩放控制点检测 ============
+
+  /** 检测鼠标是否在选中标注的缩放控制点上 */
+  private detectResizeHandle(ann: Annotation, mx: number, my: number): ResizeHandle {
+    const b = this.getBounds(ann)
+    const pad = 4
+    const r = 6 // 控制点检测半径
+    const x = b.x - pad, y = b.y - pad, w = b.w + pad * 2, h = b.h + pad * 2
+    const cx = x + w / 2, cy = y + h / 2
+
+    // 四角
+    if (Math.hypot(mx - x, my - y) <= r) return ResizeHandle.TopLeft
+    if (Math.hypot(mx - (x + w), my - y) <= r) return ResizeHandle.TopRight
+    if (Math.hypot(mx - x, my - (y + h)) <= r) return ResizeHandle.BottomLeft
+    if (Math.hypot(mx - (x + w), my - (y + h)) <= r) return ResizeHandle.BottomRight
+    // 四边中点
+    if (w > 48 && Math.hypot(mx - cx, my - y) <= r) return ResizeHandle.Top
+    if (w > 48 && Math.hypot(mx - cx, my - (y + h)) <= r) return ResizeHandle.Bottom
+    if (h > 48 && Math.hypot(mx - x, my - cy) <= r) return ResizeHandle.Left
+    if (h > 48 && Math.hypot(mx - (x + w), my - cy) <= r) return ResizeHandle.Right
+
+    return ResizeHandle.None
+  }
+
+  /** 获取缩放控制点对应的光标样式 */
+  getResizeCursor(mx: number, my: number): string | null {
+    const sel = this.getSelected()
+    if (!sel) return null
+    const handle = this.detectResizeHandle(sel, mx, my)
+    switch (handle) {
+      case ResizeHandle.TopLeft:
+      case ResizeHandle.BottomRight: return 'nwse-resize'
+      case ResizeHandle.TopRight:
+      case ResizeHandle.BottomLeft: return 'nesw-resize'
+      case ResizeHandle.Top:
+      case ResizeHandle.Bottom: return 'ns-resize'
+      case ResizeHandle.Left:
+      case ResizeHandle.Right: return 'ew-resize'
+      default: return null
+    }
+  }
+
   // ============ 鼠标事件 ============
 
   handleMouseDown(e: MouseEvent): boolean {
     if (e.button !== 0) return false
 
     const [lx, ly] = this.toLocal(e.clientX, e.clientY)
+
+    // 选中标注时，优先检测缩放控制点
+    if (this.selectedId) {
+      const sel = this.annotations.find(a => a.id === this.selectedId)
+      if (sel) {
+        const handle = this.detectResizeHandle(sel, lx, ly)
+        if (handle !== ResizeHandle.None) {
+          this.saveState()
+          this.isResizing = true
+          this.resizeHandle = handle
+          this.resizeOrigBounds = this.getBounds(sel)
+          this.resizeStartX = lx
+          this.resizeStartY = ly
+          // 保存原始端点/点集，缩放时基于原始值计算
+          if (sel.tool === DrawTool.Arrow || sel.tool === DrawTool.Line) {
+            this.resizeOrigPoints = { x1: sel.x1, y1: sel.y1, x2: sel.x2, y2: sel.y2 }
+          } else { this.resizeOrigPoints = null }
+          if (sel.tool === DrawTool.Pen || sel.tool === DrawTool.Highlight || sel.tool === DrawTool.BlurFreeDraw) {
+            this.resizeOrigPenPoints = sel.points.map(p => [p[0], p[1]] as [number, number])
+          } else { this.resizeOrigPenPoints = null }
+          return true
+        }
+      }
+    }
 
     // 无工具模式：选择 / 移动标注
     if (this.currentTool === DrawTool.None) {
@@ -152,6 +239,18 @@ export class AnnotationManager {
       return false
     }
 
+    // 有工具模式：检查是否点在已选中标注的控制点或标注内（优先操作标注）
+    if (this.selectedId) {
+      const sel = this.annotations.find(a => a.id === this.selectedId)
+      if (sel && this.hitTest(sel, lx, ly, 6)) {
+        this.saveState()
+        this.isMovingSelected = true
+        this.moveStartX = lx
+        this.moveStartY = ly
+        return true
+      }
+    }
+
     // 有工具模式：正常绘制
     this.selectedId = null // 绘制时取消选中
     this.isDrawing = true
@@ -182,6 +281,14 @@ export class AnnotationManager {
   }
 
   handleMouseMove(e: MouseEvent): boolean {
+    // 缩放选中标注
+    if (this.isResizing && this.selectedId) {
+      const [lx, ly] = this.toLocal(e.clientX, e.clientY)
+      const sel = this.annotations.find(a => a.id === this.selectedId)
+      if (sel) this.applyResize(sel, lx, ly, e.shiftKey)
+      return true
+    }
+
     // 移动选中标注
     if (this.isMovingSelected && this.selectedId) {
       const [lx, ly] = this.toLocal(e.clientX, e.clientY)
@@ -202,11 +309,18 @@ export class AnnotationManager {
       this.tempPoints.push([lx, ly])
     }
 
-    this.tempAnnotation = this.buildAnnotation(lx, ly)
+    this.tempAnnotation = this.buildAnnotation(lx, ly, e.shiftKey)
     return true
   }
 
   handleMouseUp(e: MouseEvent): boolean {
+    // 结束缩放
+    if (this.isResizing) {
+      this.isResizing = false
+      this.resizeHandle = ResizeHandle.None
+      return true
+    }
+
     // 结束移动选中标注
     if (this.isMovingSelected) {
       this.isMovingSelected = false
@@ -217,11 +331,13 @@ export class AnnotationManager {
     this.isDrawing = false
 
     const [lx, ly] = this.toLocal(e.clientX, e.clientY)
-    const ann = this.buildAnnotation(lx, ly)
+    const ann = this.buildAnnotation(lx, ly, e.shiftKey)
 
     if (ann && this.isValidAnnotation(ann)) {
       this.saveState()
       this.annotations.push(ann)
+      // 画完后自动选中，方便立即修改样式
+      this.selectedId = ann.id
     }
 
     this.tempAnnotation = null
@@ -231,7 +347,7 @@ export class AnnotationManager {
 
   // ============ 构建标注 ============
 
-  private buildAnnotation(endX: number, endY: number): Annotation | null {
+  private buildAnnotation(endX: number, endY: number, shiftKey = false): Annotation | null {
     const sx = this.dragStartX
     const sy = this.dragStartY
     const base = {
@@ -244,17 +360,36 @@ export class AnnotationManager {
       lineStyle: this.lineStyle,
     }
 
+    // Shift 约束：正方形/正圆/45°线
+    let ex = endX, ey = endY
+    if (shiftKey) {
+      const tool = this.currentTool
+      if (tool === DrawTool.Rect || tool === DrawTool.Diamond || tool === DrawTool.Ellipse || tool === DrawTool.Blur) {
+        const size = Math.max(Math.abs(ex - sx), Math.abs(ey - sy))
+        ex = sx + size * Math.sign(ex - sx || 1)
+        ey = sy + size * Math.sign(ey - sy || 1)
+      } else if (tool === DrawTool.Arrow || tool === DrawTool.Line) {
+        // 约束为水平/垂直/45°
+        const dx = ex - sx, dy = ey - sy
+        const angle = Math.atan2(dy, dx)
+        const len = Math.hypot(dx, dy)
+        const snap = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4)
+        ex = sx + len * Math.cos(snap)
+        ey = sy + len * Math.sin(snap)
+      }
+    }
+
     switch (this.currentTool) {
       case DrawTool.Rect:
-        return { ...base, tool: DrawTool.Rect, x: Math.min(sx, endX), y: Math.min(sy, endY), w: Math.abs(endX - sx), h: Math.abs(endY - sy), cornerStyle: this.cornerStyle, borderRadius: this.borderRadius }
+        return { ...base, tool: DrawTool.Rect, x: Math.min(sx, ex), y: Math.min(sy, ey), w: Math.abs(ex - sx), h: Math.abs(ey - sy), cornerStyle: this.cornerStyle, borderRadius: this.borderRadius }
       case DrawTool.Diamond:
-        return { ...base, tool: DrawTool.Diamond, x: Math.min(sx, endX), y: Math.min(sy, endY), w: Math.abs(endX - sx), h: Math.abs(endY - sy) }
+        return { ...base, tool: DrawTool.Diamond, x: Math.min(sx, ex), y: Math.min(sy, ey), w: Math.abs(ex - sx), h: Math.abs(ey - sy) }
       case DrawTool.Ellipse:
-        return { ...base, tool: DrawTool.Ellipse, cx: (sx + endX) / 2, cy: (sy + endY) / 2, rx: Math.abs(endX - sx) / 2, ry: Math.abs(endY - sy) / 2 }
+        return { ...base, tool: DrawTool.Ellipse, cx: (sx + ex) / 2, cy: (sy + ey) / 2, rx: Math.abs(ex - sx) / 2, ry: Math.abs(ey - sy) / 2 }
       case DrawTool.Arrow:
-        return { ...base, tool: DrawTool.Arrow, x1: sx, y1: sy, x2: endX, y2: endY, arrowType: this.arrowType, startEndpoint: this.startEndpoint, endEndpoint: this.endEndpoint }
+        return { ...base, tool: DrawTool.Arrow, x1: sx, y1: sy, x2: ex, y2: ey, arrowType: this.arrowType, startEndpoint: this.startEndpoint, endEndpoint: this.endEndpoint }
       case DrawTool.Line:
-        return { ...base, tool: DrawTool.Line, x1: sx, y1: sy, x2: endX, y2: endY, startEndpoint: this.startEndpoint, endEndpoint: this.endEndpoint }
+        return { ...base, tool: DrawTool.Line, x1: sx, y1: sy, x2: ex, y2: ey, startEndpoint: this.startEndpoint, endEndpoint: this.endEndpoint }
       case DrawTool.Pen:
         return { ...base, tool: DrawTool.Pen, points: [...this.tempPoints], penStyle: this.penStyle }
       case DrawTool.Highlight:
@@ -262,7 +397,7 @@ export class AnnotationManager {
       case DrawTool.BlurFreeDraw:
         return { ...base, tool: DrawTool.BlurFreeDraw, points: [...this.tempPoints], blurRadius: this.blurRadius, lineWidth: this.blurLineWidth }
       case DrawTool.Blur:
-        return { ...base, tool: DrawTool.Blur, x: Math.min(sx, endX), y: Math.min(sy, endY), w: Math.abs(endX - sx), h: Math.abs(endY - sy), blurRadius: this.blurRadius }
+        return { ...base, tool: DrawTool.Blur, x: Math.min(sx, ex), y: Math.min(sy, ey), w: Math.abs(ex - sx), h: Math.abs(ey - sy), blurRadius: this.blurRadius }
       case DrawTool.Watermark:
         return {
           ...base, tool: DrawTool.Watermark,
@@ -431,6 +566,101 @@ export class AnnotationManager {
     }
   }
 
+  /** 缩放标注：根据控制点和鼠标位置计算新包围盒，然后应用到标注 */
+  private applyResize(ann: Annotation, mx: number, my: number, shiftKey: boolean) {
+    const ob = this.resizeOrigBounds
+    const dx = mx - this.resizeStartX
+    const dy = my - this.resizeStartY
+    const h = this.resizeHandle
+
+    // 根据控制点计算新的包围盒
+    let nx = ob.x, ny = ob.y, nw = ob.w, nh = ob.h
+
+    if (h === ResizeHandle.TopLeft || h === ResizeHandle.Left || h === ResizeHandle.BottomLeft) {
+      nx = ob.x + dx; nw = ob.w - dx
+    }
+    if (h === ResizeHandle.TopRight || h === ResizeHandle.Right || h === ResizeHandle.BottomRight) {
+      nw = ob.w + dx
+    }
+    if (h === ResizeHandle.TopLeft || h === ResizeHandle.Top || h === ResizeHandle.TopRight) {
+      ny = ob.y + dy; nh = ob.h - dy
+    }
+    if (h === ResizeHandle.BottomLeft || h === ResizeHandle.Bottom || h === ResizeHandle.BottomRight) {
+      nh = ob.h + dy
+    }
+
+    // Shift 约束：等比例
+    if (shiftKey && (h === ResizeHandle.TopLeft || h === ResizeHandle.TopRight ||
+        h === ResizeHandle.BottomLeft || h === ResizeHandle.BottomRight)) {
+      const size = Math.max(Math.abs(nw), Math.abs(nh))
+      if (h === ResizeHandle.TopLeft) { nx = ob.x + ob.w - size * Math.sign(nw || 1); ny = ob.y + ob.h - size * Math.sign(nh || 1) }
+      if (h === ResizeHandle.TopRight) { ny = ob.y + ob.h - size * Math.sign(nh || 1) }
+      if (h === ResizeHandle.BottomLeft) { nx = ob.x + ob.w - size * Math.sign(nw || 1) }
+      nw = size * Math.sign(nw || 1)
+      nh = size * Math.sign(nh || 1)
+    }
+
+    // 确保最小尺寸
+    if (Math.abs(nw) < 2) nw = 2 * Math.sign(nw || 1)
+    if (Math.abs(nh) < 2) nh = 2 * Math.sign(nh || 1)
+
+    // 处理翻转（宽度或高度为负）
+    let fx = nx, fy = ny, fw = nw, fh = nh
+    if (fw < 0) { fx = nx + fw; fw = -fw }
+    if (fh < 0) { fy = ny + fh; fh = -fh }
+
+    // 应用到标注
+    this.resizeAnnotation(ann, ob, fx, fy, fw, fh)
+  }
+
+  /** 根据新的包围盒更新标注几何属性 */
+  private resizeAnnotation(ann: Annotation, ob: { x: number; y: number; w: number; h: number }, nx: number, ny: number, nw: number, nh: number) {
+    switch (ann.tool) {
+      case DrawTool.Rect:
+      case DrawTool.Diamond:
+      case DrawTool.Blur:
+      case DrawTool.Watermark:
+        ann.x = nx; ann.y = ny; ann.w = nw; ann.h = nh
+        break
+      case DrawTool.Ellipse:
+        ann.cx = nx + nw / 2; ann.cy = ny + nh / 2
+        ann.rx = nw / 2; ann.ry = nh / 2
+        break
+      case DrawTool.Arrow:
+      case DrawTool.Line: {
+        // 基于原始端点按比例映射
+        const orig = this.resizeOrigPoints
+        if (orig && ob.w > 0 && ob.h > 0) {
+          const sx = (orig.x1 - ob.x) / ob.w
+          const sy = (orig.y1 - ob.y) / ob.h
+          const ex = (orig.x2 - ob.x) / ob.w
+          const ey = (orig.y2 - ob.y) / ob.h
+          ann.x1 = nx + sx * nw; ann.y1 = ny + sy * nh
+          ann.x2 = nx + ex * nw; ann.y2 = ny + ey * nh
+        }
+        break
+      }
+      case DrawTool.Pen:
+      case DrawTool.Highlight:
+      case DrawTool.BlurFreeDraw:
+        // 基于原始点集按比例缩放
+        if (this.resizeOrigPenPoints && ob.w > 0 && ob.h > 0) {
+          for (let i = 0; i < ann.points.length && i < this.resizeOrigPenPoints.length; i++) {
+            const [ox, oy] = this.resizeOrigPenPoints[i]
+            ann.points[i][0] = nx + ((ox - ob.x) / ob.w) * nw
+            ann.points[i][1] = ny + ((oy - ob.y) / ob.h) * nh
+          }
+        }
+        break
+      case DrawTool.Text:
+        ann.x = nx; ann.y = ny
+        break
+      case DrawTool.SerialNumber:
+        ann.cx = nx + nw / 2; ann.cy = ny + nh / 2
+        break
+    }
+  }
+
   /** 获取标注的包围盒（本地坐标） */
   private getBounds(ann: Annotation): { x: number; y: number; w: number; h: number } {
     switch (ann.tool) {
@@ -477,6 +707,20 @@ export class AnnotationManager {
     this.annotations.splice(idx, 1)
     this.selectedId = null
     return true
+  }
+
+  /** 获取当前选中的标注 */
+  getSelected(): Annotation | null {
+    if (!this.selectedId) return null
+    return this.annotations.find(a => a.id === this.selectedId) ?? null
+  }
+
+  /** 更新选中标注的样式属性 */
+  updateSelectedStyle(props: Partial<Annotation>) {
+    const sel = this.getSelected()
+    if (!sel) return
+    this.saveState()
+    Object.assign(sel, props)
   }
 
   /** 取消选中 */
@@ -1090,6 +1334,8 @@ export class AnnotationManager {
     this.tempPoints = []
     this.isDrawing = false
     this.isMovingSelected = false
+    this.isResizing = false
+    this.resizeHandle = ResizeHandle.None
     this.selectedId = null
     this.serialCounter = 1
     this.currentTool = DrawTool.None
