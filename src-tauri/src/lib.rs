@@ -57,6 +57,17 @@ fn init_input_listener(app: tauri::AppHandle) {
     });
 }
 
+/// 无边框全屏：将窗口设为整个主显示器大小（覆盖任务栏）
+fn fullscreen_borderless(window: &tauri::WebviewWindow) {
+    use tauri::{PhysicalPosition, PhysicalSize};
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        let pos = monitor.position();
+        let size = monitor.size();
+        let _ = window.set_position(PhysicalPosition::new(pos.x, pos.y));
+        let _ = window.set_size(PhysicalSize::new(size.width, size.height));
+    }
+}
+
 /// 照搬 Snow-Shot：在截图窗口创建后禁用 DWM 过渡动画
 #[cfg(windows)]
 fn disable_dwm_transitions(window: &tauri::WebviewWindow) {
@@ -182,7 +193,7 @@ pub fn run() {
                         "show_dock" => {
                             let _ = app.emit("toggle-dock", true);
                             if let Some(win) = app.get_webview_window("dock") {
-                                let _ = win.maximize();
+                                fullscreen_borderless(&win);
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }
@@ -343,7 +354,7 @@ pub fn run() {
                             let _ = app.emit("execute-screenshot-translate", ());
                         } else if b.dock.as_ref() == Some(shortcut) {
                             if let Some(win) = app.get_webview_window("dock") {
-                                let _ = win.maximize();
+                                fullscreen_borderless(&win);
                                 let _ = win.show();
                                 let _ = win.set_focus();
                                 let _ = win.eval("window.__toggleDock && window.__toggleDock()");

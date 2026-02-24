@@ -157,6 +157,9 @@
 ::-webkit-scrollbar {
   display: none;
 }
+* {
+  scrollbar-width: none;
+}
 
 /* 全局不可选 */
 * {
