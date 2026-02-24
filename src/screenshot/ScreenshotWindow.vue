@@ -624,7 +624,7 @@ function applyCornerRadiusClip(srcCanvas: HTMLCanvasElement, cornerRadius: numbe
 // ============ 背景投影处理 ============
 
 /** 如果开启了"自动添加背景与投影"，将截图画布包裹进带背景、圆角、多层阴影的新画布 */
-async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement): Promise<HTMLCanvasElement> {
+async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement, snapCornerRadius = 0): Promise<HTMLCanvasElement> {
   const enabled = (await settingsStore.get<boolean>('screenshot_auto_bg_shadow')) ?? false
   if (!enabled) return srcCanvas
 
@@ -639,27 +639,39 @@ async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement): Promise<HTM
   const pad = Math.round(padding * sf)
   const blur = Math.round(shadowBlurVal * sf)
   const r = Math.round(radius * sf)
-  // 最大阴影层的 blur*3 作为边距，确保阴影不被裁切
-  const extra = Math.round(blur * 3)
-  const totalW = sw + pad * 2 + extra * 2
-  const totalH = sh + pad * 2 + extra * 2
+  // 内容圆角：取设置圆角和窗口吸附圆角的最大值，确保与输入 canvas 的实际圆角匹配
+  const snapCR = Math.round(snapCornerRadius * sf)
+  const innerR = Math.max(r, snapCR)
 
-  const imgX = extra + pad
-  const imgY = extra + pad
-  const innerR = Math.round(r * 0.6)
+  // 最终画布 = 背景面板（padding + 内容），无额外边距
+  const totalW = sw + pad * 2
+  const totalH = sh + pad * 2
 
-  // 1. 在离屏 canvas 上画阴影（避免污染主画布）
-  //    思路：离屏画布上画一个黑色圆角矩形 + shadow → 再擦掉黑色块 → 只剩阴影
+  // 截图内容在面板中的位置
+  const imgX = pad
+  const imgY = pad
+
+  // 1. 在离屏大画布上画内容阴影（阴影围绕内容区域，投影到背景面板上）
+  //    离屏画布需要额外空间容纳阴影扩散
+  const maxSpread = Math.round(blur * 2 * 1.5 + blur * 0.8)
+  const extra = Math.max(maxSpread, blur)
+  const offW = totalW + extra * 2
+  const offH = totalH + extra * 2
+
   const shadowCanvas = document.createElement('canvas')
-  shadowCanvas.width = totalW
-  shadowCanvas.height = totalH
+  shadowCanvas.width = offW
+  shadowCanvas.height = offH
   const sctx = shadowCanvas.getContext('2d')!
+
+  // 内容区域在离屏画布中的位置
+  const offImgX = extra + imgX
+  const offImgY = extra + imgY
 
   // 三层阴影参数: [blur倍率, offsetY倍率, opacity]
   const shadowLayers: [number, number, number][] = [
-    [0.3, 0.08, 0.14],   // 近处：小模糊、紧贴，较浓
-    [0.8, 0.3,  0.10],   // 中层：中等模糊与偏移
-    [2.0, 0.8,  0.07],   // 远处：大模糊、大偏移，最淡
+    [0.3, 0.08, 0.18],   // 近处：小模糊、紧贴，较浓
+    [0.8, 0.3,  0.14],   // 中层：中等模糊与偏移
+    [2.0, 0.8,  0.10],   // 远处：大模糊、大偏移，较淡
   ]
 
   for (const [blurMul, offsetMul, alpha] of shadowLayers) {
@@ -669,40 +681,41 @@ async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement): Promise<HTM
     sctx.shadowOffsetX = 0
     sctx.shadowOffsetY = blur * offsetMul
     sctx.beginPath()
-    sctx.roundRect(imgX, imgY, sw, sh, innerR)
+    sctx.roundRect(offImgX, offImgY, sw, sh, innerR)
     sctx.fillStyle = '#000'
     sctx.fill()
     sctx.restore()
   }
 
-  // 擦掉黑色填充块，只留阴影
+  // 擦掉黑色填充块，只留阴影（扩大 1px 避免亚像素残留黑线）
   sctx.save()
   sctx.globalCompositeOperation = 'destination-out'
   sctx.beginPath()
-  sctx.roundRect(imgX, imgY, sw, sh, innerR)
+  sctx.roundRect(offImgX - 1, offImgY - 1, sw + 2, sh + 2, innerR)
   sctx.fill()
   sctx.restore()
 
-  // 2. 组合到最终画布
+  // 2. 组合到最终画布（裁剪掉离屏画布的 extra 边距）
   const out = document.createElement('canvas')
   out.width = totalW
   out.height = totalH
   const ctx = out.getContext('2d')!
 
-  // 先画阴影层
-  ctx.drawImage(shadowCanvas, 0, 0)
-
-  // 背景色填充（带圆角）— 透明则跳过
-  const bgX = extra
-  const bgY = extra
-  const bgW = sw + pad * 2
-  const bgH = sh + pad * 2
+  // 背景色填充（带圆角）— 先画背景再画阴影，阴影投在背景上
   if (bgColor !== 'transparent') {
     ctx.beginPath()
-    ctx.roundRect(bgX, bgY, bgW, bgH, r)
+    ctx.roundRect(0, 0, totalW, totalH, r)
     ctx.fillStyle = bgColor
     ctx.fill()
   }
+
+  // 将阴影层裁剪到面板范围内绘制（阴影投射在背景面板上，不溢出）
+  ctx.save()
+  ctx.beginPath()
+  ctx.roundRect(0, 0, totalW, totalH, r)
+  ctx.clip()
+  ctx.drawImage(shadowCanvas, -extra, -extra)
+  ctx.restore()
 
   // 绘制截图内容（圆角裁剪）
   ctx.save()
@@ -725,11 +738,13 @@ async function copyToClipboard() {
   if (r.w < 2 || r.h < 2) return
 
   const sf = scaleFactor
+  // 窗口吸附时内缩 1 物理像素，去掉 DWM 边框/阴影残留
+  const inset = selMgr.isSnapped ? 1 : 0
   const cropCanvas = document.createElement('canvas')
-  const psx = Math.round(r.x * sf)
-  const psy = Math.round(r.y * sf)
-  const psw = Math.round(r.w * sf)
-  const psh = Math.round(r.h * sf)
+  const psx = Math.round(r.x * sf) + inset
+  const psy = Math.round(r.y * sf) + inset
+  const psw = Math.round(r.w * sf) - inset * 2
+  const psh = Math.round(r.h * sf) - inset * 2
   cropCanvas.width = psw
   cropCanvas.height = psh
   const cropCtx = cropCanvas.getContext('2d')!
@@ -747,7 +762,7 @@ async function copyToClipboard() {
   const croppedCanvas = applyCornerRadiusClip(cropCanvas, selMgr.snapCornerRadius, sf)
 
   // 背景投影处理
-  const finalCanvas = await applyBgShadowIfEnabled(croppedCanvas)
+  const finalCanvas = await applyBgShadowIfEnabled(croppedCanvas, selMgr.snapCornerRadius)
   const fw = finalCanvas.width
   const fh = finalCanvas.height
 
@@ -786,14 +801,16 @@ async function saveToFile(fast = false) {
   if (r.w < 2 || r.h < 2) return
 
   const sf = scaleFactor
+  // 窗口吸附时内缩 1 物理像素，去掉 DWM 边框/阴影残留
+  const inset = selMgr.isSnapped ? 1 : 0
   const cropCanvas = document.createElement('canvas')
-  const psw = Math.round(r.w * sf)
-  const psh = Math.round(r.h * sf)
+  const psx = Math.round(r.x * sf) + inset
+  const psy = Math.round(r.y * sf) + inset
+  const psw = Math.round(r.w * sf) - inset * 2
+  const psh = Math.round(r.h * sf) - inset * 2
   cropCanvas.width = psw
   cropCanvas.height = psh
   const cropCtx = cropCanvas.getContext('2d')!
-  const psx = Math.round(r.x * sf)
-  const psy = Math.round(r.y * sf)
   cropCtx.drawImage(bgCanvas, psx, psy, psw, psh, 0, 0, psw, psh)
   // 绝对坐标系：裁剪画布原点在选区左上角，需偏移
   cropCtx.save()
@@ -805,7 +822,7 @@ async function saveToFile(fast = false) {
   const croppedCanvas = applyCornerRadiusClip(cropCanvas, selMgr.snapCornerRadius, sf)
 
   // 背景投影处理
-  const finalCanvas = await applyBgShadowIfEnabled(croppedCanvas)
+  const finalCanvas = await applyBgShadowIfEnabled(croppedCanvas, selMgr.snapCornerRadius)
 
   // 转为 PNG blob
   const blob = await new Promise<Blob | null>(resolve => finalCanvas.toBlob(resolve, 'image/png'))

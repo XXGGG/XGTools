@@ -135,12 +135,19 @@ export class WindowSnapManager {
 
   /**
    * Flatbush 窗口级命中检测
-   * 返回命中的窗口索引列表（索引小 = z-order 高）
+   * 返回命中的窗口索引列表（面积小 = 优先级高，因为更具体）
    */
   private hitTestWindow(physX: number, physY: number): number[] {
     if (!this.rTree) return []
     const indices = this.rTree.search(physX, physY, physX, physY)
-    indices.sort((a, b) => a - b)
+    // 按面积从小到大排：更具体的小窗口优先于全屏大窗口
+    indices.sort((a, b) => {
+      const ra = this.windowElements[a]
+      const rb = this.windowElements[b]
+      const areaA = (ra.max_x - ra.min_x) * (ra.max_y - ra.min_y)
+      const areaB = (rb.max_x - rb.min_x) * (rb.max_y - rb.min_y)
+      return areaA - areaB
+    })
     return indices
   }
 

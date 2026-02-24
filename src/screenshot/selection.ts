@@ -44,6 +44,8 @@ export class SelectionManager {
   windowSnap: WindowSnapManager | null = null
   /** 吸附截取时的窗口圆角半径（CSS px），手动拖选为 0 */
   snapCornerRadius = 0
+  /** 当前选区是否来自窗口吸附（非手动拖选） */
+  isSnapped = false
 
   /** 状态改变回调 */
   onStateChange?: (state: SelectState) => void
@@ -67,6 +69,7 @@ export class SelectionManager {
     this.pending = false
     this.hasMousePosition = false
     this.snapCornerRadius = 0
+    this.isSnapped = false
   }
 
   // ============ 鼠标事件处理 ============
@@ -138,6 +141,7 @@ export class SelectionManager {
         this.pending = false
         this.state = SelectState.Creating
         this.snapCornerRadius = 0
+        this.isSnapped = false
         this.rect = { x: this.dragStartX, y: this.dragStartY, w: 0, h: 0 }
         this.onStateChange?.(this.state)
       }
@@ -181,6 +185,7 @@ export class SelectionManager {
         const sr = this.windowSnap.snapRect
         this.rect = { x: sr.x, y: sr.y, w: sr.w, h: sr.h }
         this.snapCornerRadius = this.windowSnap.getCornerRadius()
+        this.isSnapped = true
         this.state = SelectState.Selected
         this.onStateChange?.(this.state)
         return true

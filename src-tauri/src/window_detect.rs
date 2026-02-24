@@ -22,11 +22,11 @@ use std::sync::Arc;
 use thiserror::Error;
 
 #[cfg(windows)]
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, RECT};
 #[cfg(windows)]
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowInfo, WINDOWINFO};
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowInfo, GetWindowTextW, WINDOWINFO};
 #[cfg(windows)]
-use windows::Win32::Graphics::Dwm::DwmGetWindowAttribute;
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 
 // ─── Error ───────────────────────────────────────────────────────
 
@@ -740,13 +740,132 @@ pub async fn get_element_from_position(
     rx.await.map_err(|_| "COM reply lost".to_string())?
 }
 
+/// 从 HWND 获取窗口标题
+fn get_window_title_raw(hwnd: HWND) -> String {
+    unsafe {
+        let mut buf = [0u16; 256];
+        let len = GetWindowTextW(hwnd, &mut buf);
+        if len > 0 {
+            String::from_utf16_lossy(&buf[..len as usize])
+        } else {
+            String::new()
+        }
+    }
+}
+
+/// 将 HWND 转换为 WindowElement（共用逻辑）
+fn hwnd_to_window_element(hwnd: HWND) -> Option<WindowElement> {
+    let mut wi = WINDOWINFO {
+        cbSize: mem::size_of::<WINDOWINFO>() as u32,
+        ..Default::default()
+    };
+    // 优先用 DWMWA_EXTENDED_FRAME_BOUNDS（含 DWM 阴影的精确边界）
+    let mut efb = RECT::default();
+    let (left, top, right, bottom) =
+        if unsafe {
+            DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_EXTENDED_FRAME_BOUNDS,
+                &mut efb as *mut RECT as *mut _,
+                mem::size_of::<RECT>() as u32,
+            )
+        }
+        .is_ok()
+            && (efb.right - efb.left) > 0
+            && (efb.bottom - efb.top) > 0
+        {
+            (efb.left, efb.top, efb.right, efb.bottom)
+        } else if unsafe { GetWindowInfo(hwnd, &mut wi) }.is_ok()
+            && (wi.rcClient.right - wi.rcClient.left) > 0
+            && (wi.rcClient.bottom - wi.rcClient.top) > 0
+        {
+            (
+                wi.rcClient.left,
+                wi.rcClient.top,
+                wi.rcClient.right,
+                wi.rcClient.bottom,
+            )
+        } else {
+            return None;
+        };
+
+    // 查询 DWM 圆角偏好 (Win11+)
+    let corner_radius = {
+        let mut corner_pref: u32 = 0;
+        let hr = unsafe {
+            DwmGetWindowAttribute(
+                hwnd,
+                windows::Win32::Graphics::Dwm::DWMWA_WINDOW_CORNER_PREFERENCE,
+                &mut corner_pref as *mut u32 as *mut _,
+                mem::size_of::<u32>() as u32,
+            )
+        };
+        if hr.is_ok() {
+            match corner_pref {
+                1 => 0.0,  // DONOTROUND
+                3 => 4.0,  // ROUNDSMALL
+                _ => 8.0,  // DEFAULT(0) 或 ROUND(2) 均为 8px
+            }
+        } else {
+            0.0
+        }
+    };
+
+    Some(WindowElement {
+        element_rect: ElementRect {
+            min_x: left,
+            min_y: top,
+            max_x: right,
+            max_y: bottom,
+        },
+        window_id: hwnd.0 as u32,
+        corner_radius,
+    })
+}
+
+/// 枚举同进程的可见窗口 HWND（不依赖 xcap）
+fn enum_same_process_hwnds(target_pid: u32) -> Vec<HWND> {
+    use winapi::um::winuser::{
+        EnumWindows as WinApiEnumWindows,
+        IsWindowVisible as WinApiIsWindowVisible,
+        IsIconic as WinApiIsIconic,
+        GetWindowThreadProcessId as WinApiGetWindowThreadProcessId,
+    };
+    use winapi::shared::minwindef::{BOOL as WBOOL, TRUE as WTRUE, LPARAM as WLPARAM};
+    use winapi::shared::windef::HWND as WHWND;
+
+    unsafe extern "system" fn callback(hwnd: WHWND, lparam: WLPARAM) -> WBOOL {
+        let state = &mut *(lparam as *mut (u32, Vec<WHWND>));
+        let (target_pid, ref mut hwnds) = *state;
+
+        let mut pid = 0u32;
+        WinApiGetWindowThreadProcessId(hwnd, &mut pid);
+        if pid != target_pid {
+            return WTRUE;
+        }
+        if WinApiIsWindowVisible(hwnd) == 0 || WinApiIsIconic(hwnd) != 0 {
+            return WTRUE;
+        }
+        hwnds.push(hwnd);
+        WTRUE
+    }
+
+    let mut state: (u32, Vec<WHWND>) = (target_pid, Vec::new());
+    unsafe {
+        WinApiEnumWindows(Some(callback), &mut state as *mut _ as WLPARAM);
+    }
+    // 将 winapi HWND 转换为 windows crate HWND
+    state.1.iter().map(|&h| HWND(h as *mut std::ffi::c_void)).collect()
+}
+
 #[tauri::command]
 pub async fn get_visible_windows() -> Result<Vec<WindowElement>, String> {
     tokio::task::spawn_blocking(|| {
         let windows =
             xcap::Window::all().map_err(|e| format!("enum windows: {}", e))?;
 
-        let result: Vec<WindowElement> = windows
+        // xcap 结果（已排除同进程窗口）
+        let mut result: Vec<WindowElement> = windows
             .iter()
             .filter(|w| {
                 if w.is_minimized() {
@@ -756,7 +875,6 @@ pub async fn get_visible_windows() -> Result<Vec<WindowElement>, String> {
                     return false;
                 }
                 let title = w.title();
-                // 排除截图窗口自身 + Shell Handwriting Canvas
                 if title == "XGTools Screenshot Overlay"
                     || title == "Shell Handwriting Canvas"
                 {
@@ -765,65 +883,30 @@ pub async fn get_visible_windows() -> Result<Vec<WindowElement>, String> {
                 true
             })
             .filter_map(|w| {
-                let hwnd_val = w.id() as isize;
-                let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-                let mut wi = WINDOWINFO {
-                    cbSize: mem::size_of::<WINDOWINFO>() as u32,
-                    ..Default::default()
-                };
-                let (left, top, right, bottom) =
-                    if unsafe { GetWindowInfo(hwnd, &mut wi) }.is_ok() {
-                        (
-                            wi.rcClient.left,
-                            wi.rcClient.top,
-                            wi.rcClient.right,
-                            wi.rcClient.bottom,
-                        )
-                    } else {
-                        (
-                            w.x(),
-                            w.y(),
-                            w.x() + w.width() as i32,
-                            w.y() + w.height() as i32,
-                        )
-                    };
-
-                // 查询 DWM 圆角偏好 (Win11+)
-                // DWMWA_WINDOW_CORNER_PREFERENCE = 33
-                let corner_radius = {
-                    let mut corner_pref: u32 = 0;
-                    let hr = unsafe {
-                        DwmGetWindowAttribute(
-                            hwnd,
-                            windows::Win32::Graphics::Dwm::DWMWA_WINDOW_CORNER_PREFERENCE,
-                            &mut corner_pref as *mut u32 as *mut _,
-                            mem::size_of::<u32>() as u32,
-                        )
-                    };
-                    if hr.is_ok() {
-                        match corner_pref {
-                            1 => 0.0,  // DONOTROUND
-                            3 => 4.0,  // ROUNDSMALL
-                            _ => 8.0,  // DEFAULT(0) 或 ROUND(2) 均为 8px
-                        }
-                    } else {
-                        // Win10 或 API 不支持 → 默认直角
-                        0.0
-                    }
-                };
-
-                Some(WindowElement {
-                    element_rect: ElementRect {
-                        min_x: left,
-                        min_y: top,
-                        max_x: right,
-                        max_y: bottom,
-                    },
-                    window_id: w.id(),
-                    corner_radius,
-                })
+                let hwnd = HWND(w.id() as isize as *mut std::ffi::c_void);
+                hwnd_to_window_element(hwnd)
             })
             .collect();
+
+        // 补充同进程窗口（xcap 会跳过 GetCurrentProcessId 的窗口）
+        let my_pid = std::process::id();
+        let same_process_hwnds = enum_same_process_hwnds(my_pid);
+        for hwnd in same_process_hwnds {
+            let title = get_window_title_raw(hwnd);
+            // 排除截图覆盖窗口和其他不需要的窗口
+            if title == "XGTools Screenshot Overlay"
+                || title == "Shell Handwriting Canvas"
+            {
+                continue;
+            }
+            if let Some(elem) = hwnd_to_window_element(hwnd) {
+                // 避免与 xcap 结果重复（理论上不会，但防御性检查）
+                let already = result.iter().any(|r| r.window_id == elem.window_id);
+                if !already {
+                    result.push(elem);
+                }
+            }
+        }
 
         Ok(result)
     })
