@@ -11,7 +11,7 @@ import { SelectionManager } from './selection'
 import { AnnotationManager } from './annotations'
 import { WindowSnapManager } from './windowSnap'
 import { SelectState, DrawTool, STROKE_COLORS, FILL_COLORS, STROKE_WIDTH_PRESETS, FONT_SIZE_PRESETS, TEXT_BG_COLORS, TEXT_STROKE_COLORS, FONT_FAMILIES, FONT_SIZE_LABELS, TEXT_ALIGNS, BORDER_STYLES, LINE_STYLES, ARROW_TYPES, PEN_STYLES, CORNER_STYLES } from './types'
-import type { BorderStyle, LineStyle, ArrowType, EndpointStyle, PenStyle, CornerStyle } from './types'
+import type { Annotation, BorderStyle, LineStyle, ArrowType, EndpointStyle, PenStyle, CornerStyle } from './types'
 
 const canvasRef = ref<HTMLCanvasElement>()
 const overlayRef = ref<HTMLCanvasElement>()
@@ -299,7 +299,7 @@ function setTextStrokeColor(c: string) {
   syncToolState()
 }
 
-// 同步工具状态到标注管理器
+// 同步工具状态到标注管理器（同时更新选中标注）
 function syncToolState() {
   annMgr.currentTool = currentTool.value
   annMgr.strokeColor = currentStrokeColor.value
@@ -335,6 +335,122 @@ function syncToolState() {
       updateTextPreview()
     })
   }
+  // 如果有选中的标注，把面板值同步到标注上
+  applyPanelToSelected()
+}
+
+/** 将选中标注的属性回填到面板 */
+function loadAnnotationToPanel(ann: Annotation) {
+  // 通用属性
+  currentStrokeColor.value = ann.strokeColor
+  currentStrokeWidth.value = ann.strokeWidth
+  currentFillColor.value = ann.fillColor
+  opacity.value = ann.opacity ?? 1
+  borderStyle.value = ann.borderStyle ?? 'solid'
+  lineStyle.value = ann.lineStyle ?? 'sharp'
+
+  // 按类型回填专属属性
+  switch (ann.tool) {
+    case DrawTool.Rect:
+      cornerStyle.value = ann.cornerStyle ?? 'sharp'
+      borderRadius.value = ann.borderRadius ?? 8
+      break
+    case DrawTool.Arrow:
+      arrowType.value = ann.arrowType ?? 'normal'
+      startEndpoint.value = ann.startEndpoint ?? 'none'
+      endEndpoint.value = ann.endEndpoint ?? 'arrow'
+      break
+    case DrawTool.Line:
+      startEndpoint.value = ann.startEndpoint ?? 'none'
+      endEndpoint.value = ann.endEndpoint ?? 'arrow'
+      break
+    case DrawTool.Pen:
+      penStyle.value = ann.penStyle ?? 'round'
+      break
+    case DrawTool.Text:
+      currentFontSize.value = ann.fontSize
+      textBgColor.value = ann.bgColor
+      textStrokeColor.value = ann.textStrokeColor
+      textStrokeWidth.value = ann.textStrokeWidth
+      textFontFamily.value = ann.fontFamily
+      textAlignVal.value = ann.textAlign
+      textOpacity.value = ann.opacity
+      break
+    case DrawTool.Blur:
+      blurRadius.value = ann.blurRadius
+      break
+    case DrawTool.BlurFreeDraw:
+      blurRadius.value = ann.blurRadius
+      blurLineWidth.value = ann.lineWidth
+      break
+    case DrawTool.Watermark:
+      watermarkText.value = ann.text
+      watermarkFontSize.value = ann.fontSize
+      watermarkOpacity.value = ann.opacity
+      watermarkFontFamily.value = ann.fontFamily
+      break
+  }
+}
+
+/** 将面板当前值应用到选中的标注 */
+function applyPanelToSelected() {
+  const sel = annMgr.getSelected()
+  if (!sel) return
+
+  // 通用属性
+  const base: Partial<Annotation> = {
+    strokeColor: currentStrokeColor.value,
+    strokeWidth: currentStrokeWidth.value,
+    fillColor: currentFillColor.value,
+    opacity: opacity.value,
+    borderStyle: borderStyle.value,
+    lineStyle: lineStyle.value,
+  }
+
+  // 按类型追加专属属性
+  switch (sel.tool) {
+    case DrawTool.Rect:
+      Object.assign(base, { cornerStyle: cornerStyle.value, borderRadius: borderRadius.value })
+      break
+    case DrawTool.Arrow:
+      Object.assign(base, { arrowType: arrowType.value, startEndpoint: startEndpoint.value, endEndpoint: endEndpoint.value })
+      break
+    case DrawTool.Line:
+      Object.assign(base, { startEndpoint: startEndpoint.value, endEndpoint: endEndpoint.value })
+      break
+    case DrawTool.Pen:
+      Object.assign(base, { penStyle: penStyle.value })
+      break
+    case DrawTool.Text:
+      Object.assign(base, {
+        fontSize: currentFontSize.value,
+        bgColor: textBgColor.value,
+        textStrokeColor: textStrokeColor.value,
+        textStrokeWidth: textStrokeWidth.value,
+        fontFamily: textFontFamily.value,
+        textAlign: textAlignVal.value,
+        opacity: textOpacity.value,
+      })
+      break
+    case DrawTool.Blur:
+      Object.assign(base, { blurRadius: blurRadius.value })
+      break
+    case DrawTool.BlurFreeDraw:
+      Object.assign(base, { blurRadius: blurRadius.value, lineWidth: blurLineWidth.value })
+      break
+    case DrawTool.Highlight:
+      Object.assign(base, { lineWidth: currentStrokeWidth.value * 6 })
+      break
+    case DrawTool.Watermark:
+      Object.assign(base, {
+        text: watermarkText.value, fontSize: watermarkFontSize.value,
+        opacity: watermarkOpacity.value, fontFamily: watermarkFontFamily.value,
+      })
+      break
+  }
+
+  annMgr.updateSelectedStyle(base)
+  redraw()
 }
 
 // 需要独立浮动面板的工具
@@ -361,24 +477,36 @@ function setTool(tool: DrawTool) {
   syncToolState()
 }
 
-// 当前工具是否显示独立浮动面板
-const showFloatingPanel = computed(() => toolsWithPanel.has(currentTool.value) && showOptions.value)
+// 当前工具是否显示独立浮动面板（绘制工具 or 选中已有标注时）
+const showFloatingPanel = computed(() => {
+  if (toolsWithPanel.has(currentTool.value) && showOptions.value) return true
+  // 选中已有标注时也显示面板
+  const sel = annMgr.getSelected()
+  return sel !== null && toolsWithPanel.has(sel.tool)
+})
+
+// 当前生效的工具类型（当前工具 or 选中标注的工具）
+const effectiveTool = computed(() => {
+  if (currentTool.value !== DrawTool.None) return currentTool.value
+  const sel = annMgr.getSelected()
+  return sel ? sel.tool : DrawTool.None
+})
 
 // 是否是几何形状工具
 const isShapeTool = computed(() => {
-  const t = currentTool.value
+  const t = effectiveTool.value
   return t === DrawTool.Rect || t === DrawTool.Diamond || t === DrawTool.Ellipse
 })
 
 // 是否是线条类工具（箭头/直线）
 const isLineTool = computed(() => {
-  const t = currentTool.value
+  const t = effectiveTool.value
   return t === DrawTool.Arrow || t === DrawTool.Line
 })
 
 // 是否是画笔类工具
 const isPenTool = computed(() => {
-  const t = currentTool.value
+  const t = effectiveTool.value
   return t === DrawTool.Pen || t === DrawTool.Highlight
 })
 
@@ -978,6 +1106,12 @@ function onMouseDown(e: MouseEvent) {
     annMgr.setSelectRect(selMgr.rect)
     syncToolState()
     if (annMgr.handleMouseDown(e)) {
+      // 选中标注后，回填属性到面板
+      const sel = annMgr.getSelected()
+      if (sel) {
+        loadAnnotationToPanel(sel)
+        nextTick(() => updatePanelBasePosition())
+      }
       redraw()
       return
     }
@@ -1006,6 +1140,13 @@ function onMouseMove(e: MouseEvent) {
   if (ocrMode.value || translateResults.value.length > 0 || translateLoading.value) return
 
   // 标注移动中
+  // 标注缩放中
+  if (annMgr.isResizing) {
+    annMgr.handleMouseMove(e)
+    redraw()
+    return
+  }
+
   if (annMgr.isMovingSelected) {
     annMgr.handleMouseMove(e)
     redraw()
@@ -1055,8 +1196,14 @@ function onMouseUp(e: MouseEvent) {
   // 翻译/OCR 模式下不处理选区交互
   if (ocrMode.value || translateResults.value.length > 0 || translateLoading.value) return
 
-  if (annMgr.isMovingSelected || annMgr.isDrawing) {
+  if (annMgr.isResizing || annMgr.isMovingSelected || annMgr.isDrawing) {
     annMgr.handleMouseUp(e)
+    // 画完/缩放后，回填属性到面板
+    const sel = annMgr.getSelected()
+    if (sel) {
+      loadAnnotationToPanel(sel)
+      nextTick(() => updatePanelBasePosition())
+    }
     redraw()
     return
   }
@@ -1068,7 +1215,22 @@ function onMouseUp(e: MouseEvent) {
 
 function updateCursor(x: number, y: number) {
   if (!containerRef.value || !selMgr) return
+
+  // 选中标注时，优先检测缩放控制点的光标
+  if (selMgr.state === SelectState.Selected && annMgr.selectedId) {
+    const resizeCursor = annMgr.getResizeCursor(x, y)
+    if (resizeCursor) {
+      containerRef.value.style.cursor = resizeCursor
+      return
+    }
+  }
+
   if (currentTool.value !== DrawTool.None && selMgr.state === SelectState.Selected) {
+    // 有工具时，悬浮在选中标注上显示 move
+    if (annMgr.selectedId && annMgr.hasAnnotationAt(x, y)) {
+      containerRef.value.style.cursor = 'move'
+      return
+    }
     containerRef.value.style.cursor = 'crosshair'
     return
   }
@@ -1568,12 +1730,22 @@ onMounted(async () => {
   _unlistens.push(await listen('execute-screenshot', async () => {
     const enabled = (await settingsStore.get<boolean>('screenshot_enabled')) ?? true
     if (!enabled) return
+    // 截图进行中再按快捷键 → 取消当前截图
+    if (capturing.value) {
+      cancelCapture()
+      return
+    }
     translateMode.value = false
     executeScreenshot()
   }))
 
   // 监听截图翻译事件
   _unlistens.push(await listen('execute-screenshot-translate', async () => {
+    // 截图进行中再按快捷键 → 取消当前截图
+    if (capturing.value) {
+      cancelCapture()
+      return
+    }
     translateMode.value = true
     executeScreenshot()
   }))
@@ -1708,6 +1880,10 @@ const tools = [
         <span v-if="ocrLoading" class="icon-[lucide--loader-2] tb-icon spin" />
         <span v-else class="icon-[lucide--scan-text] tb-icon" />
       </button>
+      <button class="tb" :class="{ active: translateResults.length > 0 }" title="截图翻译" :disabled="translateLoading" @click="runScreenshotTranslate">
+        <span v-if="translateLoading" class="icon-[lucide--loader-2] tb-icon spin" />
+        <span v-else class="icon-[lucide--languages] tb-icon" />
+      </button>
       <button class="tb" title="钉到屏幕" @click="pinToScreen">
         <span class="icon-[lucide--pin] tb-icon" />
       </button>
@@ -1763,7 +1939,7 @@ const tools = [
       </div>
 
       <!-- ====== 文本背景色（仅文字工具） ====== -->
-      <div v-if="currentTool === DrawTool.Text" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
         <span class="panel-title">背景</span>
         <div class="opt-row">
           <button
@@ -1776,7 +1952,7 @@ const tools = [
       </div>
 
       <!-- ====== 文本描边（仅文字工具） ====== -->
-      <div v-if="currentTool === DrawTool.Text" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
         <span class="panel-title">文本描边</span>
         <div class="opt-row">
           <button
@@ -1789,7 +1965,7 @@ const tools = [
       </div>
 
       <!-- ====== 文本描边宽度（仅文字工具） ====== -->
-      <div v-if="currentTool === DrawTool.Text" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
         <span class="panel-title">文本描边宽度</span>
         <div class="opt-row">
           <input
@@ -1802,7 +1978,7 @@ const tools = [
       </div>
 
       <!-- ====== 画笔样式（仅画笔） ====== -->
-      <div v-if="currentTool === DrawTool.Pen" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Pen" class="panel-section">
         <span class="panel-title">画笔样式</span>
         <div class="opt-row">
           <button
@@ -1867,7 +2043,7 @@ const tools = [
       </div>
 
       <!-- ====== 箭头类型（仅箭头） ====== -->
-      <div v-if="currentTool === DrawTool.Arrow" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Arrow" class="panel-section">
         <span class="panel-title">箭头类型</span>
         <div class="opt-row">
           <button
@@ -1913,7 +2089,7 @@ const tools = [
       </div>
 
       <!-- ====== 边角样式（仅矩形） ====== -->
-      <div v-if="currentTool === DrawTool.Rect" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Rect" class="panel-section">
         <span class="panel-title">边角</span>
         <div class="opt-row">
           <button
@@ -1930,7 +2106,7 @@ const tools = [
       </div>
 
       <!-- ====== 字体（仅文字工具） ====== -->
-      <div v-if="currentTool === DrawTool.Text" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
         <span class="panel-title">字体</span>
         <div class="opt-row">
           <button
@@ -1946,7 +2122,7 @@ const tools = [
       </div>
 
       <!-- ====== 字体大小（仅文字工具） ====== -->
-      <div v-if="currentTool === DrawTool.Text" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
         <span class="panel-title">字体大小</span>
         <div class="opt-row">
           <button
@@ -1958,7 +2134,7 @@ const tools = [
       </div>
 
       <!-- ====== 文本对齐（仅文字工具） ====== -->
-      <div v-if="currentTool === DrawTool.Text" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
         <span class="panel-title">文本对齐</span>
         <div class="opt-row">
           <button
@@ -1974,7 +2150,7 @@ const tools = [
       </div>
 
       <!-- ====== 马赛克强度（矩形马赛克 + 涂抹马赛克） ====== -->
-      <div v-if="currentTool === DrawTool.Blur || currentTool === DrawTool.BlurFreeDraw" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Blur || effectiveTool === DrawTool.BlurFreeDraw" class="panel-section">
         <span class="panel-title">马赛克强度</span>
         <div class="opt-row">
           <input
@@ -1988,7 +2164,7 @@ const tools = [
       </div>
 
       <!-- ====== 涂抹线宽（仅涂抹马赛克） ====== -->
-      <div v-if="currentTool === DrawTool.BlurFreeDraw" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.BlurFreeDraw" class="panel-section">
         <span class="panel-title">涂抹线宽</span>
         <div class="opt-row">
           <input
@@ -2002,7 +2178,7 @@ const tools = [
       </div>
 
       <!-- ====== 水印文本 ====== -->
-      <div v-if="currentTool === DrawTool.Watermark" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Watermark" class="panel-section">
         <span class="panel-title">水印文本</span>
         <div class="opt-row">
           <input
@@ -2016,7 +2192,7 @@ const tools = [
       </div>
 
       <!-- ====== 水印字号 ====== -->
-      <div v-if="currentTool === DrawTool.Watermark" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Watermark" class="panel-section">
         <span class="panel-title">字号</span>
         <div class="opt-row">
           <input
@@ -2030,7 +2206,7 @@ const tools = [
       </div>
 
       <!-- ====== 水印字体 ====== -->
-      <div v-if="currentTool === DrawTool.Watermark" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Watermark" class="panel-section">
         <span class="panel-title">字体</span>
         <div class="opt-row">
           <button
@@ -2055,7 +2231,7 @@ const tools = [
       </div>
 
       <!-- ====== 水印透明度 ====== -->
-      <div v-if="currentTool === DrawTool.Watermark" class="panel-section">
+      <div v-if="effectiveTool === DrawTool.Watermark" class="panel-section">
         <span class="panel-title">透明度</span>
         <div class="opt-row">
           <input
@@ -2073,7 +2249,7 @@ const tools = [
         <span class="panel-title">透明度</span>
         <div class="opt-row">
           <input
-            v-if="currentTool === DrawTool.Text"
+            v-if="effectiveTool === DrawTool.Text"
             type="range" :min="0" :max="1" :step="0.05"
             :value="textOpacity"
             class="slider"
