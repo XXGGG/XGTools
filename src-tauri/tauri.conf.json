@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "xgtools",
+  "productName": "XGTools",
   "version": "0.1.0",
   "identifier": "com.tauri-app.xgtools",
   "build": {
@@ -13,11 +13,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "xgtools",
-        "width": 800,
-        "height": 600,
-        "minWidth": 800,
-        "minHeight": 600,
+        "title": "XGTools",
+        "width": 1000,
+        "height": 800,
+        "minWidth": 1000,
+        "minHeight": 800,
         "decorations": false,
         "shadow": true
       },

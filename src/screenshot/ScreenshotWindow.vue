@@ -1556,10 +1556,11 @@ function onKeyDown(e: KeyboardEvent) {
       redraw()
       return
     }
-    // C → 复制颜色值
+    // C → 复制颜色值并退出截图
     if (e.key.toLowerCase() === 'c' && !e.ctrlKey) {
       const color = selMgr.getColorAtCursor()
       navigator.clipboard.writeText(color)
+      cancelCapture()
       return
     }
     // WASD / 方向键 → 微调鼠标位置

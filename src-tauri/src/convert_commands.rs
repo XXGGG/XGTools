@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 
 #[cfg(windows)]
+#[allow(unused_imports)]
 use std::os::windows::process::CommandExt;
 
 // ─── Types ──────────────────────────────────────
@@ -38,6 +39,7 @@ pub struct FileInfo {
 pub struct ConvertOptions {
     pub quality: Option<u32>,
     pub video_codec: Option<String>,
+    #[allow(dead_code)]
     pub audio_codec: Option<String>,
     pub audio_bitrate: Option<String>,
 }

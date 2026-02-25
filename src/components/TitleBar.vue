@@ -19,7 +19,7 @@ onMounted(async () => {
 
 <template>
   <div data-tauri-drag-region
-    class="h-10 flex items-center justify-between bg-background select-none fixed top-0 left-0 right-0 z-50">
+    class="h-10 shrink-0 flex items-center justify-between bg-background select-none z-50">
     <div></div>
     <div class="flex h-full">
       <button @click="minimize"

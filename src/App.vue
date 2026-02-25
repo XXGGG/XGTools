@@ -20,7 +20,7 @@ import DockWindow from './dock/DockWindow.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
 
-const currentView = ref('Home')
+const currentView = ref('Todo')
 const collapsed = ref(false)
 const menuItems = [
   { id: 'Todo', label: '待办', icon: 'icon-[lucide--circle-check-big]' },
@@ -83,9 +83,9 @@ onMounted(async () => {
   <div v-else class="h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col">
     <TitleBar />
 
-    <div class="flex-1 flex overflow-hidden pt-4">
+    <div class="flex-1 flex overflow-hidden">
       <aside :class="[collapsed ? 'w-14' : 'w-50', 'shrink-0 flex flex-col transition-all duration-200']">
-        <nav class="flex-1 pt-8 flex flex-col gap-1 px-2">
+        <nav class="flex-1 pt-4 flex flex-col gap-1 px-2">
           <button v-for="item in menuItems" :key="item.id" @click="currentView = item.id" :title="item.label" :class="[
             'flex items-center rounded-lg transition-all duration-200 text-sm font-medium overflow-hidden',
             collapsed ? 'size-10 justify-center mx-auto' : 'gap-3 w-full px-4 py-3',
