@@ -37,10 +37,6 @@ onMounted(() => {
           <span class="icon-[lucide--layout-grid] w-3.5 h-3.5" />
           总览
         </TabsTrigger>
-        <TabsTrigger value="habits" class="flex-1 gap-1.5 text-xs">
-          <span class="icon-[lucide--flame] w-3.5 h-3.5" />
-          习惯打卡
-        </TabsTrigger>
         <TabsTrigger value="tasks" class="flex-1 gap-1.5 text-xs">
           <span class="icon-[lucide--list-ordered] w-3.5 h-3.5" />
           待办事务
@@ -109,24 +105,6 @@ onMounted(() => {
           </div>
         </div>
       </ScrollArea>
-    </TabsContent>
-
-    <TabsContent value="habits" class="flex-1 overflow-hidden mt-0 data-[state=inactive]:hidden">
-      <div class="h-full p-6">
-        <ScrollArea class="h-full">
-          <div class="max-w-2xl mx-auto space-y-6 pr-3 pb-16">
-            <HabitSection editable />
-            <div v-if="store.activeHabits.value.length === 0"
-              class="border border-dashed rounded-lg p-12 flex flex-col items-center justify-center space-y-4 text-muted-foreground/60">
-              <span class="icon-[lucide--flame] w-12 h-12" />
-              <div class="text-center space-y-1">
-                <h3 class="font-medium text-base">还没有习惯</h3>
-                <p class="text-sm">点击右下角按钮添加你的第一个习惯</p>
-              </div>
-            </div>
-          </div>
-        </ScrollArea>
-      </div>
     </TabsContent>
 
     <TabsContent value="tasks" class="flex-1 overflow-hidden mt-0 data-[state=inactive]:hidden">

@@ -3,19 +3,23 @@ import { ref, computed } from 'vue'
 import type { HabitItem } from '@/types/todo'
 import { useTodoStore, getLocalDate } from '@/composables/useTodoStore'
 
-const store = useTodoStore()
-
 const props = defineProps<{
   habit: HabitItem
+  /** 外部控制年月（用于月度总览同步导航） */
+  year?: number
+  month?: number // 0-based
+  /** 隐藏底部统计栏 */
+  hideFooter?: boolean
 }>()
 
-defineEmits<{
-  close: []
-}>()
+const store = useTodoStore()
 
 const now = new Date()
-const viewYear = ref(now.getFullYear())
-const viewMonth = ref(now.getMonth()) // 0-based
+const internalYear = ref(now.getFullYear())
+const internalMonth = ref(now.getMonth())
+
+const viewYear = computed(() => props.year ?? internalYear.value)
+const viewMonth = computed(() => props.month ?? internalMonth.value)
 
 const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 
@@ -30,13 +34,11 @@ const days = computed(() => {
   const lastDay = new Date(y, m + 1, 0)
   const totalDays = lastDay.getDate()
 
-  // 周一为起始 (getDay: 0=Sun → offset 6, 1=Mon → offset 0, ...)
   let startOffset = firstDay.getDay() - 1
   if (startOffset < 0) startOffset = 6
 
   const cells: { date: string; day: number; inMonth: boolean; checked: boolean; isToday: boolean; clickable: boolean }[] = []
 
-  // 上月填充
   for (let i = 0; i < startOffset; i++) {
     cells.push({ date: '', day: 0, inMonth: false, checked: false, isToday: false, clickable: false })
   }
@@ -51,45 +53,40 @@ const days = computed(() => {
       inMonth: true,
       checked: !!props.habit.checkins[dateStr],
       isToday: dateStr === todayStr,
-      clickable: dateStr <= todayStr && dateStr >= props.habit.createdAt,
+      clickable: dateStr <= todayStr,
     })
   }
 
   return cells
 })
 
-const streak = computed(() => {
-  let count = 0
-  const d = new Date()
-  if (!props.habit.checkins[getLocalDate(d)]) {
-    d.setDate(d.getDate() - 1)
-  }
-  while (props.habit.checkins[getLocalDate(d)]) {
-    count++
-    d.setDate(d.getDate() - 1)
-  }
-  return count
+const checkedCount = computed(() => {
+  const y = viewYear.value
+  const m = viewMonth.value + 1
+  return store.getHabitMonthlyCheckins(props.habit, y, m)
 })
 
-const totalCheckins = computed(() =>
-  Object.keys(props.habit.checkins).length
-)
+const rate = computed(() => {
+  const y = viewYear.value
+  const m = viewMonth.value + 1
+  return store.getHabitMonthlyRate(props.habit, y, m)
+})
 
 function prevMonth() {
-  if (viewMonth.value === 0) {
-    viewMonth.value = 11
-    viewYear.value--
+  if (internalMonth.value === 0) {
+    internalMonth.value = 11
+    internalYear.value--
   } else {
-    viewMonth.value--
+    internalMonth.value--
   }
 }
 
 function nextMonth() {
-  if (viewMonth.value === 11) {
-    viewMonth.value = 0
-    viewYear.value++
+  if (internalMonth.value === 11) {
+    internalMonth.value = 0
+    internalYear.value++
   } else {
-    viewMonth.value++
+    internalMonth.value++
   }
 }
 
@@ -100,9 +97,9 @@ function onClickDay(cell: typeof days.value[0]) {
 </script>
 
 <template>
-  <div class="p-3 w-64">
-    <!-- 头部 -->
-    <div class="flex items-center justify-between mb-3">
+  <div>
+    <!-- 头部（仅在无外部控制时显示导航） -->
+    <div v-if="year == null" class="flex items-center justify-between mb-3">
       <button @click="prevMonth" class="p-1 rounded hover:bg-accent transition-colors">
         <span class="icon-[lucide--chevron-left] w-4 h-4" />
       </button>
@@ -123,29 +120,31 @@ function onClickDay(cell: typeof days.value[0]) {
     <!-- 日期格子 -->
     <div class="grid grid-cols-7 gap-0.5">
       <div v-for="(cell, i) in days" :key="i"
-        class="aspect-square flex items-center justify-center text-xs rounded-md relative transition-colors"
-        :class="{
-          'text-transparent': !cell.inMonth,
-          'bg-primary/15 text-primary font-medium': cell.checked,
-          'ring-1 ring-primary/50': cell.isToday,
-          'text-muted-foreground': cell.inMonth && !cell.checked,
-          'cursor-pointer hover:bg-accent/50': cell.clickable,
-        }"
+        class="aspect-square flex items-center justify-center text-xs rounded-full relative transition-colors"
+        :class="[
+          !cell.inMonth ? 'text-transparent' : '',
+          cell.checked ? 'bg-primary text-primary-foreground font-medium hover:opacity-90' : '',
+          cell.isToday && !cell.checked ? 'font-medium text-foreground' : '',
+          cell.inMonth && !cell.checked ? 'text-muted-foreground' : '',
+          cell.clickable && !cell.checked ? 'cursor-pointer hover:bg-accent/50' : '',
+          cell.clickable && cell.checked ? 'cursor-pointer' : '',
+        ]"
         @click="onClickDay(cell)"
       >
         <span v-if="cell.inMonth">{{ cell.day }}</span>
-        <span v-if="cell.checked"
-          class="absolute bottom-0.5 w-1 h-1 rounded-full bg-primary" />
       </div>
     </div>
 
     <!-- 统计 -->
-    <div class="mt-3 pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
-      <div class="flex items-center gap-1">
-        <span class="icon-[lucide--flame] w-3.5 h-3.5 text-orange-500" />
-        <span>连续 {{ streak }} 天</span>
+    <div v-if="!hideFooter" class="mt-3 pt-3 border-t flex items-center justify-end gap-3 text-[10px] text-muted-foreground">
+      <div class="flex items-center gap-1" :title="`完成率 ${rate}%`">
+        <span class="icon-[lucide--percent] w-3 h-3" />
+        <span>{{ rate }}</span>
       </div>
-      <span>累计 {{ totalCheckins }} 次</span>
+      <div class="flex items-center gap-1" :title="`本月 ${checkedCount} 次`">
+        <span class="icon-[lucide--calendar-check] w-3 h-3" />
+        <span>{{ checkedCount }}</span>
+      </div>
     </div>
   </div>
 </template>

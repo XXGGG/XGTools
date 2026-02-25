@@ -113,7 +113,7 @@ onUnmounted(() => sortable?.destroy())
 
 <template>
   <div v-if="store.activeHabits.value.length > 0" class="space-y-3">
-    <div class="flex items-center justify-between">
+    <div v-if="!editable" class="flex items-center justify-between">
       <h3 class="text-xs font-medium text-muted-foreground uppercase tracking-wider">习惯打卡</h3>
       <span class="text-xs text-muted-foreground">
         {{ store.todayHabitsDone.value }}/{{ store.activeHabits.value.length }} 完成

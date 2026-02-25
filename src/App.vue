@@ -9,6 +9,7 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import TitleBar from './components/TitleBar.vue'
 import HomeView from './views/Home.vue'
 import TodoView from './views/Todo.vue'
+import HabitsView from './views/Habits.vue'
 import TimerView from './views/Timer.vue'
 import DockView from './views/Dock.vue'
 import KeyboardPetView from './views/KeyboardPet.vue'
@@ -24,6 +25,7 @@ const currentView = ref('Todo')
 const collapsed = ref(false)
 const menuItems = [
   { id: 'Todo', label: '待办', icon: 'icon-[lucide--circle-check-big]' },
+  { id: 'Habits', label: '习惯打卡', icon: 'icon-[lucide--flame]' },
   { id: 'Timer', label: '计时器', icon: 'icon-[lucide--timer]' },
   { id: 'Dock', label: '启动台', icon: 'icon-[lucide--layout-grid]' },
   { id: 'KeyboardPet', label: '键盘桌宠', icon: 'icon-[lucide--keyboard]' },
@@ -124,6 +126,7 @@ onMounted(async () => {
           <div :key="currentView" class="h-full w-full">
             <HomeView v-if="currentView === 'Home'" />
             <TodoView v-else-if="currentView === 'Todo'" />
+            <HabitsView v-else-if="currentView === 'Habits'" />
             <TimerView v-else-if="currentView === 'Timer'" />
             <DockView v-else-if="currentView === 'Dock'" />
             <KeyboardPetView v-else-if="currentView === 'KeyboardPet'" />

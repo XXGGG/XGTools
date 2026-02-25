@@ -285,6 +285,148 @@ function reorderHabits(items: HabitItem[]) {
   }).sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
+// ── 习惯统计 ──
+
+/** 补打卡：切换任意日期的打卡状态 */
+function toggleHabitCheckinForDate(habit: HabitItem, date: LocalDate) {
+  if (date > todayDate.value) return
+  if (habit.checkins[date]) {
+    delete habit.checkins[date]
+  } else {
+    habit.checkins[date] = true
+  }
+}
+
+/** 单习惯某月打卡次数 */
+function getHabitMonthlyCheckins(habit: HabitItem, year: number, month: number): number {
+  const prefix = `${year}-${String(month).padStart(2, '0')}`
+  return Object.keys(habit.checkins).filter(d => d.startsWith(prefix)).length
+}
+
+/** 单习惯某月有效天数（createdAt ~ today） */
+function getHabitMonthlyActiveDays(habit: HabitItem, year: number, month: number): number {
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
+  const effectiveStart = habit.createdAt > monthStart ? habit.createdAt : monthStart
+  const effectiveEnd = todayDate.value < monthEnd ? todayDate.value : monthEnd
+  if (effectiveStart > effectiveEnd) return 0
+  const start = new Date(effectiveStart + 'T00:00')
+  const end = new Date(effectiveEnd + 'T00:00')
+  return Math.floor((end.getTime() - start.getTime()) / 86400000) + 1
+}
+
+/** 单习惯月完成率 0-100 */
+function getHabitMonthlyRate(habit: HabitItem, year: number, month: number): number {
+  const active = getHabitMonthlyActiveDays(habit, year, month)
+  if (active === 0) return 0
+  return Math.round(getHabitMonthlyCheckins(habit, year, month) / active * 100)
+}
+
+/** 单习惯某年打卡总次数 */
+function getHabitYearlyCheckins(habit: HabitItem, year: number): number {
+  const prefix = `${year}-`
+  return Object.keys(habit.checkins).filter(d => d.startsWith(prefix)).length
+}
+
+/** 单习惯某年有效天数 */
+function getHabitYearlyActiveDays(habit: HabitItem, year: number): number {
+  const yearStart = `${year}-01-01`
+  const yearEnd = `${year}-12-31`
+  const effectiveStart = habit.createdAt > yearStart ? habit.createdAt : yearStart
+  const effectiveEnd = todayDate.value < yearEnd ? todayDate.value : yearEnd
+  if (effectiveStart > effectiveEnd) return 0
+  const start = new Date(effectiveStart + 'T00:00')
+  const end = new Date(effectiveEnd + 'T00:00')
+  return Math.floor((end.getTime() - start.getTime()) / 86400000) + 1
+}
+
+/** 单习惯年完成率 0-100 */
+function getHabitYearlyRate(habit: HabitItem, year: number): number {
+  const active = getHabitYearlyActiveDays(habit, year)
+  if (active === 0) return 0
+  return Math.round(getHabitYearlyCheckins(habit, year) / active * 100)
+}
+
+/** 某月所有习惯都完成的天数 */
+function getPerfectDaysInMonth(year: number, month: number): number {
+  const active = activeHabits.value
+  if (active.length === 0) return 0
+  const daysInMonth = new Date(year, month, 0).getDate()
+  let perfect = 0
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    if (ds > todayDate.value) break
+    const relevant = active.filter(h => h.createdAt <= ds)
+    if (relevant.length > 0 && relevant.every(h => h.checkins[ds])) {
+      perfect++
+    }
+  }
+  return perfect
+}
+
+/** 总体月完成率 */
+function getOverallMonthlyRate(year: number, month: number): number {
+  const active = activeHabits.value
+  if (active.length === 0) return 0
+  let totalCheckins = 0
+  let totalPossible = 0
+  for (const h of active) {
+    totalCheckins += getHabitMonthlyCheckins(h, year, month)
+    totalPossible += getHabitMonthlyActiveDays(h, year, month)
+  }
+  if (totalPossible === 0) return 0
+  return Math.round(totalCheckins / totalPossible * 100)
+}
+
+/** 单习惯一周内打卡次数 */
+function getHabitWeeklyCheckins(habit: HabitItem, weekStartDate: LocalDate): number {
+  let count = 0
+  const d = new Date(weekStartDate + 'T00:00')
+  for (let i = 0; i < 7; i++) {
+    if (habit.checkins[getLocalDate(d)]) count++
+    d.setDate(d.getDate() + 1)
+  }
+  return count
+}
+
+/** 单习惯最长连续天数 */
+function getHabitLongestStreak(habit: HabitItem): number {
+  const dates = Object.keys(habit.checkins).sort()
+  if (dates.length === 0) return 0
+  let longest = 1
+  let current = 1
+  for (let i = 1; i < dates.length; i++) {
+    const prev = new Date(dates[i - 1] + 'T00:00')
+    const curr = new Date(dates[i] + 'T00:00')
+    if (curr.getTime() - prev.getTime() === 86400000) {
+      current++
+      if (current > longest) longest = current
+    } else {
+      current = 1
+    }
+  }
+  return longest
+}
+
+/** 导出习惯数据为 JSON */
+function exportHabitsJSON(habitIds?: Set<string>) {
+  const list = habitIds
+    ? activeHabits.value.filter(h => habitIds.has(h.id))
+    : activeHabits.value
+  return {
+    exportedAt: new Date().toISOString(),
+    app: 'XGTools',
+    version: 1,
+    habits: list.map(h => ({
+      name: h.text,
+      icon: h.icon,
+      createdAt: h.createdAt,
+      checkins: Object.keys(h.checkins).sort(),
+    })),
+  }
+}
+
 // ── 定期提醒 ──
 
 function isReminderDue(reminder: ReminderItem): boolean {
@@ -642,11 +784,25 @@ export function useTodoStore() {
     // 习惯
     isHabitCheckedToday,
     toggleHabitCheckin,
+    toggleHabitCheckinForDate,
     getHabitStreak,
+    getHabitLongestStreak,
     addHabit,
     removeHabit,
     updateHabit,
     reorderHabits,
+
+    // 习惯统计
+    getHabitMonthlyCheckins,
+    getHabitMonthlyActiveDays,
+    getHabitMonthlyRate,
+    getHabitYearlyCheckins,
+    getHabitYearlyActiveDays,
+    getHabitYearlyRate,
+    getPerfectDaysInMonth,
+    getOverallMonthlyRate,
+    getHabitWeeklyCheckins,
+    exportHabitsJSON,
 
     // 提醒
     isReminderDue,
