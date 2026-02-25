@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir C:\\\\Users\\\\53446\\\\AppData\\\\Roaming\\\\Claude:*)"
+    ]
+  }
+}
