@@ -79,6 +79,7 @@ const outputText = ref('')
 const detectedLang = ref<string | null>(null)
 const loading = ref(false)
 const copied = ref(false)
+const speaking = ref(false)
 const showSettingsDialog = ref(false)
 const validating = ref<string | null>(null)
 
@@ -164,6 +165,10 @@ function onInputChange() {
 
 async function doTranslate() {
   if (!inputText.value.trim()) return
+  if (speaking.value) {
+    window.speechSynthesis.cancel()
+    speaking.value = false
+  }
   loading.value = true
   try {
     const engine = activeEngine.value
@@ -208,6 +213,46 @@ async function copyResult() {
   await navigator.clipboard.writeText(outputText.value)
   copied.value = true
   setTimeout(() => (copied.value = false), 1500)
+}
+
+// ─── TTS 朗读 ─────────────────────────────────────────
+
+const speakingInput = ref(false)
+
+function speak(text: string, lang: string, isInput: boolean) {
+  const speakingRef = isInput ? speakingInput : speaking
+  if (speakingRef.value) {
+    window.speechSynthesis.cancel()
+    speakingRef.value = false
+    return
+  }
+
+  window.speechSynthesis.cancel()
+  speakingInput.value = false
+  speaking.value = false
+
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.lang = lang
+  utterance.rate = 0.9
+  utterance.onstart = () => { speakingRef.value = true }
+  utterance.onend = () => { speakingRef.value = false }
+  utterance.onerror = () => { speakingRef.value = false }
+  window.speechSynthesis.speak(utterance)
+}
+
+function speakInput() {
+  if (!inputText.value) return
+  // 输入区语言：与目标语言相反
+  const tgt = detectTargetLang(inputText.value)
+  const lang = tgt === 'zh' ? 'en-US' : 'zh-CN'
+  speak(inputText.value, lang, true)
+}
+
+function speakOutput() {
+  if (!outputText.value) return
+  const tgt = detectTargetLang(inputText.value)
+  const lang = tgt === 'zh' ? 'zh-CN' : 'en-US'
+  speak(outputText.value, lang, false)
 }
 
 // ─── 动态获取模型列表 ──────────────────────────────────
@@ -382,14 +427,23 @@ watch([translateMode, freeEngine, aiEngine], () => {
             placeholder="输入要翻译的文本..."
             class="h-full resize-none rounded-xl pt-8 pb-3 leading-relaxed"
           />
-          <Button
-            v-if="inputText"
-            variant="ghost" size="icon-sm"
-            @click="inputText = ''; outputText = ''; detectedLang = null"
-            class="absolute top-3 right-3 opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-foreground"
-          >
-            <span class="icon-[lucide--x] w-3.5 h-3.5" />
-          </Button>
+          <div v-if="inputText" class="absolute top-3 right-3 flex items-center gap-1">
+            <Button
+              variant="ghost" size="icon-sm"
+              @click="speakInput"
+              :title="speakingInput ? '停止朗读' : '朗读原文'"
+              class="text-muted-foreground/40 hover:text-foreground"
+            >
+              <span :class="speakingInput ? 'icon-[lucide--square]' : 'icon-[lucide--volume-2]'" class="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost" size="icon-sm"
+              @click="inputText = ''; outputText = ''; detectedLang = null"
+              class="text-muted-foreground/40 hover:text-foreground"
+            >
+              <span class="icon-[lucide--x] w-3.5 h-3.5" />
+            </Button>
+          </div>
         </div>
 
         <!-- 中间操作栏 -->
@@ -411,15 +465,22 @@ watch([translateMode, freeEngine, aiEngine], () => {
             placeholder="翻译结果..."
             class="h-full resize-none rounded-xl bg-muted/30 leading-relaxed"
           />
-          <Button
-            v-if="outputText"
-            variant="outline" size="sm"
-            @click="copyResult"
-            class="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100"
-          >
-            <span :class="copied ? 'icon-[lucide--check]' : 'icon-[lucide--copy]'" class="w-3 h-3" />
-            {{ copied ? '已复制' : '复制' }}
-          </Button>
+          <div v-if="outputText" class="absolute bottom-3 right-3 flex items-center gap-1.5">
+            <Button
+              variant="outline" size="icon-sm"
+              @click="speakOutput"
+              :title="speaking ? '停止朗读' : '朗读译文'"
+            >
+              <span :class="speaking ? 'icon-[lucide--square]' : 'icon-[lucide--volume-2]'" class="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline" size="sm"
+              @click="copyResult"
+            >
+              <span :class="copied ? 'icon-[lucide--check]' : 'icon-[lucide--copy]'" class="w-3 h-3" />
+              {{ copied ? '已复制' : '复制' }}
+            </Button>
+          </div>
         </div>
       </div>
 
