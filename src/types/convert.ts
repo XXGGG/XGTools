@@ -45,7 +45,7 @@ export const ALL_FORMATS = [...IMAGE_FORMATS, ...VIDEO_FORMATS, ...AUDIO_FORMATS
 export function getTargetFormats(mediaType: MediaType): string[] {
   switch (mediaType) {
     case 'image': return ['webp', 'png', 'jpg', 'bmp', 'tiff', 'gif', 'ico', 'avif']
-    case 'video': return ['mp4', 'webm', 'avi', 'mkv', 'mov', 'flv', 'gif']
+    case 'video': return ['mp4', 'webm', 'avi', 'mkv', 'mov', 'flv', 'gif', 'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a']
     case 'audio': return ['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a']
     default: return []
   }
