@@ -277,12 +277,12 @@ pub fn run() {
             // 1. 读取 Dock 快捷键（从 Dock settings.json）
             let dock_shortcut_str = settings_ref
                 .map(|s| s.shortcut.clone())
-                .unwrap_or_else(|| "Ctrl+Alt+D".to_string());
+                .unwrap_or_else(|| "Ctrl+Alt+W".to_string());
 
             let dock_shortcut = dock_commands::parse_shortcut_str(&dock_shortcut_str)
                 .unwrap_or_else(|_| {
                     use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
-                    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyD)
+                    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyW)
                 });
 
             // 2. 读取截图/截图翻译快捷键（从 tauri-plugin-store 的 settings.json）
@@ -364,11 +364,36 @@ pub fn run() {
                     .build(),
             )?;
 
-            // 5. 注册所有快捷键
-            app.global_shortcut().register(dock_shortcut)?;
-            app.global_shortcut().register(screenshot_shortcut)?;
+            // 5. 注册所有快捷键（失败时先 unregister 再重试一次，仍失败则通知前端）
+            let gs = app.global_shortcut();
+            let mut failed_shortcuts: Vec<String> = Vec::new();
+
+            let try_register = |shortcut, name: &str, failed: &mut Vec<String>| {
+                if let Err(_) = gs.register(shortcut) {
+                    // 可能是上次实例没干净退出，先 unregister 再重试
+                    let _ = gs.unregister(shortcut);
+                    if let Err(e) = gs.register(shortcut) {
+                        eprintln!("Failed to register {name} shortcut: {e}");
+                        failed.push(name.to_string());
+                    }
+                }
+            };
+
+            try_register(dock_shortcut, "dock", &mut failed_shortcuts);
+            try_register(screenshot_shortcut, "screenshot", &mut failed_shortcuts);
             if let Some(sc) = screenshot_translate_shortcut {
-                app.global_shortcut().register(sc)?;
+                try_register(sc, "screenshot_translate", &mut failed_shortcuts);
+            }
+
+            // 通知前端有哪些快捷键注册失败
+            if !failed_shortcuts.is_empty() {
+                let app_handle = app.handle().clone();
+                let failed = failed_shortcuts.clone();
+                // 延迟发送，等前端 ready
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    let _ = app_handle.emit("shortcut-register-failed", failed);
+                });
             }
 
             Ok(())

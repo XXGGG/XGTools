@@ -3,7 +3,7 @@ import { ref, onMounted, defineAsyncComponent } from 'vue'
 import { useDark } from '@vueuse/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { emit } from '@tauri-apps/api/event'
+import { emit, listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
 
 import TitleBar from './components/TitleBar.vue'
@@ -39,6 +39,14 @@ const isDockWindow = ref(false)
 const isScreenshotWindow = ref(false)
 const isPinWindow = ref(false)
 
+const shortcutWarning = ref('')
+
+const shortcutNameMap: Record<string, string> = {
+  dock: '启动台',
+  screenshot: '截图',
+  screenshot_translate: '截图翻译',
+}
+
 onMounted(async () => {
   const win = getCurrentWindow()
   if (win.label === 'key_visualizer') { isKeyVisualizer.value = true; return }
@@ -71,6 +79,13 @@ onMounted(async () => {
   } catch (err) {
     console.error('Failed to restore Key Visualizer state:', err)
   }
+
+  // 监听快捷键注册失败通知
+  listen<string[]>('shortcut-register-failed', (e) => {
+    const names = e.payload.map(k => shortcutNameMap[k] || k).join('、')
+    shortcutWarning.value = `「${names}」快捷键被其他程序占用，请在设置中更换`
+    setTimeout(() => { shortcutWarning.value = '' }, 8000)
+  })
 })
 </script>
 
@@ -82,6 +97,18 @@ onMounted(async () => {
 
   <div v-else class="h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col">
     <TitleBar />
+
+    <!-- 快捷键冲突提示 -->
+    <Transition enter-active-class="transition-all duration-300" enter-from-class="opacity-0 -translate-y-2"
+      leave-active-class="transition-all duration-300" leave-to-class="opacity-0 -translate-y-2">
+      <div v-if="shortcutWarning" class="mx-4 mt-2 px-4 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-sm">
+        <span class="icon-[lucide--triangle-alert] w-4 h-4 text-amber-500 shrink-0" />
+        <span class="text-amber-400">{{ shortcutWarning }}</span>
+        <button @click="shortcutWarning = ''" class="ml-auto text-muted-foreground hover:text-foreground">
+          <span class="icon-[lucide--x] w-3.5 h-3.5" />
+        </button>
+      </div>
+    </Transition>
 
     <div class="flex-1 flex overflow-hidden">
       <aside :class="[collapsed ? 'w-14' : 'w-50', 'shrink-0 flex flex-col transition-all duration-200']">
