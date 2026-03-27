@@ -18,6 +18,10 @@ src-tauri/bin/screenshot/target/
 
 # Large binaries
 src-tauri/resources/ffmpeg/
+src-tauri/resources/ocr/
+
+# Build output
+release/
 
 # Editor directories and files
 .vscode/*

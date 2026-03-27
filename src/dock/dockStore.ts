@@ -24,7 +24,7 @@ export const useDockStore = defineStore('dock', () => {
   const darkMode = ref(true)
   const iconSize = ref(88)
   const hoverScale = ref(1.1)
-  const shortcut = ref('Ctrl+Alt+D')
+  const shortcut = ref('Ctrl+Alt+W')
   const gridGap = ref(64)
   const paddingTop = ref(92)
   const paddingHorizontal = ref(56)

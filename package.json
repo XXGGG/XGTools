@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "open:bundle": "explorer src-tauri\\target\\release\\bundle",
+    "tauri:build": "tauri build && if exist release rd /s /q release & mkdir release && for %f in (src-tauri\\target\\release\\bundle\\nsis\\*setup.exe) do copy /Y \"%f\" release\\ & for %f in (src-tauri\\target\\release\\bundle\\msi\\*en-US.msi) do copy /Y \"%f\" release\\"
   },
   "dependencies": {
     "@internationalized/date": "^3.11.0",

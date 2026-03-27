@@ -232,7 +232,7 @@ fn default_icon_size() -> u32 { 88 }
 fn default_hover_scale() -> f64 { 1.1 }
 fn default_blur_amount() -> u32 { 30 }
 fn default_backdrop_opacity() -> f64 { 0.65 }
-fn default_shortcut() -> String { "Ctrl+Alt+D".to_string() }
+fn default_shortcut() -> String { "Ctrl+Alt+W".to_string() }
 fn default_grid_gap() -> u32 { 64 }
 fn default_padding_top() -> u32 { 92 }
 fn default_padding_horizontal() -> u32 { 56 }

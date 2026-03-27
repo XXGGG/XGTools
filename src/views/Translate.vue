@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
 
 const store = new LazyStore('settings.json')
@@ -87,10 +86,6 @@ const validating = ref<string | null>(null)
 const fetchedModels = ref<Record<string, string[]>>({})
 const fetchingModels = ref(false)
 
-// 截图翻译
-const screenshotTranslateEnabled = ref(false)
-const screenshotTranslateShortcut = ref('Ctrl+Alt+T')
-const isRecordingTranslateShortcut = ref(false)
 
 // ─── 计算属性 ─────────────────────────────────────────
 
@@ -133,8 +128,6 @@ async function loadSettings() {
       if (key in savedValidation) aiValidated.value[key] = savedValidation[key]
     }
   }
-  screenshotTranslateEnabled.value = (await store.get<boolean>('screenshot_translate_enabled')) ?? false
-  screenshotTranslateShortcut.value = (await store.get<string>('screenshot_translate_shortcut')) ?? 'Ctrl+Alt+T'
   settingsLoaded.value = true
 }
 
@@ -144,8 +137,6 @@ async function saveSettings() {
   await store.set('translate_ai_engine', aiEngine.value)
   await store.set('translate_ai_configs', aiConfigs.value)
   await store.set('translate_ai_validated', aiValidated.value)
-  await store.set('screenshot_translate_enabled', screenshotTranslateEnabled.value)
-  await store.set('screenshot_translate_shortcut', screenshotTranslateShortcut.value)
   await store.save()
 }
 
@@ -310,77 +301,6 @@ async function testAiConnection(engineId: string) {
     saveSettings()
   }
 }
-
-// ─── 截图翻译快捷键 ──────────────────────────────────
-
-async function syncAllShortcuts() {
-  try {
-    const dockSettings = await invoke<{ shortcut: string }>('get_settings')
-    const ssEnabled = (await store.get<boolean>('screenshot_enabled')) ?? true
-    const ssShortcut = (await store.get<string>('screenshot_shortcut')) ?? 'Ctrl+Alt+A'
-    await invoke('update_all_shortcuts', {
-      shortcuts: {
-        dock_shortcut: dockSettings.shortcut,
-        screenshot_shortcut: ssEnabled ? ssShortcut : null,
-        screenshot_translate_shortcut: screenshotTranslateEnabled.value && screenshotTranslateShortcut.value
-          ? screenshotTranslateShortcut.value : null,
-      }
-    })
-  } catch (e) {
-    console.error('Failed to sync shortcuts:', e)
-  }
-}
-
-function startRecordingTranslateShortcut() {
-  isRecordingTranslateShortcut.value = true
-}
-
-function handleTranslateShortcutKeydown(e: KeyboardEvent) {
-  if (!isRecordingTranslateShortcut.value) return
-  e.preventDefault()
-  e.stopPropagation()
-  if (e.key === 'Escape') { isRecordingTranslateShortcut.value = false; return }
-  if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return
-
-  const parts: string[] = []
-  if (e.ctrlKey) parts.push('Ctrl')
-  if (e.altKey) parts.push('Alt')
-  if (e.shiftKey) parts.push('Shift')
-  if (e.metaKey) parts.push('Super')
-  if (parts.length === 0) return
-
-  let key = e.key.toUpperCase()
-  if (e.code.startsWith('Key')) key = e.code.slice(3)
-  else if (e.code.startsWith('Digit')) key = e.code.slice(5)
-  else if (e.code.startsWith('F') && /^F\d+$/.test(e.code)) key = e.code
-  else {
-    const keyMap: Record<string, string> = {
-      ' ': 'Space', 'ENTER': 'Enter', 'TAB': 'Tab',
-      'BACKSPACE': 'Backspace', 'DELETE': 'Delete',
-      'ARROWUP': 'Up', 'ARROWDOWN': 'Down',
-      'ARROWLEFT': 'Left', 'ARROWRIGHT': 'Right',
-    }
-    key = keyMap[key] || key
-  }
-
-  parts.push(key)
-  isRecordingTranslateShortcut.value = false
-  screenshotTranslateShortcut.value = parts.join('+')
-  saveSettings().then(() => syncAllShortcuts())
-}
-
-watch(screenshotTranslateEnabled, () => {
-  if (settingsLoaded.value) {
-    saveSettings().then(() => syncAllShortcuts())
-  }
-})
-
-onMounted(() => {
-  window.addEventListener('keydown', handleTranslateShortcutKeydown)
-})
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleTranslateShortcutKeydown)
-})
 
 // ─── 设置保存 ─────────────────────────────────────────
 
@@ -646,34 +566,6 @@ watch([translateMode, freeEngine, aiEngine], () => {
             </div>
           </div>
 
-          <!-- 截图翻译 -->
-          <div class="space-y-3">
-            <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">截图翻译</p>
-
-            <div class="space-y-3 p-4 border border-border rounded-lg bg-muted/10">
-              <!-- 开关 -->
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm font-medium">启用截图翻译</p>
-                  <p class="text-xs text-muted-foreground">截图后自动 OCR 识别文字并翻译覆盖</p>
-                </div>
-                <Switch v-model="screenshotTranslateEnabled" />
-              </div>
-
-              <!-- 快捷键 -->
-              <div v-if="screenshotTranslateEnabled" class="flex items-center justify-between">
-                <p class="text-sm">快捷键</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="min-w-[120px] font-mono"
-                  @click="isRecordingTranslateShortcut ? (isRecordingTranslateShortcut = false) : startRecordingTranslateShortcut()"
-                >
-                  {{ isRecordingTranslateShortcut ? '按下组合键...' : screenshotTranslateShortcut }}
-                </Button>
-              </div>
-            </div>
-          </div>
 
         </div>
       </div>
