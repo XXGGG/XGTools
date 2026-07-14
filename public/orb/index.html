@@ -14,20 +14,30 @@
   #app{position:fixed;inset:0}
   #app canvas{display:block}
 
-  .toggle{position:fixed;top:16px;right:16px;z-index:20;width:36px;height:36px;font-size:16px;
-    color:#e6e8ee;background:rgba(20,22,30,.7);border:1px solid rgba(255,255,255,.12);
-    border-radius:9px;cursor:pointer;backdrop-filter:blur(8px)}
-  .panel{position:fixed;top:16px;right:16px;bottom:16px;z-index:15;width:270px;display:flex;flex-direction:column;
-    padding:14px 14px 12px;color:#e6e8ee;background:rgba(16,18,26,.72);border:1px solid rgba(255,255,255,.1);
-    border-radius:14px;backdrop-filter:blur(12px);box-shadow:0 12px 40px rgba(0,0,0,.5);overflow-y:auto}
-  .panel h1{font-size:15px;font-weight:600;letter-spacing:.04em;margin:0 0 10px}
-  .panel h1 b{color:var(--accent)}
-  .row{margin:11px 0}
-  .row label{display:flex;justify-content:space-between;font-size:12px;color:#aeb4c2;margin-bottom:5px}
-  .row label .v{color:#e6e8ee}
-  input[type=range]{-webkit-appearance:none;width:100%;height:4px;border-radius:3px;background:#2a2e3a;outline:none}
-  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
-    background:var(--accent);cursor:pointer;border:2px solid #0d0f16}
+  .toggle{position:fixed;top:16px;right:16px;z-index:20;width:38px;height:38px;font-size:17px;display:none;
+    align-items:center;justify-content:center;color:#e6e8ee;background:rgba(20,22,30,.72);
+    border:1px solid rgba(255,255,255,.12);border-radius:10px;cursor:pointer;backdrop-filter:blur(8px)}
+  .toggle:hover{border-color:var(--accent)}
+  .panel{position:fixed;top:16px;right:16px;bottom:16px;z-index:15;width:272px;display:flex;flex-direction:column;
+    padding:6px 16px 14px;color:#e6e8ee;background:rgba(16,18,26,.78);border:1px solid rgba(255,255,255,.1);
+    border-radius:14px;backdrop-filter:blur(14px);box-shadow:0 12px 40px rgba(0,0,0,.5);overflow-y:auto}
+  .panel__head{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:2;
+    margin:0 -16px 4px;padding:10px 16px 8px;background:linear-gradient(rgba(16,18,26,.98),rgba(16,18,26,.86));backdrop-filter:blur(14px)}
+  .panel__head h1{font-size:15px;font-weight:600;letter-spacing:.04em;margin:0}
+  .panel__head h1 b{color:var(--accent)}
+  .close{width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:15px;
+    color:#aeb4c2;background:transparent;border:1px solid rgba(255,255,255,.1);border-radius:8px;cursor:pointer}
+  .close:hover{color:#fff;border-color:var(--accent)}
+  .row{margin:12px 0}
+  .row label{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:#aeb4c2;margin-bottom:7px}
+  .row label .v{color:#e6e8ee;font-variant-numeric:tabular-nums;font-size:12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;display:block;width:100%;height:6px;border-radius:99px;
+    background:#2a2e3a;outline:none;cursor:pointer;margin:0}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:var(--accent);cursor:pointer;border:3px solid #14161e;box-shadow:0 0 0 1px rgba(56,225,192,.5),0 1px 4px rgba(0,0,0,.5);
+    margin-top:-5px;transition:box-shadow .15s}
+  input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 0 4px rgba(56,225,192,.22),0 1px 4px rgba(0,0,0,.5)}
+  input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:99px}
   .swatches{display:flex;flex-wrap:wrap;gap:7px}
   .sw{width:26px;height:26px;border-radius:7px;border:2px solid rgba(255,255,255,.15);cursor:pointer;padding:0}
   .sw.on{border-color:var(--accent);box-shadow:0 0 0 2px rgba(56,225,192,.3)}
@@ -51,7 +61,10 @@
 
 <button class="toggle" id="toggle">⚙</button>
 <aside class="panel" id="panel">
-  <h1>Storm <b>Orb</b></h1>
+  <div class="panel__head">
+    <h1>Storm <b>Orb</b></h1>
+    <button class="close" id="close" title="收起面板">✕</button>
+  </div>
 
   <div class="grp">预设</div>
   <div class="presets" id="presets"></div>
@@ -102,14 +115,14 @@ const P = {
   freq: 1.0, swirl: 0.35, turb: 0.62, pull: 2.3,
   speed: 1.0, spin: 0.05, pointSize: 1.25, bright: 0.55, follow: 1.0,
   color: new THREE.Color(0.85, 0.9, 1.0),
-  bg: new THREE.Color(0.02, 0.02, 0.03),
+  bg: new THREE.Color(0, 0, 0), // 默认纯黑
 };
 const COUNTS = { 低: 460, 中: 640, 高: 820 };
 let widthKey = "高";
 
 const P_SWATCHES = ["#d9e6ff","#ffffff","#38e1c0","#6bffd8","#7aa8ff","#5a7cff","#b388ff",
                     "#e07bff","#ff8fae","#ff6b6b","#ffd27a","#9dff6b","#ffb03a"];
-const B_SWATCHES = ["#050506","#0a0e14","#0b1020","#12061c","#07140f","#160b0b"];
+const B_SWATCHES = ["#000000","#050506","#0a0e14","#0b1020","#12061c","#07140f","#160b0b"];
 
 // ---------- 预设(参数的数学,各出一种气质)----------
 const PRESETS = [
@@ -149,7 +162,7 @@ renderer.setSize(innerWidth, innerHeight);
 host.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
-camera.position.set(0, 0, 2.65);
+camera.position.set(0, 0, 3.2); // 拉远 → 球占画布 ~85%,留边看飘离粒子
 let lastVW = 0, lastVH = 0;
 function fit(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); lastVW=w; lastVH=h; }
 addEventListener("resize", fit); fit();
@@ -327,9 +340,11 @@ function applyPreset(ps){
   if(needRebuild) build();
 }
 
-const panel=$("panel");
-$("toggle").onclick=()=>{ panel.style.display = panel.style.display==="none"?"flex":"none"; };
-if(startPanelHidden){ panel.style.display="none"; }
+const panel=$("panel"), gear=$("toggle");
+function showPanel(v){ panel.style.display=v?"flex":"none"; gear.style.display=v?"none":"flex"; }
+gear.onclick=()=>showPanel(true);
+$("close").onclick=()=>showPanel(false);
+showPanel(!startPanelHidden);
 
 // 全屏窗口里按 Esc → 通知父窗口关闭(跨 iframe 用 postMessage)
 addEventListener("keydown", e=>{ if(e.key==="Escape"){ try{ parent.postMessage({__storm:"close"},"*"); }catch(_){ } } });
