@@ -1,0 +1,338 @@
+<!doctype html>
+<!--
+  Storm Orb — 原创风暴粒子球(XGTools 内置)
+  从零手写:GPGPU(GPUComputationRenderer, MIT)+ curl noise(simplex noise, 公共领域技术)。
+  不含、不派生自任何第三方艺术作品代码。
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Storm Orb</title>
+<style>
+  :root{ --accent:#38e1c0; }
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,"Segoe UI",sans-serif}
+  #app{position:fixed;inset:0}
+  #app canvas{display:block}
+
+  .toggle{position:fixed;top:16px;right:16px;z-index:20;width:36px;height:36px;font-size:16px;
+    color:#e6e8ee;background:rgba(20,22,30,.7);border:1px solid rgba(255,255,255,.12);
+    border-radius:9px;cursor:pointer;backdrop-filter:blur(8px)}
+  .panel{position:fixed;top:16px;right:16px;bottom:16px;z-index:15;width:270px;display:flex;flex-direction:column;
+    padding:14px 14px 12px;color:#e6e8ee;background:rgba(16,18,26,.72);border:1px solid rgba(255,255,255,.1);
+    border-radius:14px;backdrop-filter:blur(12px);box-shadow:0 12px 40px rgba(0,0,0,.5);overflow-y:auto}
+  .panel h1{font-size:15px;font-weight:600;letter-spacing:.04em;margin:0 0 10px}
+  .panel h1 b{color:var(--accent)}
+  .row{margin:11px 0}
+  .row label{display:flex;justify-content:space-between;font-size:12px;color:#aeb4c2;margin-bottom:5px}
+  .row label .v{color:#e6e8ee}
+  input[type=range]{-webkit-appearance:none;width:100%;height:4px;border-radius:3px;background:#2a2e3a;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:var(--accent);cursor:pointer;border:2px solid #0d0f16}
+  .swatches{display:flex;flex-wrap:wrap;gap:7px}
+  .sw{width:26px;height:26px;border-radius:7px;border:2px solid rgba(255,255,255,.15);cursor:pointer;padding:0}
+  .sw.on{border-color:var(--accent);box-shadow:0 0 0 2px rgba(56,225,192,.3)}
+  .sw--pick{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#8b90a0;font-size:15px;background:#20242e}
+  .sw--pick input{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .seg{display:flex;gap:5px}
+  .seg button{flex:1;padding:6px 0;font-size:12px;color:#aeb4c2;background:#20242e;border:1px solid rgba(255,255,255,.08);border-radius:7px;cursor:pointer}
+  .seg button.on{color:#001;background:var(--accent);font-weight:600}
+  .presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+  .presets button{padding:6px 10px;font-size:12px;color:#cfd3dc;background:#20242e;border:1px solid rgba(255,255,255,.1);border-radius:8px;cursor:pointer}
+  .presets button:hover{border-color:var(--accent);color:#fff}
+  .grp{font-size:11px;color:#7d8496;text-transform:uppercase;letter-spacing:.08em;margin:14px 0 2px}
+  .hint{font-size:11px;color:#7d8496;line-height:1.5;margin:8px 0 0}
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" }}
+</script>
+</head>
+<body>
+<div id="app"></div>
+
+<button class="toggle" id="toggle">⚙</button>
+<aside class="panel" id="panel">
+  <h1>Storm <b>Orb</b></h1>
+
+  <div class="grp">预设</div>
+  <div class="presets" id="presets"></div>
+
+  <div class="grp">颜色</div>
+  <div class="row"><label>粒子颜色</label><div class="swatches" id="pcolors"></div></div>
+  <div class="row"><label>背景色</label><div class="swatches" id="bcolors"></div></div>
+
+  <div class="grp">形态</div>
+  <div class="row"><label>密度<span class="v" id="v_count"></span></label><div class="seg" id="seg_count"></div></div>
+  <div class="row"><label>结构大小(层次)<span class="v" id="v_freq"></span></label>
+    <input type="range" id="s_freq" min="0.4" max="2.4" step="0.01"></div>
+  <div class="row"><label>球壳紧实<span class="v" id="v_pull"></span></label>
+    <input type="range" id="s_pull" min="0.8" max="5" step="0.01"></div>
+  <div class="row"><label>风沙(湍流)<span class="v" id="v_turb"></span></label>
+    <input type="range" id="s_turb" min="0" max="1.4" step="0.01"></div>
+  <div class="row"><label>内核壳大小<span class="v" id="v_coreR"></span></label>
+    <input type="range" id="s_coreR" min="0.2" max="0.8" step="0.01"></div>
+  <div class="row"><label>内核壳占比<span class="v" id="v_coreFrac"></span></label>
+    <input type="range" id="s_coreFrac" min="0" max="0.6" step="0.01"></div>
+  <div class="row"><label>风沙占比<span class="v" id="v_haloFrac"></span></label>
+    <input type="range" id="s_haloFrac" min="0" max="0.6" step="0.01"></div>
+  <div class="row"><label>颗粒大小<span class="v" id="v_size"></span></label>
+    <input type="range" id="s_size" min="0.8" max="3.5" step="0.01"></div>
+  <div class="row"><label>亮度<span class="v" id="v_bright"></span></label>
+    <input type="range" id="s_bright" min="0.15" max="0.9" step="0.01"></div>
+
+  <div class="grp">律动</div>
+  <div class="row"><label>涡旋强度<span class="v" id="v_swirl"></span></label>
+    <input type="range" id="s_swirl" min="0" max="1.2" step="0.01"></div>
+  <div class="row"><label>速度<span class="v" id="v_speed"></span></label>
+    <input type="range" id="s_speed" min="0" max="2.5" step="0.01"></div>
+  <div class="row"><label>自转<span class="v" id="v_spin"></span></label>
+    <input type="range" id="s_spin" min="0" max="0.3" step="0.005"></div>
+  <div class="row"><label>窗口跟随甩动<span class="v" id="v_follow"></span></label>
+    <input type="range" id="s_follow" min="0" max="2.5" step="0.01"></div>
+
+  <p class="hint">拖动/缩放窗口时球会被甩动再回中。⚙ 收起面板全屏观赏。</p>
+</aside>
+
+<script type="module">
+import * as THREE from "three";
+import { GPUComputationRenderer } from "./vendor/GPUComputationRenderer.js";
+
+// ---------- 参数 ----------
+const P = {
+  radius: 1.0, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.3,
+  freq: 1.0, swirl: 0.35, turb: 0.62, pull: 2.3,
+  speed: 1.0, spin: 0.05, pointSize: 1.25, bright: 0.55, follow: 1.0,
+  color: new THREE.Color(0.85, 0.9, 1.0),
+  bg: new THREE.Color(0.02, 0.02, 0.03),
+};
+const COUNTS = { 低: 460, 中: 640, 高: 820 };
+let widthKey = "高";
+
+const P_SWATCHES = ["#d9e6ff","#ffffff","#38e1c0","#6bffd8","#7aa8ff","#5a7cff","#b388ff",
+                    "#e07bff","#ff8fae","#ff6b6b","#ffd27a","#9dff6b","#ffb03a"];
+const B_SWATCHES = ["#050506","#0a0e14","#0b1020","#12061c","#07140f","#160b0b"];
+
+// ---------- 预设(参数的数学,各出一种气质)----------
+const PRESETS = [
+  { name:"静谧", color:"#d9e6ff", bg:"#050506", freq:0.9, swirl:0.30, turb:0.42, pull:4.4, coreR:0.40, coreFrac:0.25, haloFrac:0.10, spin:0.04, speed:0.9, pointSize:1.3, bright:0.5, density:"高" },
+  { name:"风暴", color:"#7aa8ff", bg:"#05070d", freq:1.1, swirl:0.50, turb:1.00, pull:2.0, coreR:0.50, coreFrac:0.20, haloFrac:0.42, spin:0.08, speed:1.3, pointSize:1.2, bright:0.55, density:"高" },
+  { name:"星云", color:"#b388ff", bg:"#0a0612", freq:0.6, swirl:0.25, turb:0.72, pull:1.6, coreR:0.55, coreFrac:0.25, haloFrac:0.36, spin:0.03, speed:0.8, pointSize:1.5, bright:0.5, density:"高" },
+  { name:"极光", color:"#38e1c0", bg:"#04100c", freq:0.85, swirl:0.40, turb:0.65, pull:2.6, coreR:0.45, coreFrac:0.22, haloFrac:0.30, spin:0.05, speed:1.0, pointSize:1.3, bright:0.55, density:"高" },
+  { name:"黑洞", color:"#ffffff", bg:"#000000", freq:1.0, swirl:0.95, turb:0.50, pull:3.2, coreR:0.35, coreFrac:0.30, haloFrac:0.24, spin:0.02, speed:1.2, pointSize:1.15, bright:0.5, density:"高" },
+  { name:"烈焰", color:"#ffb03a", bg:"#0d0603", freq:1.0, swirl:0.35, turb:1.10, pull:1.8, coreR:0.50, coreFrac:0.18, haloFrac:0.46, spin:0.06, speed:1.2, pointSize:1.25, bright:0.55, density:"高" },
+];
+const NUM_KEYS = ["radius","coreR","coreFrac","haloFrac","freq","swirl","turb","pull","speed","spin","pointSize","bright","follow"];
+
+// ---------- URL 参数(全屏/壁纸/屏保 传入指定配置)----------
+const Q = new URLSearchParams(location.search);
+let startPanelHidden = Q.get("panel") === "0";
+(function applyUrl(){
+  NUM_KEYS.forEach(k=>{ if(Q.has(k)){ const v=parseFloat(Q.get(k)); if(!isNaN(v)) P[k]=v; } });
+  if(Q.has("color")) P.color.set(Q.get("color"));
+  if(Q.has("bg")) P.bg.set(Q.get("bg"));
+  if(Q.has("density") && COUNTS[Q.get("density")]) widthKey = Q.get("density");
+})();
+// 供宿主读取当前配置(拼给全屏/壁纸/屏保)
+window.__stormQuery = () => {
+  const p = new URLSearchParams();
+  NUM_KEYS.forEach(k=>p.set(k, +P[k].toFixed(4)));
+  p.set("color", "#"+P.color.getHexString());
+  p.set("bg", "#"+P.bg.getHexString());
+  p.set("density", widthKey);
+  return p.toString();
+};
+
+// ---------- Three ----------
+const host = document.getElementById("app");
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+host.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0, 0, 2.65);
+let lastVW = 0, lastVH = 0;
+function fit(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); lastVW=w; lastVH=h; }
+addEventListener("resize", fit); fit();
+
+// ---------- 噪声 + curl ----------
+const NOISE = `
+vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x,289.0);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1.0/6.0,1.0/3.0);const vec4 D=vec4(0.0,0.5,1.0,2.0);
+  vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.0-g;vec3 i1=min(g.xyz,l.zxy);vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx;vec3 x2=x0-i2+C.yyy;vec3 x3=x0-D.yyy;i=mod(i,289.0);
+  vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
+  float n_=1.0/7.0;vec3 ns=n_*D.wyz-D.xzx;vec4 j=p-49.0*floor(p*ns.z*ns.z);
+  vec4 x_=floor(j*ns.z);vec4 y_=floor(j-7.0*x_);vec4 x=x_*ns.x+ns.yyyy;vec4 y=y_*ns.x+ns.yyyy;vec4 h=1.0-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy);vec4 b1=vec4(x.zw,y.zw);vec4 s0=floor(b0)*2.0+1.0;vec4 s1=floor(b1)*2.0+1.0;vec4 sh=-step(h,vec4(0.0));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x);vec3 p1=vec3(a0.zw,h.y);vec3 p2=vec3(a1.xy,h.z);vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);m=m*m;
+  return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));}
+vec3 snoiseVec3(vec3 x){return vec3(snoise(x),snoise(x+vec3(137.1,231.7,-97.3)),snoise(x+vec3(-311.7,49.2,183.9)));}
+vec3 curl(vec3 p){const float e=0.12;vec3 dx=vec3(e,0.,0.),dy=vec3(0.,e,0.),dz=vec3(0.,0.,e);
+  vec3 x0=snoiseVec3(p-dx),x1=snoiseVec3(p+dx),y0=snoiseVec3(p-dy),y1=snoiseVec3(p+dy),z0=snoiseVec3(p-dz),z1=snoiseVec3(p+dz);
+  return normalize(vec3(y1.z-y0.z-z1.y+z0.y,z1.x-z0.x-x1.z+x0.z,x1.y-x0.y-y1.x+y0.x)/(2.0*e));}
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+`;
+const SIM = NOISE + `
+uniform float uTime,uDelta,uSpeed,uFreq,uSwirl,uTurb,uPull,uRadius,uCoreR,uCoreFrac,uHaloFrac;
+void main(){
+  vec2 uv=gl_FragCoord.xy/resolution.xy;
+  vec4 t=texture2D(texturePosition,uv);
+  vec3 pos=t.xyz; float life=t.w;
+  float grp=hash(uv+100.0);
+  float shellR=uRadius, pullMul=1.7, turbMul=0.42;
+  if(grp<uCoreFrac){ shellR=uCoreR; pullMul=1.5; turbMul=0.5; }
+  else if(grp>1.0-uHaloFrac){ pullMul=0.4; turbMul=1.7; }
+  float r=length(pos)+1e-5;
+  vec3 nrm=pos/r;
+  vec3 c=curl(pos*uFreq+vec3(0.0,uTime*0.05,0.0));
+  vec3 tang=c-nrm*dot(c,nrm);
+  vec3 vel=(tang+nrm*dot(c,nrm)*0.5)*uTurb*turbMul;
+  vel+=vec3(-pos.z,0.0,pos.x)*uSwirl;
+  vel-=nrm*(r-shellR)*uPull*pullMul;
+  pos+=vel*uDelta*uSpeed;
+  life-=uDelta*uSpeed*0.09;
+  if(life<=0.0){
+    vec3 d=normalize(vec3(hash(uv+uTime),hash(uv+uTime+7.0),hash(uv+uTime+13.0))*2.0-1.0);
+    pos=d*shellR*(0.95+0.09*hash(uv+3.1));
+    life=0.8+3.2*hash(uv+5.3);
+  }
+  gl_FragColor=vec4(pos,life);
+}`;
+
+let gpu, posVar, points, mat, WIDTH, COUNT;
+function build(){
+  if(points){ scene.remove(points); points.geometry.dispose(); mat.dispose(); }
+  WIDTH=COUNTS[widthKey]; COUNT=WIDTH*WIDTH;
+  gpu=new GPUComputationRenderer(WIDTH,WIDTH,renderer);
+  const dt=gpu.createTexture(), a=dt.image.data;
+  for(let i=0;i<COUNT;i++){
+    let x=Math.random()*2-1,y=Math.random()*2-1,z=Math.random()*2-1,l=Math.hypot(x,y,z)||1;
+    const sh=Math.random()<P.coreFrac?P.coreR:P.radius;
+    const r=sh*(0.94+0.12*Math.random());
+    a[i*4]=x/l*r; a[i*4+1]=y/l*r; a[i*4+2]=z/l*r; a[i*4+3]=0.4+3.2*Math.random();
+  }
+  posVar=gpu.addVariable("texturePosition",SIM,dt);
+  gpu.setVariableDependencies(posVar,[posVar]);
+  Object.assign(posVar.material.uniforms,{
+    uTime:{value:0},uDelta:{value:0},uSpeed:{value:P.speed},uFreq:{value:P.freq},
+    uSwirl:{value:P.swirl},uTurb:{value:P.turb},uPull:{value:P.pull},uRadius:{value:P.radius},
+    uCoreR:{value:P.coreR},uCoreFrac:{value:P.coreFrac},uHaloFrac:{value:P.haloFrac},
+  });
+  const e=gpu.init(); if(e)console.error(e);
+  const refs=new Float32Array(COUNT*2);
+  for(let i=0;i<COUNT;i++){ refs[i*2]=(i%WIDTH)/WIDTH; refs[i*2+1]=((i/WIDTH)|0)/WIDTH; }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute("position",new THREE.BufferAttribute(new Float32Array(COUNT*3),3));
+  geo.setAttribute("reference",new THREE.BufferAttribute(refs,2));
+  mat=new THREE.ShaderMaterial({
+    uniforms:{texturePosition:{value:null},uPointSize:{value:P.pointSize*renderer.getPixelRatio()},uColor:{value:P.color},uBright:{value:P.bright}},
+    vertexShader:`uniform sampler2D texturePosition;uniform float uPointSize;attribute vec2 reference;varying float vLife;
+      void main(){vec4 p=texture2D(texturePosition,reference);vLife=p.w;
+        vec4 mv=modelViewMatrix*vec4(p.xyz,1.0);gl_PointSize=uPointSize*(2.6/-mv.z);gl_Position=projectionMatrix*mv;}`,
+    fragmentShader:`precision highp float;varying float vLife;uniform vec3 uColor;uniform float uBright;
+      void main(){vec2 c=gl_PointCoord-0.5;float d=length(c);if(d>0.5)discard;
+        float a=smoothstep(0.5,0.0,d)*clamp(vLife,0.0,1.0);gl_FragColor=vec4(uColor,a*uBright);}`,
+    transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,
+  });
+  points=new THREE.Points(geo,mat); points.frustumCulled=false; scene.add(points);
+}
+build();
+
+// ---------- 窗口跟随甩动 ----------
+let ox=0,oy=0,vx=0,vy=0,lastSX=null,lastSY=null;
+function windowForce(){
+  const sx=window.screenX, sy=window.screenY;
+  if(lastSX!==null){ let dx=sx-lastSX, dy=sy-lastSY;
+    if(Math.abs(dx)<500 && Math.abs(dy)<500){ vx+=-dx*0.0011*P.follow; vy+=+dy*0.0011*P.follow; } }
+  lastSX=sx; lastSY=sy;
+  vx+=-ox*0.025; vy+=-oy*0.025; vx*=0.9; vy*=0.9; ox+=vx; oy+=vy;
+  points.position.set(ox,oy,0);
+}
+
+// ---------- 循环 ----------
+const clock=new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  if(innerWidth!==lastVW||innerHeight!==lastVH) fit();
+  const dt=Math.min(clock.getDelta(),0.033);
+  const u=posVar.material.uniforms;
+  u.uTime.value+=dt; u.uDelta.value=dt; u.uSpeed.value=P.speed; u.uFreq.value=P.freq;
+  u.uSwirl.value=P.swirl; u.uTurb.value=P.turb; u.uPull.value=P.pull;
+  u.uCoreR.value=P.coreR; u.uCoreFrac.value=P.coreFrac; u.uHaloFrac.value=P.haloFrac;
+  gpu.compute();
+  mat.uniforms.texturePosition.value=gpu.getCurrentRenderTarget(posVar).texture;
+  mat.uniforms.uColor.value=P.color; mat.uniforms.uBright.value=P.bright;
+  mat.uniforms.uPointSize.value=P.pointSize*renderer.getPixelRatio();
+  points.rotation.y+=dt*P.spin;
+  windowForce();
+  renderer.setClearColor(P.bg,1);
+  renderer.render(scene,camera);
+}
+animate();
+
+// ---------- 面板 ----------
+const $=id=>document.getElementById(id);
+const SLIDERS=[["s_freq","freq","v_freq"],["s_pull","pull","v_pull"],["s_turb","turb","v_turb"],
+  ["s_coreR","coreR","v_coreR"],["s_coreFrac","coreFrac","v_coreFrac"],["s_haloFrac","haloFrac","v_haloFrac"],
+  ["s_size","pointSize","v_size"],["s_bright","bright","v_bright"],["s_swirl","swirl","v_swirl"],
+  ["s_speed","speed","v_speed"],["s_spin","spin","v_spin"],["s_follow","follow","v_follow"]];
+SLIDERS.forEach(([id,key,vid])=>{ const s=$(id); s.value=P[key]; $(vid).textContent=(+P[key]).toFixed(2);
+  s.oninput=()=>{ P[key]=parseFloat(s.value); $(vid).textContent=(+P[key]).toFixed(2); }; });
+function syncSliders(){ SLIDERS.forEach(([id,key,vid])=>{ $(id).value=P[key]; $(vid).textContent=(+P[key]).toFixed(2); }); }
+
+function swatches(el, list, get, set){
+  el.innerHTML="";
+  list.forEach(hex=>{ const b=document.createElement("button"); b.className="sw"; b.dataset.hex=hex; b.style.background=hex;
+    b.onclick=()=>{ set(hex); markSwatch(el,get); }; el.appendChild(b); });
+  const pick=document.createElement("label"); pick.className="sw sw--pick"; pick.innerHTML="+";
+  const inp=document.createElement("input"); inp.type="color"; inp.value=get();
+  inp.oninput=()=>{ set(inp.value); markSwatch(el,get); };
+  pick.appendChild(inp); el.appendChild(pick);
+  markSwatch(el,get);
+}
+function markSwatch(el,get){
+  const cur=new THREE.Color(get()).getHexString();
+  [...el.children].forEach(c=>{ const h=c.dataset.hex; c.classList.toggle("on", !!h && new THREE.Color(h).getHexString()===cur); });
+}
+swatches($("pcolors"),P_SWATCHES,()=>"#"+P.color.getHexString(),h=>P.color.set(h));
+swatches($("bcolors"),B_SWATCHES,()=>"#"+P.bg.getHexString(),h=>P.bg.set(h));
+
+const segc=$("seg_count");
+function buildSeg(){ segc.innerHTML=""; Object.keys(COUNTS).forEach(k=>{ const b=document.createElement("button"); b.textContent=k; b.classList.toggle("on",k===widthKey);
+  b.onclick=()=>{ widthKey=k; [...segc.children].forEach(c=>c.classList.toggle("on",c.textContent===k)); $("v_count").textContent=k; build(); }; segc.appendChild(b); });
+  $("v_count").textContent=widthKey; }
+buildSeg();
+
+// 预设
+const pel=$("presets");
+PRESETS.forEach(ps=>{ const b=document.createElement("button"); b.textContent=ps.name;
+  b.onclick=()=>applyPreset(ps); pel.appendChild(b); });
+function applyPreset(ps){
+  ["freq","swirl","turb","pull","coreR","coreFrac","haloFrac","spin","speed","pointSize","bright"].forEach(k=>{ if(ps[k]!=null) P[k]=ps[k]; });
+  if(ps.color) P.color.set(ps.color);
+  if(ps.bg) P.bg.set(ps.bg);
+  const needRebuild = ps.density && ps.density!==widthKey;
+  if(ps.density){ widthKey=ps.density; }
+  syncSliders();
+  markSwatch($("pcolors"),()=>"#"+P.color.getHexString());
+  markSwatch($("bcolors"),()=>"#"+P.bg.getHexString());
+  [...segc.children].forEach(c=>c.classList.toggle("on",c.textContent===widthKey));
+  $("v_count").textContent=widthKey;
+  if(needRebuild) build();
+}
+
+const panel=$("panel");
+$("toggle").onclick=()=>{ panel.style.display = panel.style.display==="none"?"flex":"none"; };
+if(startPanelHidden){ panel.style.display="none"; }
+
+// 全屏窗口里按 Esc → 通知父窗口关闭(跨 iframe 用 postMessage)
+addEventListener("keydown", e=>{ if(e.key==="Escape"){ try{ parent.postMessage({__storm:"close"},"*"); }catch(_){ } } });
+</script>
+</body>
+</html>

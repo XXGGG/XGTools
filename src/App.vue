@@ -15,6 +15,8 @@ import KeyboardPetView from './views/KeyboardPet.vue'
 import ScreenshotView from './views/Screenshot.vue'
 import TranslateView from './views/Translate.vue'
 const ConvertView = defineAsyncComponent(() => import('./views/Convert.vue'))
+const StormOrbView = defineAsyncComponent(() => import('./views/StormOrb.vue'))
+import StormFullscreen from './views/StormFullscreen.vue'
 import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
@@ -30,6 +32,7 @@ const menuItems = [
   { id: 'Screenshot', label: '截图', icon: 'icon-[lucide--focus]' },
   { id: 'Translate', label: '翻译', icon: 'icon-[lucide--languages]' },
   { id: 'Convert', label: '格式转换', icon: 'icon-[lucide--refresh-ccw]' },
+  { id: 'StormOrb', label: '粒子球', icon: 'icon-[lucide--orbit]' },
 ]
 
 useDark()
@@ -38,6 +41,7 @@ const isKeyVisualizer = ref(false)
 const isDockWindow = ref(false)
 const isScreenshotWindow = ref(false)
 const isPinWindow = ref(false)
+const isStorm = ref(false)
 
 const shortcutWarning = ref('')
 
@@ -53,6 +57,7 @@ onMounted(async () => {
   if (win.label === 'dock') { isDockWindow.value = true; return }
   if (win.label === 'screenshot') { isScreenshotWindow.value = true; return }
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
+  if (win.label === 'storm') { isStorm.value = true; return }
 
   // 恢复按键显示窗口状态
   const store = new LazyStore('settings.json')
@@ -94,6 +99,7 @@ onMounted(async () => {
   <DockWindow v-else-if="isDockWindow" />
   <ScreenshotWindow v-else-if="isScreenshotWindow" />
   <PinWindow v-else-if="isPinWindow" />
+  <StormFullscreen v-else-if="isStorm" />
 
   <div v-else class="h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col">
     <TitleBar />
@@ -157,6 +163,7 @@ onMounted(async () => {
             <ScreenshotView v-else-if="currentView === 'Screenshot'" />
             <TranslateView v-else-if="currentView === 'Translate'" />
             <ConvertView v-else-if="currentView === 'Convert'" />
+            <StormOrbView v-else-if="currentView === 'StormOrb'" />
           </div>
         </Transition>
       </main>
