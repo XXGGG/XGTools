@@ -13,8 +13,8 @@ type Patch = Record<string, number | string>
 
 const params = reactive({
   color: '#d9e6ff', bg: '#000000', density: '高',
-  freq: 1.0, pull: 2.3, turb: 0.62, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.3,
-  pointSize: 1.25, bright: 0.55, swirl: 0.35, speed: 1.0, spin: 0.05, follow: 1.0,
+  freq: 1.0, pull: 2.7, turb: 0.56, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.28,
+  pointSize: 1.2, bright: 0.55, swirl: 0.35, speed: 1.0, spin: 0.05, follow: 1.0,
 })
 
 const P_SWATCHES = ['#d9e6ff', '#ffffff', '#38e1c0', '#6bffd8', '#7aa8ff', '#5a7cff',
@@ -36,24 +36,24 @@ const SLIDERS = [
   { key: 'follow', label: '窗口跟随', min: 0, max: 2.5, step: 0.01 },
 ] as const
 
-// 预设:形状各异(内核大小/占比、风沙、紧实、结构、颗粒都不同,不只是换色)
+// 预设:形状各异(内核/风沙/紧实/结构/颗粒都不同),背景一律纯黑
 const PRESETS = [
-  { name: '静谧', icon: 'icon-[lucide--moon]', patch: { color: '#d9e6ff', bg: '#050506', freq: 0.9, swirl: 0.3, turb: 0.42, pull: 4.4, coreR: 0.4, coreFrac: 0.25, haloFrac: 0.1, spin: 0.04, speed: 0.9, pointSize: 1.3, bright: 0.5, density: '高' } },
-  { name: '风暴', icon: 'icon-[lucide--wind]', patch: { color: '#7aa8ff', bg: '#05070d', freq: 1.1, swirl: 0.5, turb: 1.0, pull: 2.0, coreR: 0.5, coreFrac: 0.2, haloFrac: 0.42, spin: 0.08, speed: 1.3, pointSize: 1.2, bright: 0.55, density: '高' } },
-  { name: '星云', icon: 'icon-[lucide--sparkles]', patch: { color: '#b388ff', bg: '#0a0612', freq: 0.55, swirl: 0.22, turb: 0.75, pull: 1.5, coreR: 0.6, coreFrac: 0.28, haloFrac: 0.38, spin: 0.025, speed: 0.8, pointSize: 1.6, bright: 0.48, density: '高' } },
-  { name: '极光', icon: 'icon-[lucide--waves]', patch: { color: '#38e1c0', bg: '#04100c', freq: 0.85, swirl: 0.4, turb: 0.65, pull: 2.6, coreR: 0.45, coreFrac: 0.22, haloFrac: 0.3, spin: 0.05, speed: 1.0, pointSize: 1.3, bright: 0.55, density: '高' } },
-  { name: '黑洞', icon: 'icon-[lucide--circle-dot]', patch: { color: '#ffffff', bg: '#000000', freq: 1.0, swirl: 0.95, turb: 0.5, pull: 3.2, coreR: 0.35, coreFrac: 0.3, haloFrac: 0.24, spin: 0.02, speed: 1.2, pointSize: 1.15, bright: 0.5, density: '高' } },
-  { name: '烈焰', icon: 'icon-[lucide--flame]', patch: { color: '#ffb03a', bg: '#0d0603', freq: 1.0, swirl: 0.35, turb: 1.1, pull: 1.8, coreR: 0.5, coreFrac: 0.18, haloFrac: 0.46, spin: 0.06, speed: 1.2, pointSize: 1.25, bright: 0.55, density: '高' } },
-  { name: '深海', icon: 'icon-[lucide--droplet]', patch: { color: '#5ad0ff', bg: '#02080f', freq: 0.8, swirl: 0.3, turb: 0.55, pull: 3.0, coreR: 0.42, coreFrac: 0.26, haloFrac: 0.22, spin: 0.035, speed: 0.85, pointSize: 1.3, bright: 0.52, density: '高' } },
-  { name: '樱粉', icon: 'icon-[lucide--heart]', patch: { color: '#ff9ecb', bg: '#0d0409', freq: 0.95, swirl: 0.32, turb: 0.6, pull: 2.4, coreR: 0.46, coreFrac: 0.22, haloFrac: 0.3, spin: 0.045, speed: 1.0, pointSize: 1.35, bright: 0.52, density: '高' } },
-  { name: '翡翠', icon: 'icon-[lucide--gem]', patch: { color: '#6bff9d', bg: '#03100a', freq: 0.9, swirl: 0.38, turb: 0.68, pull: 2.7, coreR: 0.44, coreFrac: 0.24, haloFrac: 0.28, spin: 0.05, speed: 1.0, pointSize: 1.28, bright: 0.53, density: '高' } },
-  { name: '黄昏', icon: 'icon-[lucide--sunset]', patch: { color: '#ff8f6b', bg: '#0c0510', freq: 0.85, swirl: 0.3, turb: 0.8, pull: 2.2, coreR: 0.48, coreFrac: 0.2, haloFrac: 0.38, spin: 0.05, speed: 1.05, pointSize: 1.3, bright: 0.54, density: '高' } },
-  { name: '双核', icon: 'icon-[lucide--target]', patch: { color: '#cbd6ff', bg: '#04060c', freq: 0.9, swirl: 0.3, turb: 0.4, pull: 3.6, coreR: 0.62, coreFrac: 0.4, haloFrac: 0.12, spin: 0.04, speed: 0.9, pointSize: 1.3, bright: 0.5, density: '高' } },
-  { name: '薄壳', icon: 'icon-[lucide--circle]', patch: { color: '#ffffff', bg: '#000000', freq: 1.3, swirl: 0.25, turb: 0.32, pull: 5.0, coreR: 0.5, coreFrac: 0.04, haloFrac: 0.12, spin: 0.03, speed: 0.9, pointSize: 1.15, bright: 0.5, density: '高' } },
-  { name: '狂沙', icon: 'icon-[lucide--tornado]', patch: { color: '#ffd27a', bg: '#0a0602', freq: 1.0, swirl: 0.45, turb: 1.3, pull: 1.5, coreR: 0.5, coreFrac: 0.15, haloFrac: 0.55, spin: 0.06, speed: 1.3, pointSize: 1.1, bright: 0.55, density: '高' } },
-  { name: '巨粒', icon: 'icon-[lucide--grip]', patch: { color: '#9dd9ff', bg: '#02060c', freq: 0.9, swirl: 0.3, turb: 0.55, pull: 2.6, coreR: 0.48, coreFrac: 0.25, haloFrac: 0.25, spin: 0.05, speed: 1.0, pointSize: 2.6, bright: 0.42, density: '中' } },
-  { name: '螺旋', icon: 'icon-[lucide--loader-circle]', patch: { color: '#b8ff6b', bg: '#030c04', freq: 1.1, swirl: 1.15, turb: 0.6, pull: 2.4, coreR: 0.45, coreFrac: 0.2, haloFrac: 0.3, spin: 0.03, speed: 1.15, pointSize: 1.25, bright: 0.53, density: '高' } },
-  { name: '微光', icon: 'icon-[lucide--star]', patch: { color: '#d9e6ff', bg: '#05060a', freq: 0.95, swirl: 0.3, turb: 0.5, pull: 2.8, coreR: 0.46, coreFrac: 0.24, haloFrac: 0.22, spin: 0.04, speed: 0.9, pointSize: 1.3, bright: 0.32, density: '高' } },
+  { name: '静谧', icon: 'icon-[lucide--moon]', patch: { color: '#d9e6ff', freq: 0.9, swirl: 0.3, turb: 0.42, pull: 4.4, coreR: 0.4, coreFrac: 0.25, haloFrac: 0.1, spin: 0.04, speed: 0.9, pointSize: 1.25, bright: 0.5, density: '高' } },
+  { name: '风暴', icon: 'icon-[lucide--wind]', patch: { color: '#7aa8ff', freq: 1.1, swirl: 0.5, turb: 1.0, pull: 2.0, coreR: 0.5, coreFrac: 0.2, haloFrac: 0.42, spin: 0.08, speed: 1.3, pointSize: 1.2, bright: 0.55, density: '高' } },
+  { name: '星云', icon: 'icon-[lucide--sparkles]', patch: { color: '#b388ff', freq: 0.55, swirl: 0.22, turb: 0.75, pull: 1.5, coreR: 0.6, coreFrac: 0.28, haloFrac: 0.38, spin: 0.025, speed: 0.8, pointSize: 1.6, bright: 0.48, density: '高' } },
+  { name: '极光', icon: 'icon-[lucide--waves]', patch: { color: '#38e1c0', freq: 0.85, swirl: 0.4, turb: 0.65, pull: 2.6, coreR: 0.45, coreFrac: 0.22, haloFrac: 0.3, spin: 0.05, speed: 1.0, pointSize: 1.25, bright: 0.55, density: '高' } },
+  { name: '黑洞', icon: 'icon-[lucide--circle-dot]', patch: { color: '#ffffff', freq: 1.0, swirl: 0.95, turb: 0.5, pull: 3.2, coreR: 0.35, coreFrac: 0.3, haloFrac: 0.24, spin: 0.02, speed: 1.2, pointSize: 1.1, bright: 0.5, density: '高' } },
+  { name: '烈焰', icon: 'icon-[lucide--flame]', patch: { color: '#ffb03a', freq: 1.0, swirl: 0.35, turb: 1.1, pull: 1.8, coreR: 0.5, coreFrac: 0.18, haloFrac: 0.46, spin: 0.06, speed: 1.2, pointSize: 1.2, bright: 0.55, density: '高' } },
+  { name: '深海', icon: 'icon-[lucide--droplet]', patch: { color: '#5ad0ff', freq: 0.8, swirl: 0.3, turb: 0.55, pull: 3.0, coreR: 0.42, coreFrac: 0.26, haloFrac: 0.22, spin: 0.035, speed: 0.85, pointSize: 1.25, bright: 0.52, density: '高' } },
+  { name: '樱粉', icon: 'icon-[lucide--heart]', patch: { color: '#ff9ecb', freq: 0.95, swirl: 0.32, turb: 0.6, pull: 2.4, coreR: 0.46, coreFrac: 0.22, haloFrac: 0.3, spin: 0.045, speed: 1.0, pointSize: 1.3, bright: 0.52, density: '高' } },
+  { name: '翡翠', icon: 'icon-[lucide--gem]', patch: { color: '#6bff9d', freq: 0.9, swirl: 0.38, turb: 0.68, pull: 2.7, coreR: 0.44, coreFrac: 0.24, haloFrac: 0.28, spin: 0.05, speed: 1.0, pointSize: 1.25, bright: 0.53, density: '高' } },
+  { name: '黄昏', icon: 'icon-[lucide--sunset]', patch: { color: '#ff8f6b', freq: 0.85, swirl: 0.3, turb: 0.8, pull: 2.2, coreR: 0.48, coreFrac: 0.2, haloFrac: 0.38, spin: 0.05, speed: 1.05, pointSize: 1.3, bright: 0.54, density: '高' } },
+  { name: '双核', icon: 'icon-[lucide--target]', patch: { color: '#cbd6ff', freq: 0.9, swirl: 0.3, turb: 0.4, pull: 3.6, coreR: 0.62, coreFrac: 0.4, haloFrac: 0.12, spin: 0.04, speed: 0.9, pointSize: 1.25, bright: 0.5, density: '高' } },
+  { name: '薄壳', icon: 'icon-[lucide--circle]', patch: { color: '#ffffff', freq: 1.3, swirl: 0.25, turb: 0.32, pull: 5.0, coreR: 0.5, coreFrac: 0.04, haloFrac: 0.12, spin: 0.03, speed: 0.9, pointSize: 1.1, bright: 0.5, density: '高' } },
+  { name: '狂沙', icon: 'icon-[lucide--tornado]', patch: { color: '#ffd27a', freq: 1.0, swirl: 0.45, turb: 1.3, pull: 1.5, coreR: 0.5, coreFrac: 0.15, haloFrac: 0.55, spin: 0.06, speed: 1.3, pointSize: 1.1, bright: 0.55, density: '高' } },
+  { name: '巨粒', icon: 'icon-[lucide--grip]', patch: { color: '#9dd9ff', freq: 0.9, swirl: 0.3, turb: 0.55, pull: 2.6, coreR: 0.48, coreFrac: 0.25, haloFrac: 0.25, spin: 0.05, speed: 1.0, pointSize: 2.6, bright: 0.42, density: '中' } },
+  { name: '螺旋', icon: 'icon-[lucide--loader-circle]', patch: { color: '#b8ff6b', freq: 1.1, swirl: 1.15, turb: 0.6, pull: 2.4, coreR: 0.45, coreFrac: 0.2, haloFrac: 0.3, spin: 0.03, speed: 1.15, pointSize: 1.2, bright: 0.53, density: '高' } },
+  { name: '微光', icon: 'icon-[lucide--star]', patch: { color: '#d9e6ff', freq: 0.95, swirl: 0.3, turb: 0.5, pull: 2.8, coreR: 0.46, coreFrac: 0.24, haloFrac: 0.22, spin: 0.04, speed: 0.9, pointSize: 1.25, bright: 0.32, density: '高' } },
 ]
 
 function pushPatch(patch: Patch) {
@@ -69,8 +69,9 @@ function setColor(hex: string) { params.color = hex; pushPatch({ color: hex }) }
 function setBg(hex: string) { params.bg = hex; pushPatch({ bg: hex }) }
 function setDensity(d: string) { params.density = d; pushPatch({ density: d }) }
 function applyPreset(p: (typeof PRESETS)[number]) {
-  Object.assign(params, p.patch)
-  pushPatch(p.patch as Patch)
+  // 预设背景一律纯黑
+  Object.assign(params, p.patch, { bg: '#000000' })
+  pushPatch({ ...(p.patch as Patch), bg: '#000000' })
 }
 function eq(a: string, b: string) { return a.toLowerCase() === b.toLowerCase() }
 
@@ -95,51 +96,56 @@ async function openFullscreen() {
 </script>
 
 <template>
-  <div class="h-full w-full flex flex-col">
-    <!-- 顶栏(固定 h-14 = 56px)-->
-    <div class="h-14 shrink-0 flex items-center gap-2 px-4 border-b border-border">
-      <span class="icon-[lucide--orbit] w-5 h-5 text-primary" />
-      <span class="font-medium">粒子球</span>
-      <span class="text-xs text-muted-foreground hidden md:inline">原创风暴粒子球</span>
+  <div class="h-full w-full flex bg-black">
+    <!-- 画布:居中方形(cqmin)-->
+    <div class="flex-1 min-w-0 relative grid place-items-center" style="container-type:size">
+      <iframe ref="orbFrame" src="orb/index.html" style="width:100cqmin;height:100cqmin" class="border-0 block" title="Storm Orb" />
+      <!-- 浮动:全屏观赏 -->
       <button
         @click="openFullscreen"
-        class="ml-auto px-3 py-1.5 rounded-lg text-sm bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-1.5"
+        class="absolute top-4 left-4 h-9 px-3 rounded-lg text-sm bg-black/35 hover:bg-black/55 border border-white/15 text-white/90 backdrop-blur-md flex items-center gap-1.5"
       >
         <span class="icon-[lucide--maximize] w-4 h-4" /> 全屏观赏
       </button>
+      <!-- 浮动:展开面板(收起时)-->
       <button
-        @click="panelOpen = !panelOpen"
-        :title="panelOpen ? '收起面板' : '展开面板'"
-        class="size-9 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/60 flex items-center justify-center"
+        v-show="!panelOpen" @click="panelOpen = true" title="展开面板"
+        class="absolute top-4 right-4 size-9 rounded-lg bg-black/35 hover:bg-black/55 border border-white/15 text-white/90 backdrop-blur-md flex items-center justify-center"
       >
-        <span :class="panelOpen ? 'icon-[lucide--panel-right-close]' : 'icon-[lucide--panel-right-open]'" class="w-4 h-4" />
+        <span class="icon-[lucide--sliders-horizontal] w-4 h-4" />
       </button>
     </div>
 
-    <div class="flex-1 flex min-h-0">
-      <!-- 画布:居中方形(cqmin = 取容器较小边)-->
-      <div class="flex-1 bg-black grid place-items-center min-w-0" style="container-type:size">
-        <iframe ref="orbFrame" src="orb/index.html" style="width:100cqmin;height:100cqmin" class="border-0 block" title="Storm Orb" />
-      </div>
+    <!-- 控制面板:圆角玻璃卡片(带外边距)-->
+    <Transition
+      enter-active-class="transition-all duration-200" enter-from-class="opacity-0 translate-x-6"
+      leave-active-class="transition-all duration-200" leave-to-class="opacity-0 translate-x-6"
+    >
+      <div v-show="panelOpen" class="w-76.5 shrink-0 p-3">
+        <div class="h-full rounded-2xl border border-border bg-card/75 backdrop-blur-xl shadow-2xl flex flex-col overflow-hidden">
+          <!-- 卡片头 -->
+          <div class="flex items-center justify-between pl-4 pr-2.5 pt-3 pb-0.5">
+            <span class="text-sm font-semibold tracking-wide">粒子球</span>
+            <button
+              @click="panelOpen = false" title="收起面板"
+              class="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center"
+            >
+              <span class="icon-[lucide--panel-right-close] w-4 h-4" />
+            </button>
+          </div>
 
-      <!-- 控制面板(可收起)-->
-      <Transition
-        enter-active-class="transition-all duration-200" enter-from-class="opacity-0 translate-x-4"
-        leave-active-class="transition-all duration-200" leave-to-class="opacity-0 translate-x-4"
-      >
-        <div v-show="panelOpen" class="w-72 shrink-0 border-l border-border flex flex-col bg-card/40">
           <Tabs v-model="tab" class="flex-1 flex flex-col min-h-0">
-            <TabsList class="mx-auto h-11 mt-3 mb-1 shrink-0">
-              <TabsTrigger value="look" class="px-5 text-sm">外观</TabsTrigger>
-              <TabsTrigger value="shape" class="px-5 text-sm">形态</TabsTrigger>
-              <TabsTrigger value="wall" class="px-5 text-sm">壁纸</TabsTrigger>
-              <TabsTrigger value="saver" class="px-5 text-sm">屏保</TabsTrigger>
+            <TabsList class="grid grid-cols-4 h-10 mx-3 mt-2 mb-1 shrink-0">
+              <TabsTrigger value="look" class="text-sm">外观</TabsTrigger>
+              <TabsTrigger value="shape" class="text-sm">形态</TabsTrigger>
+              <TabsTrigger value="wall" class="text-sm">壁纸</TabsTrigger>
+              <TabsTrigger value="saver" class="text-sm">屏保</TabsTrigger>
             </TabsList>
 
             <!-- 外观 -->
             <TabsContent value="look" class="flex-1 min-h-0 mt-0">
               <ScrollArea class="h-full">
-                <div class="px-3 pb-6 pt-2 space-y-5">
+                <div class="px-4 pb-6 pt-2 space-y-5">
                   <div>
                     <div class="text-xs text-muted-foreground mb-2">预设</div>
                     <div class="grid grid-cols-2 gap-2">
@@ -187,7 +193,7 @@ async function openFullscreen() {
             <!-- 形态 -->
             <TabsContent value="shape" class="flex-1 min-h-0 mt-0">
               <ScrollArea class="h-full">
-                <div class="px-3 pb-6 pt-2 space-y-4">
+                <div class="px-4 pb-6 pt-2 space-y-4">
                   <div>
                     <div class="text-xs text-muted-foreground mb-2">密度</div>
                     <div class="grid grid-cols-3 gap-1.5">
@@ -223,7 +229,7 @@ async function openFullscreen() {
             </TabsContent>
           </Tabs>
         </div>
-      </Transition>
-    </div>
+      </div>
+    </Transition>
   </div>
 </template>
