@@ -14,10 +14,10 @@
       {
         "label": "main",
         "title": "XGTools",
-        "width": 1000,
+        "width": 1192,
         "height": 800,
-        "minWidth": 1000,
-        "minHeight": 800,
+        "minWidth": 1120,
+        "minHeight": 760,
         "decorations": false,
         "shadow": true
       },
