@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onUnmounted } from 'vue'
+import { ref, reactive, watch, onUnmounted } from 'vue'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Slider } from '@/components/ui/slider'
@@ -8,35 +8,36 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 const orbFrame = ref<HTMLIFrameElement | null>(null)
 const tab = ref('look')
 const panelOpen = ref(true)
+const expandBtn = ref(false) // 收起动画完成后才显示"展开"按钮
 
 type Patch = Record<string, number | string>
 
 const params = reactive({
-  color: '#d9e6ff', bg: '#000000', density: '高',
+  color: '#d9e6ff', bg: 'transparent', density: '高',
   freq: 1.0, pull: 2.7, turb: 0.56, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.28,
   pointSize: 1.2, bright: 0.55, swirl: 0.35, speed: 1.0, spin: 0.05, follow: 1.0,
 })
 
 const P_SWATCHES = ['#d9e6ff', '#ffffff', '#38e1c0', '#6bffd8', '#7aa8ff', '#5a7cff',
   '#b388ff', '#e07bff', '#ff8fae', '#ff6b6b', '#ffd27a', '#9dff6b', '#ffb03a']
-const B_SWATCHES = ['#000000', '#050506', '#0a0e14', '#0b1020', '#12061c', '#07140f', '#160b0b']
+const B_COLORS = ['#000000', '#050506', '#0a0e14', '#0b1020', '#12061c', '#07140f', '#160b0b']
 
 const SLIDERS = [
-  { key: 'freq', label: '结构大小', min: 0.4, max: 2.4, step: 0.01 },
-  { key: 'pull', label: '球壳紧实', min: 0.8, max: 5, step: 0.01 },
-  { key: 'turb', label: '风沙(湍流)', min: 0, max: 1.4, step: 0.01 },
-  { key: 'coreR', label: '内核壳大小', min: 0.2, max: 0.8, step: 0.01 },
-  { key: 'coreFrac', label: '内核壳占比', min: 0, max: 0.6, step: 0.01 },
-  { key: 'haloFrac', label: '风沙占比', min: 0, max: 0.6, step: 0.01 },
-  { key: 'pointSize', label: '颗粒大小', min: 0.8, max: 3.5, step: 0.01 },
-  { key: 'bright', label: '亮度', min: 0.15, max: 0.9, step: 0.01 },
-  { key: 'swirl', label: '涡旋强度', min: 0, max: 1.2, step: 0.01 },
-  { key: 'speed', label: '速度', min: 0, max: 2.5, step: 0.01 },
-  { key: 'spin', label: '自转', min: 0, max: 0.3, step: 0.005 },
-  { key: 'follow', label: '窗口跟随', min: 0, max: 2.5, step: 0.01 },
+  { key: 'freq', label: '结构大小', icon: 'icon-[lucide--layers]', min: 0.4, max: 2.4, step: 0.01 },
+  { key: 'pull', label: '球壳紧实', icon: 'icon-[lucide--shrink]', min: 0.8, max: 5, step: 0.01 },
+  { key: 'turb', label: '风沙(湍流)', icon: 'icon-[lucide--wind]', min: 0, max: 1.4, step: 0.01 },
+  { key: 'coreR', label: '内核壳大小', icon: 'icon-[lucide--circle]', min: 0.2, max: 0.8, step: 0.01 },
+  { key: 'coreFrac', label: '内核壳占比', icon: 'icon-[lucide--pie-chart]', min: 0, max: 0.6, step: 0.01 },
+  { key: 'haloFrac', label: '风沙占比', icon: 'icon-[lucide--sparkles]', min: 0, max: 0.6, step: 0.01 },
+  { key: 'pointSize', label: '颗粒大小', icon: 'icon-[lucide--grip]', min: 0.8, max: 3.5, step: 0.01 },
+  { key: 'bright', label: '亮度', icon: 'icon-[lucide--sun]', min: 0.15, max: 0.9, step: 0.01 },
+  { key: 'swirl', label: '涡旋强度', icon: 'icon-[lucide--tornado]', min: 0, max: 1.2, step: 0.01 },
+  { key: 'speed', label: '速度', icon: 'icon-[lucide--gauge]', min: 0, max: 2.5, step: 0.01 },
+  { key: 'spin', label: '自转', icon: 'icon-[lucide--rotate-cw]', min: 0, max: 0.3, step: 0.005 },
+  { key: 'follow', label: '窗口跟随', icon: 'icon-[lucide--move]', min: 0, max: 2.5, step: 0.01 },
 ] as const
 
-// 预设:形状各异(内核/风沙/紧实/结构/颗粒都不同),背景一律纯黑
+// 预设:形状各异(不改背景,保留用户的背景选择)
 const PRESETS = [
   { name: '静谧', icon: 'icon-[lucide--moon]', patch: { color: '#d9e6ff', freq: 0.9, swirl: 0.3, turb: 0.42, pull: 4.4, coreR: 0.4, coreFrac: 0.25, haloFrac: 0.1, spin: 0.04, speed: 0.9, pointSize: 1.25, bright: 0.5, density: '高' } },
   { name: '风暴', icon: 'icon-[lucide--wind]', patch: { color: '#7aa8ff', freq: 1.1, swirl: 0.5, turb: 1.0, pull: 2.0, coreR: 0.5, coreFrac: 0.2, haloFrac: 0.42, spin: 0.08, speed: 1.3, pointSize: 1.2, bright: 0.55, density: '高' } },
@@ -66,14 +67,19 @@ function onSlide(key: string, v?: number[]) {
   pushPatch({ [key]: n })
 }
 function setColor(hex: string) { params.color = hex; pushPatch({ color: hex }) }
-function setBg(hex: string) { params.bg = hex; pushPatch({ bg: hex }) }
+function setBg(v: string) { params.bg = v; pushPatch({ bg: v }) }
 function setDensity(d: string) { params.density = d; pushPatch({ density: d }) }
 function applyPreset(p: (typeof PRESETS)[number]) {
-  // 预设背景一律纯黑
-  Object.assign(params, p.patch, { bg: '#000000' })
-  pushPatch({ ...(p.patch as Patch), bg: '#000000' })
+  Object.assign(params, p.patch) // 不动背景
+  pushPatch(p.patch as Patch)
 }
 function eq(a: string, b: string) { return a.toLowerCase() === b.toLowerCase() }
+
+// 收起后延迟显示展开按钮(等卡片滑出完成,避免突兀)
+watch(panelOpen, (open) => {
+  if (open) { expandBtn.value = false }
+  else { window.setTimeout(() => { if (!panelOpen.value) expandBtn.value = true }, 320) }
+})
 
 function onMsg(e: MessageEvent) {
   if (e.data && e.data.__storm === 'ready') pushPatch({ ...params })
@@ -91,39 +97,35 @@ async function openFullscreen() {
   const q = currentQuery()
   const existing = await WebviewWindow.getByLabel('storm')
   if (existing) await existing.close()
-  new WebviewWindow('storm', { url: `index.html?${q}`, title: 'Storm Orb', fullscreen: true, decorations: false })
+  new WebviewWindow('storm', { url: `index.html?${q}&fs=1`, title: 'Storm Orb', fullscreen: true, decorations: false })
 }
 </script>
 
 <template>
-  <div class="h-full w-full flex bg-black">
-    <!-- 画布:居中方形(cqmin)-->
+  <div class="h-full w-full flex">
+    <!-- 画布:透明融入应用,居中方形(cqmin)-->
     <div class="flex-1 min-w-0 relative grid place-items-center" style="container-type:size">
-      <iframe ref="orbFrame" src="orb/index.html" style="width:100cqmin;height:100cqmin" class="border-0 block" title="Storm Orb" />
+      <iframe ref="orbFrame" src="orb/index.html" style="width:100cqmin;height:100cqmin" class="border-0 block bg-transparent" title="Storm Orb" />
       <!-- 浮动:全屏观赏 -->
       <button
         @click="openFullscreen"
-        class="absolute top-4 left-4 h-9 px-3 rounded-lg text-sm bg-black/35 hover:bg-black/55 border border-white/15 text-white/90 backdrop-blur-md flex items-center gap-1.5"
+        class="absolute top-4 left-4 h-9 px-3 rounded-lg text-sm bg-black/25 hover:bg-black/45 border border-white/12 text-foreground/90 backdrop-blur-md flex items-center gap-1.5"
       >
         <span class="icon-[lucide--maximize] w-4 h-4" /> 全屏观赏
       </button>
-      <!-- 浮动:展开面板(收起时)-->
+      <!-- 浮动:展开面板(收起完成后才出现)-->
       <button
-        v-show="!panelOpen" @click="panelOpen = true" title="展开面板"
-        class="absolute top-4 right-4 size-9 rounded-lg bg-black/35 hover:bg-black/55 border border-white/15 text-white/90 backdrop-blur-md flex items-center justify-center"
+        v-show="expandBtn" @click="panelOpen = true" title="展开面板"
+        class="absolute top-4 right-4 size-9 rounded-lg bg-black/25 hover:bg-black/45 border border-white/12 text-foreground/90 backdrop-blur-md flex items-center justify-center"
       >
         <span class="icon-[lucide--sliders-horizontal] w-4 h-4" />
       </button>
     </div>
 
-    <!-- 控制面板:圆角玻璃卡片(带外边距)-->
-    <Transition
-      enter-active-class="transition-all duration-200" enter-from-class="opacity-0 translate-x-6"
-      leave-active-class="transition-all duration-200" leave-to-class="opacity-0 translate-x-6"
-    >
-      <div v-show="panelOpen" class="w-76.5 shrink-0 p-3">
+    <!-- 控制面板:圆角玻璃卡片,平滑收起(卡片滑出 + 列宽收缩 → 球滑向中间)-->
+    <div class="shrink-0 overflow-hidden transition-[width] duration-300 ease-out" :class="panelOpen ? 'w-76.5' : 'w-0'">
+      <div class="w-76.5 h-full p-3 transition-transform duration-300 ease-out" :class="panelOpen ? 'translate-x-0' : 'translate-x-full'">
         <div class="h-full rounded-2xl border border-border bg-card/75 backdrop-blur-xl shadow-2xl flex flex-col overflow-hidden">
-          <!-- 卡片头 -->
           <div class="flex items-center justify-between pl-4 pr-2.5 pt-3 pb-0.5">
             <span class="text-sm font-semibold tracking-wide">粒子球</span>
             <button
@@ -175,14 +177,21 @@ async function openFullscreen() {
                   <div>
                     <div class="text-xs text-muted-foreground mb-2">背景色</div>
                     <div class="flex flex-wrap gap-2">
+                      <!-- 透明(默认,融入应用)-->
                       <button
-                        v-for="c in B_SWATCHES" :key="c" @click="setBg(c)" :style="{ background: c }"
+                        @click="setBg('transparent')" title="透明(融入应用)"
+                        class="w-7 h-7 rounded-lg border transition-all"
+                        :class="params.bg === 'transparent' ? 'border-primary ring-2 ring-primary/40' : 'border-white/15'"
+                        style="background-image:repeating-conic-gradient(#5a5f6b 0% 25%,#31353d 0% 50%);background-size:10px 10px"
+                      />
+                      <button
+                        v-for="c in B_COLORS" :key="c" @click="setBg(c)" :style="{ background: c }"
                         class="w-7 h-7 rounded-lg border transition-all"
                         :class="eq(params.bg, c) ? 'border-primary ring-2 ring-primary/40' : 'border-white/15'"
                       />
                       <label class="w-7 h-7 rounded-lg border border-white/15 bg-muted flex items-center justify-center cursor-pointer relative overflow-hidden text-muted-foreground">
                         <span class="icon-[lucide--pipette] w-3.5 h-3.5" />
-                        <input type="color" :value="params.bg" @input="setBg(($event.target as HTMLInputElement).value)" class="absolute inset-0 opacity-0 cursor-pointer" />
+                        <input type="color" :value="params.bg === 'transparent' ? '#000000' : params.bg" @input="setBg(($event.target as HTMLInputElement).value)" class="absolute inset-0 opacity-0 cursor-pointer" />
                       </label>
                     </div>
                   </div>
@@ -206,7 +215,9 @@ async function openFullscreen() {
                   </div>
                   <div v-for="s in SLIDERS" :key="s.key">
                     <div class="flex items-center justify-between text-xs mb-2">
-                      <span class="text-muted-foreground">{{ s.label }}</span>
+                      <span class="text-muted-foreground flex items-center gap-1.5">
+                        <span :class="s.icon" class="w-3.5 h-3.5" /> {{ s.label }}
+                      </span>
                       <span class="tabular-nums">{{ (params as any)[s.key].toFixed(2) }}</span>
                     </div>
                     <Slider
@@ -230,6 +241,6 @@ async function openFullscreen() {
           </Tabs>
         </div>
       </div>
-    </Transition>
+    </div>
   </div>
 </template>

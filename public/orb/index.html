@@ -9,7 +9,7 @@
 <meta charset="utf-8" />
 <title>Storm Orb</title>
 <style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#000}
+  html,body{margin:0;height:100%;overflow:hidden;background:transparent}
   #app{position:fixed;inset:0}
   #app canvas{display:block}
 </style>
@@ -33,21 +33,24 @@ const P = {
 };
 const COUNTS = { 低: 460, 中: 640, 高: 820 };
 let widthKey = "高";
+let bgTransparent = true;        // 默认透明(融入应用);全屏时透明按黑底渲染
 const NUM_KEYS = ["radius","coreR","coreFrac","haloFrac","freq","swirl","turb","pull","speed","spin","pointSize","bright","follow"];
 
 // ---------- URL 参数(全屏/壁纸/屏保传入)----------
 const Q = new URLSearchParams(location.search);
+const FS = Q.get("fs") === "1"; // 全屏窗口
+function setBg(v){ if(v==="transparent"){ bgTransparent=true; } else { P.bg.set(v); bgTransparent=false; } }
 (function applyUrl(){
   NUM_KEYS.forEach(k=>{ if(Q.has(k)){ const v=parseFloat(Q.get(k)); if(!isNaN(v)) P[k]=v; } });
   if(Q.has("color")) P.color.set(Q.get("color"));
-  if(Q.has("bg")) P.bg.set(Q.get("bg"));
+  if(Q.has("bg")) setBg(Q.get("bg"));
   if(Q.has("density") && COUNTS[Q.get("density")]) widthKey = Q.get("density");
 })();
 window.__stormQuery = () => {
   const p = new URLSearchParams();
   NUM_KEYS.forEach(k=>p.set(k, +P[k].toFixed(4)));
   p.set("color", "#"+P.color.getHexString());
-  p.set("bg", "#"+P.bg.getHexString());
+  p.set("bg", bgTransparent ? "transparent" : "#"+P.bg.getHexString());
   p.set("density", widthKey);
   return p.toString();
 };
@@ -57,9 +60,11 @@ function applyPatch(p){
   if(!p) return;
   NUM_KEYS.forEach(k=>{ if(typeof p[k]==="number") P[k]=p[k]; });
   if(p.color) P.color.set(p.color);
-  if(p.bg) P.bg.set(p.bg);
+  if(p.bg) setBg(p.bg);
   if(p.density && COUNTS[p.density] && p.density!==widthKey){ widthKey=p.density; build(); }
 }
+// 去掉 iframe 内的右键菜单
+addEventListener("contextmenu", e=>e.preventDefault());
 addEventListener("message", e=>{
   const m = e.data && e.data.__storm;
   if(m){ if(m.patch) applyPatch(m.patch); if(m.close!==undefined){ /* fullscreen close handled by host */ } }
@@ -69,7 +74,7 @@ addEventListener("keydown", e=>{ if(e.key==="Escape"){ try{ parent.postMessage({
 
 // ---------- Three ----------
 const host = document.getElementById("app");
-const renderer = new THREE.WebGLRenderer({ antialias:true });
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 host.appendChild(renderer.domElement);
@@ -197,7 +202,9 @@ function animate(){
   mat.uniforms.uPointSize.value=P.pointSize*renderer.getPixelRatio();
   points.rotation.y+=dt*P.spin;
   windowForce();
-  renderer.setClearColor(P.bg,1);
+  // 透明:应用内 alpha=0 融入背景;全屏则黑底不透。选了颜色则用该色。
+  if(bgTransparent) renderer.setClearColor(0x000000, FS ? 1 : 0);
+  else renderer.setClearColor(P.bg, 1);
   renderer.render(scene,camera);
 }
 animate();
