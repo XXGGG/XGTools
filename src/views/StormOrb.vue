@@ -8,53 +8,70 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 const orbFrame = ref<HTMLIFrameElement | null>(null)
 const tab = ref('look')
 const panelOpen = ref(true)
-const expandBtn = ref(false) // 收起动画完成后才显示"展开"按钮
+const expandBtn = ref(false)
 
 type Patch = Record<string, number | string>
 
 const params = reactive({
   color: '#d9e6ff', bg: 'transparent', density: '高',
   freq: 1.0, pull: 2.7, turb: 0.56, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.28,
-  pointSize: 1.2, bright: 0.55, swirl: 0.35, speed: 1.0, spin: 0.05, follow: 1.0,
+  speed: 0.75, follow: 0.4,
+  sizeCore: 1.5, sizeShell: 1.15, sizeHalo: 1.0,
+  brightCore: 0.62, brightShell: 0.5, brightHalo: 0.4,
+  spinCore: 0.04, spinShell: 0.022, spinHalo: 0.012,
 })
 
 const P_SWATCHES = ['#d9e6ff', '#ffffff', '#38e1c0', '#6bffd8', '#7aa8ff', '#5a7cff',
   '#b388ff', '#e07bff', '#ff8fae', '#ff6b6b', '#ffd27a', '#9dff6b', '#ffb03a']
 const B_COLORS = ['#000000', '#050506', '#0a0e14', '#0b1020', '#12061c', '#07140f', '#160b0b']
 
-const SLIDERS = [
-  { key: 'freq', label: '结构大小', icon: 'icon-[lucide--layers]', min: 0.4, max: 2.4, step: 0.01 },
-  { key: 'pull', label: '球壳紧实', icon: 'icon-[lucide--shrink]', min: 0.8, max: 5, step: 0.01 },
-  { key: 'turb', label: '风沙(湍流)', icon: 'icon-[lucide--wind]', min: 0, max: 1.4, step: 0.01 },
-  { key: 'coreR', label: '内核壳大小', icon: 'icon-[lucide--circle]', min: 0.2, max: 0.8, step: 0.01 },
-  { key: 'coreFrac', label: '内核壳占比', icon: 'icon-[lucide--pie-chart]', min: 0, max: 0.6, step: 0.01 },
-  { key: 'haloFrac', label: '风沙占比', icon: 'icon-[lucide--sparkles]', min: 0, max: 0.6, step: 0.01 },
-  { key: 'pointSize', label: '颗粒大小', icon: 'icon-[lucide--grip]', min: 0.8, max: 3.5, step: 0.01 },
-  { key: 'bright', label: '亮度', icon: 'icon-[lucide--sun]', min: 0.15, max: 0.9, step: 0.01 },
-  { key: 'swirl', label: '涡旋强度', icon: 'icon-[lucide--tornado]', min: 0, max: 1.2, step: 0.01 },
-  { key: 'speed', label: '速度', icon: 'icon-[lucide--gauge]', min: 0, max: 2.5, step: 0.01 },
-  { key: 'spin', label: '自转', icon: 'icon-[lucide--rotate-cw]', min: 0, max: 0.3, step: 0.005 },
-  { key: 'follow', label: '窗口跟随', icon: 'icon-[lucide--move]', min: 0, max: 2.5, step: 0.01 },
+// 形态:按"全局 / 结构 / 内核层 / 外壳层 / 风沙层"分组
+const SECTIONS = [
+  { title: '全局', icon: 'icon-[lucide--settings-2]', items: [
+    { key: 'speed', label: '速度', icon: 'icon-[lucide--gauge]', min: 0, max: 2.5, step: 0.01 },
+    { key: 'follow', label: '窗口跟随', icon: 'icon-[lucide--move]', min: 0, max: 2, step: 0.01 },
+    { key: 'freq', label: '结构大小', icon: 'icon-[lucide--layers]', min: 0.4, max: 2.4, step: 0.01 },
+  ] },
+  { title: '结构', icon: 'icon-[lucide--shapes]', items: [
+    { key: 'pull', label: '球壳紧实', icon: 'icon-[lucide--shrink]', min: 0.8, max: 5, step: 0.01 },
+    { key: 'turb', label: '风沙(湍流)', icon: 'icon-[lucide--wind]', min: 0, max: 1.4, step: 0.01 },
+    { key: 'coreR', label: '内核壳大小', icon: 'icon-[lucide--circle]', min: 0.2, max: 0.8, step: 0.01 },
+    { key: 'coreFrac', label: '内核壳占比', icon: 'icon-[lucide--pie-chart]', min: 0, max: 0.6, step: 0.01 },
+    { key: 'haloFrac', label: '风沙占比', icon: 'icon-[lucide--sparkles]', min: 0, max: 0.6, step: 0.01 },
+  ] },
+  { title: '内核层', icon: 'icon-[lucide--circle-dot]', items: [
+    { key: 'brightCore', label: '亮度', icon: 'icon-[lucide--sun]', min: 0.05, max: 1, step: 0.01 },
+    { key: 'sizeCore', label: '颗粒', icon: 'icon-[lucide--grip]', min: 0.5, max: 3.5, step: 0.05 },
+    { key: 'spinCore', label: '自转', icon: 'icon-[lucide--rotate-cw]', min: -0.15, max: 0.15, step: 0.005 },
+  ] },
+  { title: '外壳层', icon: 'icon-[lucide--circle]', items: [
+    { key: 'brightShell', label: '亮度', icon: 'icon-[lucide--sun]', min: 0.05, max: 1, step: 0.01 },
+    { key: 'sizeShell', label: '颗粒', icon: 'icon-[lucide--grip]', min: 0.5, max: 3.5, step: 0.05 },
+    { key: 'spinShell', label: '自转', icon: 'icon-[lucide--rotate-cw]', min: -0.15, max: 0.15, step: 0.005 },
+  ] },
+  { title: '风沙层', icon: 'icon-[lucide--sparkles]', items: [
+    { key: 'brightHalo', label: '亮度', icon: 'icon-[lucide--sun]', min: 0.05, max: 1, step: 0.01 },
+    { key: 'sizeHalo', label: '颗粒', icon: 'icon-[lucide--grip]', min: 0.5, max: 3.5, step: 0.05 },
+    { key: 'spinHalo', label: '自转', icon: 'icon-[lucide--rotate-cw]', min: -0.15, max: 0.15, step: 0.005 },
+  ] },
 ] as const
 
-// 预设:形状各异(不改背景,保留用户的背景选择)
+// 预设:形状 + 分层(差速/逆转自转、大暗核/小亮核、壳亮核暗…各种组合),转速偏慢显宏伟
 const PRESETS = [
-  { name: '静谧', icon: 'icon-[lucide--moon]', patch: { color: '#d9e6ff', freq: 0.9, swirl: 0.3, turb: 0.42, pull: 4.4, coreR: 0.4, coreFrac: 0.25, haloFrac: 0.1, spin: 0.04, speed: 0.9, pointSize: 1.25, bright: 0.5, density: '高' } },
-  { name: '风暴', icon: 'icon-[lucide--wind]', patch: { color: '#7aa8ff', freq: 1.1, swirl: 0.5, turb: 1.0, pull: 2.0, coreR: 0.5, coreFrac: 0.2, haloFrac: 0.42, spin: 0.08, speed: 1.3, pointSize: 1.2, bright: 0.55, density: '高' } },
-  { name: '星云', icon: 'icon-[lucide--sparkles]', patch: { color: '#b388ff', freq: 0.55, swirl: 0.22, turb: 0.75, pull: 1.5, coreR: 0.6, coreFrac: 0.28, haloFrac: 0.38, spin: 0.025, speed: 0.8, pointSize: 1.6, bright: 0.48, density: '高' } },
-  { name: '极光', icon: 'icon-[lucide--waves]', patch: { color: '#38e1c0', freq: 0.85, swirl: 0.4, turb: 0.65, pull: 2.6, coreR: 0.45, coreFrac: 0.22, haloFrac: 0.3, spin: 0.05, speed: 1.0, pointSize: 1.25, bright: 0.55, density: '高' } },
-  { name: '黑洞', icon: 'icon-[lucide--circle-dot]', patch: { color: '#ffffff', freq: 1.0, swirl: 0.95, turb: 0.5, pull: 3.2, coreR: 0.35, coreFrac: 0.3, haloFrac: 0.24, spin: 0.02, speed: 1.2, pointSize: 1.1, bright: 0.5, density: '高' } },
-  { name: '烈焰', icon: 'icon-[lucide--flame]', patch: { color: '#ffb03a', freq: 1.0, swirl: 0.35, turb: 1.1, pull: 1.8, coreR: 0.5, coreFrac: 0.18, haloFrac: 0.46, spin: 0.06, speed: 1.2, pointSize: 1.2, bright: 0.55, density: '高' } },
-  { name: '深海', icon: 'icon-[lucide--droplet]', patch: { color: '#5ad0ff', freq: 0.8, swirl: 0.3, turb: 0.55, pull: 3.0, coreR: 0.42, coreFrac: 0.26, haloFrac: 0.22, spin: 0.035, speed: 0.85, pointSize: 1.25, bright: 0.52, density: '高' } },
-  { name: '樱粉', icon: 'icon-[lucide--heart]', patch: { color: '#ff9ecb', freq: 0.95, swirl: 0.32, turb: 0.6, pull: 2.4, coreR: 0.46, coreFrac: 0.22, haloFrac: 0.3, spin: 0.045, speed: 1.0, pointSize: 1.3, bright: 0.52, density: '高' } },
-  { name: '翡翠', icon: 'icon-[lucide--gem]', patch: { color: '#6bff9d', freq: 0.9, swirl: 0.38, turb: 0.68, pull: 2.7, coreR: 0.44, coreFrac: 0.24, haloFrac: 0.28, spin: 0.05, speed: 1.0, pointSize: 1.25, bright: 0.53, density: '高' } },
-  { name: '黄昏', icon: 'icon-[lucide--sunset]', patch: { color: '#ff8f6b', freq: 0.85, swirl: 0.3, turb: 0.8, pull: 2.2, coreR: 0.48, coreFrac: 0.2, haloFrac: 0.38, spin: 0.05, speed: 1.05, pointSize: 1.3, bright: 0.54, density: '高' } },
-  { name: '双核', icon: 'icon-[lucide--target]', patch: { color: '#cbd6ff', freq: 0.9, swirl: 0.3, turb: 0.4, pull: 3.6, coreR: 0.62, coreFrac: 0.4, haloFrac: 0.12, spin: 0.04, speed: 0.9, pointSize: 1.25, bright: 0.5, density: '高' } },
-  { name: '薄壳', icon: 'icon-[lucide--circle]', patch: { color: '#ffffff', freq: 1.3, swirl: 0.25, turb: 0.32, pull: 5.0, coreR: 0.5, coreFrac: 0.04, haloFrac: 0.12, spin: 0.03, speed: 0.9, pointSize: 1.1, bright: 0.5, density: '高' } },
-  { name: '狂沙', icon: 'icon-[lucide--tornado]', patch: { color: '#ffd27a', freq: 1.0, swirl: 0.45, turb: 1.3, pull: 1.5, coreR: 0.5, coreFrac: 0.15, haloFrac: 0.55, spin: 0.06, speed: 1.3, pointSize: 1.1, bright: 0.55, density: '高' } },
-  { name: '巨粒', icon: 'icon-[lucide--grip]', patch: { color: '#9dd9ff', freq: 0.9, swirl: 0.3, turb: 0.55, pull: 2.6, coreR: 0.48, coreFrac: 0.25, haloFrac: 0.25, spin: 0.05, speed: 1.0, pointSize: 2.6, bright: 0.42, density: '中' } },
-  { name: '螺旋', icon: 'icon-[lucide--loader-circle]', patch: { color: '#b8ff6b', freq: 1.1, swirl: 1.15, turb: 0.6, pull: 2.4, coreR: 0.45, coreFrac: 0.2, haloFrac: 0.3, spin: 0.03, speed: 1.15, pointSize: 1.2, bright: 0.53, density: '高' } },
-  { name: '微光', icon: 'icon-[lucide--star]', patch: { color: '#d9e6ff', freq: 0.95, swirl: 0.3, turb: 0.5, pull: 2.8, coreR: 0.46, coreFrac: 0.24, haloFrac: 0.22, spin: 0.04, speed: 0.9, pointSize: 1.25, bright: 0.32, density: '高' } },
+  { name: '静谧', icon: 'icon-[lucide--moon]', patch: { color: '#d9e6ff', freq: 0.9, pull: 4.0, turb: 0.42, coreR: 0.4, coreFrac: 0.24, haloFrac: 0.12, speed: 0.6, follow: 0.3, sizeCore: 1.4, sizeShell: 1.1, sizeHalo: 0.95, brightCore: 0.6, brightShell: 0.48, brightHalo: 0.35, spinCore: 0.03, spinShell: 0.018, spinHalo: 0.008, density: '高' } },
+  { name: '星系', icon: 'icon-[lucide--orbit]', patch: { color: '#cbd6ff', freq: 1.0, pull: 2.2, turb: 0.7, coreR: 0.35, coreFrac: 0.28, haloFrac: 0.35, speed: 0.7, follow: 0.35, sizeCore: 1.7, sizeShell: 1.1, sizeHalo: 0.9, brightCore: 0.7, brightShell: 0.45, brightHalo: 0.5, spinCore: 0.09, spinShell: 0.03, spinHalo: -0.02, density: '高' } },
+  { name: '行星', icon: 'icon-[lucide--globe]', patch: { color: '#9dd9ff', freq: 0.95, pull: 3.4, turb: 0.45, coreR: 0.55, coreFrac: 0.35, haloFrac: 0.15, speed: 0.5, follow: 0.3, sizeCore: 1.8, sizeShell: 1.05, sizeHalo: 0.9, brightCore: 0.68, brightShell: 0.42, brightHalo: 0.3, spinCore: 0.02, spinShell: 0.015, spinHalo: 0.008, density: '高' } },
+  { name: '风暴', icon: 'icon-[lucide--wind]', patch: { color: '#7aa8ff', freq: 1.1, pull: 2.0, turb: 1.0, coreR: 0.45, coreFrac: 0.18, haloFrac: 0.45, speed: 1.0, follow: 0.5, sizeCore: 1.3, sizeShell: 1.15, sizeHalo: 1.05, brightCore: 0.6, brightShell: 0.52, brightHalo: 0.5, spinCore: 0.06, spinShell: 0.03, spinHalo: 0.02, density: '高' } },
+  { name: '黑洞', icon: 'icon-[lucide--circle-dot]', patch: { color: '#ffffff', freq: 1.0, pull: 3.2, turb: 0.5, coreR: 0.3, coreFrac: 0.3, haloFrac: 0.24, speed: 0.9, follow: 0.35, sizeCore: 1.2, sizeShell: 1.1, sizeHalo: 1.0, brightCore: 0.75, brightShell: 0.4, brightHalo: 0.32, spinCore: 0.11, spinShell: 0.02, spinHalo: 0.01, density: '高' } },
+  { name: '星云', icon: 'icon-[lucide--sparkles]', patch: { color: '#b388ff', freq: 0.55, pull: 1.5, turb: 0.75, coreR: 0.6, coreFrac: 0.28, haloFrac: 0.38, speed: 0.6, follow: 0.35, sizeCore: 1.8, sizeShell: 1.5, sizeHalo: 1.3, brightCore: 0.5, brightShell: 0.42, brightHalo: 0.4, spinCore: 0.02, spinShell: 0.015, spinHalo: 0.01, density: '高' } },
+  { name: '极光', icon: 'icon-[lucide--waves]', patch: { color: '#38e1c0', freq: 0.85, pull: 2.6, turb: 0.65, coreR: 0.45, coreFrac: 0.22, haloFrac: 0.3, speed: 0.8, follow: 0.4, sizeCore: 1.5, sizeShell: 1.15, sizeHalo: 1.0, brightCore: 0.62, brightShell: 0.5, brightHalo: 0.42, spinCore: 0.045, spinShell: 0.025, spinHalo: 0.015, density: '高' } },
+  { name: '烈焰', icon: 'icon-[lucide--flame]', patch: { color: '#ffb03a', freq: 1.0, pull: 1.8, turb: 1.05, coreR: 0.5, coreFrac: 0.18, haloFrac: 0.46, speed: 0.95, follow: 0.45, sizeCore: 1.4, sizeShell: 1.2, sizeHalo: 1.1, brightCore: 0.6, brightShell: 0.52, brightHalo: 0.5, spinCore: 0.05, spinShell: 0.03, spinHalo: 0.02, density: '高' } },
+  { name: '深海', icon: 'icon-[lucide--droplet]', patch: { color: '#5ad0ff', freq: 0.8, pull: 3.0, turb: 0.55, coreR: 0.42, coreFrac: 0.26, haloFrac: 0.2, speed: 0.6, follow: 0.3, sizeCore: 1.6, sizeShell: 1.05, sizeHalo: 0.9, brightCore: 0.66, brightShell: 0.4, brightHalo: 0.34, spinCore: 0.03, spinShell: 0.018, spinHalo: 0.01, density: '高' } },
+  { name: '樱粉', icon: 'icon-[lucide--heart]', patch: { color: '#ff9ecb', freq: 0.95, pull: 2.4, turb: 0.6, coreR: 0.46, coreFrac: 0.22, haloFrac: 0.3, speed: 0.7, follow: 0.4, sizeCore: 1.5, sizeShell: 1.15, sizeHalo: 1.0, brightCore: 0.6, brightShell: 0.5, brightHalo: 0.42, spinCore: 0.04, spinShell: 0.022, spinHalo: 0.012, density: '高' } },
+  { name: '翡翠', icon: 'icon-[lucide--gem]', patch: { color: '#6bff9d', freq: 0.9, pull: 2.7, turb: 0.6, coreR: 0.44, coreFrac: 0.24, haloFrac: 0.28, speed: 0.75, follow: 0.4, sizeCore: 1.5, sizeShell: 1.1, sizeHalo: 1.0, brightCore: 0.62, brightShell: 0.48, brightHalo: 0.42, spinCore: 0.03, spinShell: -0.02, spinHalo: 0.01, density: '高' } },
+  { name: '双核', icon: 'icon-[lucide--target]', patch: { color: '#cbd6ff', freq: 0.9, pull: 3.6, turb: 0.4, coreR: 0.62, coreFrac: 0.42, haloFrac: 0.12, speed: 0.6, follow: 0.3, sizeCore: 1.6, sizeShell: 1.0, sizeHalo: 0.9, brightCore: 0.65, brightShell: 0.42, brightHalo: 0.3, spinCore: 0.05, spinShell: 0.02, spinHalo: 0.01, density: '高' } },
+  { name: '薄壳', icon: 'icon-[lucide--circle]', patch: { color: '#ffffff', freq: 1.3, pull: 4.6, turb: 0.35, coreR: 0.5, coreFrac: 0.06, haloFrac: 0.14, speed: 0.6, follow: 0.3, sizeCore: 1.2, sizeShell: 1.15, sizeHalo: 0.95, brightCore: 0.5, brightShell: 0.55, brightHalo: 0.35, spinCore: 0.02, spinShell: 0.025, spinHalo: 0.01, density: '高' } },
+  { name: '微光', icon: 'icon-[lucide--star]', patch: { color: '#d9e6ff', freq: 0.95, pull: 2.8, turb: 0.5, coreR: 0.46, coreFrac: 0.24, haloFrac: 0.22, speed: 0.55, follow: 0.3, sizeCore: 1.4, sizeShell: 1.15, sizeHalo: 1.0, brightCore: 0.4, brightShell: 0.32, brightHalo: 0.26, spinCore: 0.025, spinShell: 0.015, spinHalo: 0.008, density: '高' } },
 ]
 
 function pushPatch(patch: Patch) {
@@ -70,12 +87,11 @@ function setColor(hex: string) { params.color = hex; pushPatch({ color: hex }) }
 function setBg(v: string) { params.bg = v; pushPatch({ bg: v }) }
 function setDensity(d: string) { params.density = d; pushPatch({ density: d }) }
 function applyPreset(p: (typeof PRESETS)[number]) {
-  Object.assign(params, p.patch) // 不动背景
+  Object.assign(params, p.patch)
   pushPatch(p.patch as Patch)
 }
 function eq(a: string, b: string) { return a.toLowerCase() === b.toLowerCase() }
 
-// 收起后延迟显示展开按钮(等卡片滑出完成,避免突兀)
 watch(panelOpen, (open) => {
   if (open) { expandBtn.value = false }
   else { window.setTimeout(() => { if (!panelOpen.value) expandBtn.value = true }, 320) }
@@ -103,17 +119,14 @@ async function openFullscreen() {
 
 <template>
   <div class="h-full w-full flex">
-    <!-- 画布:透明融入应用,居中方形(cqmin)-->
     <div class="flex-1 min-w-0 relative grid place-items-center" style="container-type:size">
       <iframe ref="orbFrame" src="orb/index.html" style="width:100cqmin;height:100cqmin" class="border-0 block bg-transparent" title="Storm Orb" />
-      <!-- 浮动:全屏观赏 -->
       <button
         @click="openFullscreen"
         class="absolute top-4 left-4 h-9 px-3 rounded-lg text-sm bg-black/25 hover:bg-black/45 border border-white/12 text-foreground/90 backdrop-blur-md flex items-center gap-1.5"
       >
         <span class="icon-[lucide--maximize] w-4 h-4" /> 全屏观赏
       </button>
-      <!-- 浮动:展开面板(收起完成后才出现)-->
       <button
         v-show="expandBtn" @click="panelOpen = true" title="展开面板"
         class="absolute top-4 right-4 size-9 rounded-lg bg-black/25 hover:bg-black/45 border border-white/12 text-foreground/90 backdrop-blur-md flex items-center justify-center"
@@ -122,7 +135,6 @@ async function openFullscreen() {
       </button>
     </div>
 
-    <!-- 控制面板:圆角玻璃卡片,平滑收起(卡片滑出 + 列宽收缩 → 球滑向中间)-->
     <div class="shrink-0 overflow-hidden transition-[width] duration-300 ease-out" :class="panelOpen ? 'w-76.5' : 'w-0'">
       <div class="w-76.5 h-full p-3 transition-transform duration-300 ease-out" :class="panelOpen ? 'translate-x-0' : 'translate-x-full'">
         <div class="h-full rounded-2xl border border-border bg-card/75 backdrop-blur-xl shadow-2xl flex flex-col overflow-hidden">
@@ -177,7 +189,6 @@ async function openFullscreen() {
                   <div>
                     <div class="text-xs text-muted-foreground mb-2">背景色</div>
                     <div class="flex flex-wrap gap-2">
-                      <!-- 透明(默认,融入应用)-->
                       <button
                         @click="setBg('transparent')" title="透明(融入应用)"
                         class="w-7 h-7 rounded-lg border transition-all"
@@ -199,10 +210,10 @@ async function openFullscreen() {
               </ScrollArea>
             </TabsContent>
 
-            <!-- 形态 -->
+            <!-- 形态(分层)-->
             <TabsContent value="shape" class="flex-1 min-h-0 mt-0">
               <ScrollArea class="h-full">
-                <div class="px-4 pb-6 pt-2 space-y-4">
+                <div class="px-4 pb-6 pt-2 space-y-5">
                   <div>
                     <div class="text-xs text-muted-foreground mb-2">密度</div>
                     <div class="grid grid-cols-3 gap-1.5">
@@ -213,18 +224,26 @@ async function openFullscreen() {
                       >{{ d }}</button>
                     </div>
                   </div>
-                  <div v-for="s in SLIDERS" :key="s.key">
-                    <div class="flex items-center justify-between text-xs mb-2">
-                      <span class="text-muted-foreground flex items-center gap-1.5">
-                        <span :class="s.icon" class="w-3.5 h-3.5" /> {{ s.label }}
-                      </span>
-                      <span class="tabular-nums">{{ (params as any)[s.key].toFixed(2) }}</span>
+                  <div v-for="sec in SECTIONS" :key="sec.title">
+                    <div class="flex items-center gap-1.5 text-xs font-medium text-foreground/80 mb-2.5">
+                      <span v-if="sec.icon" :class="sec.icon" class="w-3.5 h-3.5 text-primary" />
+                      {{ sec.title }}
                     </div>
-                    <Slider
-                      :model-value="[(params as any)[s.key]]"
-                      :min="s.min" :max="s.max" :step="s.step"
-                      @update:model-value="(v: number[] | undefined) => onSlide(s.key, v)"
-                    />
+                    <div class="space-y-3.5">
+                      <div v-for="s in sec.items" :key="s.key">
+                        <div class="flex items-center justify-between text-xs mb-1.5">
+                          <span class="text-muted-foreground flex items-center gap-1.5">
+                            <span :class="s.icon" class="w-3.5 h-3.5" /> {{ s.label }}
+                          </span>
+                          <span class="tabular-nums">{{ (params as any)[s.key].toFixed(s.step < 0.01 ? 3 : 2) }}</span>
+                        </div>
+                        <Slider
+                          :model-value="[(params as any)[s.key]]"
+                          :min="s.min" :max="s.max" :step="s.step"
+                          @update:model-value="(v: number[] | undefined) => onSlide(s.key, v)"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </ScrollArea>
