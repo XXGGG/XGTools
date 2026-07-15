@@ -15,9 +15,9 @@ type Patch = Record<string, number | string>
 const params = reactive({
   color: '#d9e6ff', bg: 'transparent', density: '高',
   freq: 1.0, pull: 2.7, turb: 0.56, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.28,
-  speed: 0.75, follow: 0.4,
-  sizeCore: 1.5, sizeShell: 1.15, sizeHalo: 1.0,
-  brightCore: 0.62, brightShell: 0.5, brightHalo: 0.4,
+  speed: 0.75, follow: 0.4, tilt: 0.32,
+  sizeCore: 1.35, sizeShell: 1.0, sizeHalo: 0.85,
+  brightCore: 0.55, brightShell: 0.42, brightHalo: 0.34,
   spinCore: 0.04, spinShell: 0.022, spinHalo: 0.012,
 })
 
@@ -30,6 +30,7 @@ const SECTIONS = [
   { title: '全局', icon: 'icon-[lucide--settings-2]', items: [
     { key: 'speed', label: '速度', icon: 'icon-[lucide--gauge]', min: 0, max: 2.5, step: 0.01 },
     { key: 'follow', label: '窗口跟随', icon: 'icon-[lucide--move]', min: 0, max: 2, step: 0.01 },
+    { key: 'tilt', label: '轴倾斜', icon: 'icon-[lucide--compass]', min: -0.9, max: 0.9, step: 0.02 },
     { key: 'freq', label: '结构大小', icon: 'icon-[lucide--layers]', min: 0.4, max: 2.4, step: 0.01 },
   ] },
   { title: '结构', icon: 'icon-[lucide--shapes]', items: [
@@ -56,8 +57,47 @@ const SECTIONS = [
   ] },
 ] as const
 
-// 预设:形状 + 分层(差速/逆转自转、大暗核/小亮核、壳亮核暗…各种组合),转速偏慢显宏伟
-const PRESETS = [
+// 精选预设(命名)+ 生成 250 个(参数组合的数学,类似 Wisp 的形态画廊)
+function hslToHex(h: number, s: number, l: number): string {
+  h /= 360
+  const a = s * Math.min(l, 1 - l)
+  const f = (n: number) => {
+    const k = (n + h * 12) % 12
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+    return Math.round(255 * c).toString(16).padStart(2, '0')
+  }
+  return '#' + f(0) + f(8) + f(4)
+}
+function rng(seed: number) {
+  let a = seed >>> 0
+  return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
+}
+const rd = (r: () => number, lo: number, hi: number, p = 2) => +(lo + (hi - lo) * r()).toFixed(p)
+function genPresets(n: number, startIdx: number) {
+  const out: any[] = []
+  for (let i = 0; i < n; i++) {
+    const r = rng((i * 2654435761) ^ 0x9e3779b9)
+    const color = hslToHex(Math.floor(r() * 360), 0.45 + 0.45 * r(), 0.62 + 0.22 * r())
+    const base = 0.015 + 0.085 * r()
+    out.push({
+      name: `形态 ${String(startIdx + i).padStart(3, '0')}`, icon: 'icon-[lucide--orbit]',
+      patch: {
+        color, coreR: rd(r, 0.3, 0.72), coreFrac: rd(r, 0.06, 0.4), haloFrac: rd(r, 0.1, 0.5),
+        pull: rd(r, 1.6, 4.8), turb: rd(r, 0.35, 1.2), freq: rd(r, 0.5, 1.7),
+        speed: rd(r, 0.45, 0.95), follow: rd(r, 0.25, 0.55), tilt: rd(r, -0.7, 0.7),
+        sizeCore: rd(r, 1.0, 2.3), sizeShell: rd(r, 0.85, 1.45), sizeHalo: rd(r, 0.75, 1.2),
+        brightCore: rd(r, 0.4, 0.82), brightShell: rd(r, 0.32, 0.62), brightHalo: rd(r, 0.24, 0.52),
+        spinCore: +(base * (0.8 + 0.9 * r())).toFixed(3),
+        spinShell: +(base * (0.3 + 0.7 * r()) * (r() < 0.22 ? -1 : 1)).toFixed(3),
+        spinHalo: +(base * (0.2 + 0.7 * r()) * (r() < 0.35 ? -1 : 1)).toFixed(3),
+        density: '高',
+      },
+    })
+  }
+  return out
+}
+
+const CURATED = [
   { name: '静谧', icon: 'icon-[lucide--moon]', patch: { color: '#d9e6ff', freq: 0.9, pull: 4.0, turb: 0.42, coreR: 0.4, coreFrac: 0.24, haloFrac: 0.12, speed: 0.6, follow: 0.3, sizeCore: 1.4, sizeShell: 1.1, sizeHalo: 0.95, brightCore: 0.6, brightShell: 0.48, brightHalo: 0.35, spinCore: 0.03, spinShell: 0.018, spinHalo: 0.008, density: '高' } },
   { name: '星系', icon: 'icon-[lucide--orbit]', patch: { color: '#cbd6ff', freq: 1.0, pull: 2.2, turb: 0.7, coreR: 0.35, coreFrac: 0.28, haloFrac: 0.35, speed: 0.7, follow: 0.35, sizeCore: 1.7, sizeShell: 1.1, sizeHalo: 0.9, brightCore: 0.7, brightShell: 0.45, brightHalo: 0.5, spinCore: 0.09, spinShell: 0.03, spinHalo: -0.02, density: '高' } },
   { name: '行星', icon: 'icon-[lucide--globe]', patch: { color: '#9dd9ff', freq: 0.95, pull: 3.4, turb: 0.45, coreR: 0.55, coreFrac: 0.35, haloFrac: 0.15, speed: 0.5, follow: 0.3, sizeCore: 1.8, sizeShell: 1.05, sizeHalo: 0.9, brightCore: 0.68, brightShell: 0.42, brightHalo: 0.3, spinCore: 0.02, spinShell: 0.015, spinHalo: 0.008, density: '高' } },
@@ -73,6 +113,8 @@ const PRESETS = [
   { name: '薄壳', icon: 'icon-[lucide--circle]', patch: { color: '#ffffff', freq: 1.3, pull: 4.6, turb: 0.35, coreR: 0.5, coreFrac: 0.06, haloFrac: 0.14, speed: 0.6, follow: 0.3, sizeCore: 1.2, sizeShell: 1.15, sizeHalo: 0.95, brightCore: 0.5, brightShell: 0.55, brightHalo: 0.35, spinCore: 0.02, spinShell: 0.025, spinHalo: 0.01, density: '高' } },
   { name: '微光', icon: 'icon-[lucide--star]', patch: { color: '#d9e6ff', freq: 0.95, pull: 2.8, turb: 0.5, coreR: 0.46, coreFrac: 0.24, haloFrac: 0.22, speed: 0.55, follow: 0.3, sizeCore: 1.4, sizeShell: 1.15, sizeHalo: 1.0, brightCore: 0.4, brightShell: 0.32, brightHalo: 0.26, spinCore: 0.025, spinShell: 0.015, spinHalo: 0.008, density: '高' } },
 ]
+// 14 精选 + 236 生成 = 250
+const PRESETS = [...CURATED, ...genPresets(236, CURATED.length + 1)]
 
 function pushPatch(patch: Patch) {
   orbFrame.value?.contentWindow?.postMessage({ __storm: { patch } }, '*')
@@ -86,9 +128,10 @@ function onSlide(key: string, v?: number[]) {
 function setColor(hex: string) { params.color = hex; pushPatch({ color: hex }) }
 function setBg(v: string) { params.bg = v; pushPatch({ bg: v }) }
 function setDensity(d: string) { params.density = d; pushPatch({ density: d }) }
-function applyPreset(p: (typeof PRESETS)[number]) {
+function applyPreset(p: any) {
   Object.assign(params, p.patch)
-  pushPatch(p.patch as Patch)
+  // 带入场动画(球从小蹦大跳出)
+  orbFrame.value?.contentWindow?.postMessage({ __storm: { patch: p.patch, reenter: true } }, '*')
 }
 function eq(a: string, b: string) { return a.toLowerCase() === b.toLowerCase() }
 
