@@ -15,6 +15,7 @@ type Patch = Record<string, number | string>
 const params = reactive({
   color: '#d9e6ff', bg: 'transparent', density: '高',
   freq: 1.0, pull: 2.7, turb: 0.56, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.28,
+  shape: 2.0, warp: 0.0, warpFreq: 2.0, twist: 0.0,
   speed: 0.75, follow: 0.4, tilt: 0.32,
   sizeCore: 1.35, sizeShell: 1.0, sizeHalo: 0.85,
   brightCore: 0.55, brightShell: 0.42, brightHalo: 0.34,
@@ -39,6 +40,12 @@ const SECTIONS = [
     { key: 'coreR', label: '内核壳大小', icon: 'icon-[lucide--circle]', min: 0.2, max: 0.8, step: 0.01 },
     { key: 'coreFrac', label: '内核壳占比', icon: 'icon-[lucide--pie-chart]', min: 0, max: 0.6, step: 0.01 },
     { key: 'haloFrac', label: '风沙占比', icon: 'icon-[lucide--sparkles]', min: 0, max: 0.6, step: 0.01 },
+  ] },
+  { title: '几何', icon: 'icon-[lucide--box]', items: [
+    { key: 'shape', label: '形状(球↔多面)', icon: 'icon-[lucide--hexagon]', min: 0.6, max: 8, step: 0.05 },
+    { key: 'warp', label: '表面起伏', icon: 'icon-[lucide--mountain]', min: 0, max: 0.5, step: 0.01 },
+    { key: 'warpFreq', label: '起伏密度', icon: 'icon-[lucide--grip]', min: 0.5, max: 5, step: 0.1 },
+    { key: 'twist', label: '扭转', icon: 'icon-[lucide--tornado]', min: -0.5, max: 0.5, step: 0.02 },
   ] },
   { title: '内核层', icon: 'icon-[lucide--circle-dot]', items: [
     { key: 'brightCore', label: '亮度', icon: 'icon-[lucide--sun]', min: 0.05, max: 1, step: 0.01 },
@@ -73,20 +80,36 @@ function rng(seed: number) {
   return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
 }
 const rd = (r: () => number, lo: number, hi: number, p = 2) => +(lo + (hi - lo) * r()).toFixed(p)
+// 形态原型:决定几何骨架(球/八面/立方/凹星/瘤状/崎岖/扭转),让 250 个真正多维不同
+const ARCH: any[] = [
+  { shape: 2.0, warp: 0, twist: 0, pull: [2.2, 4.2], turb: [0.4, 0.85] },
+  { shape: 1.0, warp: 0.05, twist: 0, pull: [3.0, 4.8], turb: [0.3, 0.55] },
+  { shape: 4.8, warp: 0, twist: 0, pull: [3.2, 4.8], turb: [0.28, 0.5] },
+  { shape: 0.8, warp: 0.06, twist: 0, pull: [3.0, 4.6], turb: [0.3, 0.55] },
+  { shape: 2.0, warp: 0.34, twist: 0, pull: [2.6, 4.0], turb: [0.35, 0.6] },
+  { shape: 2.6, warp: 0.46, twist: 0, pull: [2.6, 3.8], turb: [0.35, 0.6] },
+  { shape: 2.0, warp: 0.1, twist: [0.18, 0.42], pull: [2.4, 3.6], turb: [0.4, 0.7] },
+]
 function genPresets(n: number, startIdx: number) {
   const out: any[] = []
   for (let i = 0; i < n; i++) {
     const r = rng((i * 2654435761) ^ 0x9e3779b9)
+    const A = ARCH[i % ARCH.length]
     const color = hslToHex(Math.floor(r() * 360), 0.45 + 0.45 * r(), 0.62 + 0.22 * r())
     const base = 0.015 + 0.085 * r()
+    const twist = A.twist ? +(rd(r, A.twist[0], A.twist[1]) * (r() < 0.5 ? 1 : -1)).toFixed(2) : (r() < 0.2 ? rd(r, -0.28, 0.28) : 0)
     out.push({
       name: `形态 ${String(startIdx + i).padStart(3, '0')}`, icon: 'icon-[lucide--orbit]',
       patch: {
-        color, coreR: rd(r, 0.3, 0.72), coreFrac: rd(r, 0.06, 0.4), haloFrac: rd(r, 0.1, 0.5),
-        pull: rd(r, 1.6, 4.8), turb: rd(r, 0.35, 1.2), freq: rd(r, 0.5, 1.7),
+        color,
+        shape: +(A.shape * (0.9 + 0.2 * r())).toFixed(2),
+        warp: +(A.warp * (0.7 + 0.6 * r())).toFixed(2),
+        warpFreq: rd(r, 1.2, 4.0, 1), twist,
+        coreR: rd(r, 0.3, 0.72), coreFrac: rd(r, 0.06, 0.4), haloFrac: rd(r, 0.1, 0.5),
+        pull: rd(r, A.pull[0], A.pull[1]), turb: rd(r, A.turb[0], A.turb[1]), freq: rd(r, 0.6, 1.6),
         speed: rd(r, 0.45, 0.95), follow: rd(r, 0.25, 0.55), tilt: rd(r, -0.7, 0.7),
-        sizeCore: rd(r, 1.0, 2.3), sizeShell: rd(r, 0.85, 1.45), sizeHalo: rd(r, 0.75, 1.2),
-        brightCore: rd(r, 0.4, 0.82), brightShell: rd(r, 0.32, 0.62), brightHalo: rd(r, 0.24, 0.52),
+        sizeCore: rd(r, 1.0, 2.2), sizeShell: rd(r, 0.85, 1.4), sizeHalo: rd(r, 0.75, 1.15),
+        brightCore: rd(r, 0.42, 0.82), brightShell: rd(r, 0.32, 0.6), brightHalo: rd(r, 0.24, 0.5),
         spinCore: +(base * (0.8 + 0.9 * r())).toFixed(3),
         spinShell: +(base * (0.3 + 0.7 * r()) * (r() < 0.22 ? -1 : 1)).toFixed(3),
         spinHalo: +(base * (0.2 + 0.7 * r()) * (r() < 0.35 ? -1 : 1)).toFixed(3),
