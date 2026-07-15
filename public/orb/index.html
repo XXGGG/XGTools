@@ -75,7 +75,7 @@ renderer.setSize(innerWidth, innerHeight);
 host.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
-camera.position.set(0, 0, 3.55); // 球占画布 ~75-80%,四周留边看飘离粒子
+camera.position.set(0, 0, 3.73); // 球占画布 ~72%,四周留边看飘离粒子
 let lastVW = 0, lastVH = 0;
 function fit(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); lastVW=w; lastVH=h; }
 addEventListener("resize", fit); fit();
