@@ -27,6 +27,7 @@ import { GPUComputationRenderer } from "./vendor/GPUComputationRenderer.js";
 const P = {
   radius: 1.0, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.28,
   freq: 1.0, swirl: 0.35, turb: 0.56, pull: 2.7,
+  shape: 2.0, warp: 0.0, warpFreq: 2.0, twist: 0.0, // 几何:形状(超椭球p)/表面起伏/起伏密度/扭转
   speed: 0.75, follow: 0.4, tilt: 0.32,   // tilt=自转轴倾角(非垂直)
   // 分层:内核 / 外壳 / 风沙 各自的颗粒大小、亮度、自转速度(差速自转)。偏 airy 更通透
   sizeCore: 1.35, sizeShell: 1.0, sizeHalo: 0.85,
@@ -38,7 +39,7 @@ const P = {
 const COUNTS = { 低: 460, 中: 640, 高: 820 };
 let widthKey = "高";
 let bgTransparent = true;        // 默认透明(融入应用);全屏时透明按黑底渲染
-const NUM_KEYS = ["radius","coreR","coreFrac","haloFrac","freq","swirl","turb","pull","speed","follow","tilt",
+const NUM_KEYS = ["radius","coreR","coreFrac","haloFrac","freq","swirl","turb","pull","shape","warp","warpFreq","twist","speed","follow","tilt",
   "sizeCore","sizeShell","sizeHalo","brightCore","brightShell","brightHalo","spinCore","spinShell","spinHalo"];
 
 // ---------- URL 参数(全屏/壁纸/屏保传入)----------
@@ -126,7 +127,9 @@ vec3 curl(vec3 p){const float e=0.12;vec3 dx=vec3(e,0.,0.),dy=vec3(0.,e,0.),dz=v
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 `;
 const SIM = NOISE + `
-uniform float uTime,uDelta,uSpeed,uFreq,uSwirl,uTurb,uPull,uRadius,uCoreR,uCoreFrac,uHaloFrac;
+uniform float uTime,uDelta,uSpeed,uFreq,uSwirl,uTurb,uPull,uRadius,uCoreR,uCoreFrac,uHaloFrac,uShape,uWarp,uWarpFreq,uTwist;
+// 超椭球形状因子:p=2 球;p<2 → 八面体/凹星;p>2 → 立方体
+float shapeR(vec3 d, float p){ p=max(p,0.6); vec3 a=pow(abs(d),vec3(p)); return 1.0/pow(a.x+a.y+a.z+1e-4, 1.0/p); }
 void main(){
   vec2 uv=gl_FragCoord.xy/resolution.xy;
   vec4 t=texture2D(texturePosition,uv);
@@ -137,16 +140,21 @@ void main(){
   else if(grp>1.0-uHaloFrac){ pullMul=0.4; turbMul=1.7; }
   float r=length(pos)+1e-5;
   vec3 nrm=pos/r;
+  // 目标半径 = 层半径 × 形状(超椭球) × (1 + 方向起伏) —— 决定几何形态
+  float warp = uWarp * snoise(nrm*uWarpFreq + 13.0);
+  float target = shellR * shapeR(nrm, uShape) * (1.0 + warp);
   vec3 c=curl(pos*uFreq+vec3(0.0,uTime*0.05,0.0));
   vec3 tang=c-nrm*dot(c,nrm);
   vec3 vel=(tang+nrm*dot(c,nrm)*0.5)*uTurb*turbMul;
   vel+=vec3(-pos.z,0.0,pos.x)*uSwirl;
-  vel-=nrm*(r-shellR)*uPull*pullMul;
+  vel+=vec3(-pos.z,0.0,pos.x)*(uTwist*pos.y);   // 扭转:沿高度的螺旋切向(似连接扭转)
+  vel-=nrm*(r-target)*uPull*pullMul;
   pos+=vel*uDelta*uSpeed;
   life-=uDelta*uSpeed*0.09;
   if(life<=0.0){
     vec3 d=normalize(vec3(hash(uv+uTime),hash(uv+uTime+7.0),hash(uv+uTime+13.0))*2.0-1.0);
-    pos=d*shellR*(0.95+0.09*hash(uv+3.1));
+    float w2=uWarp*snoise(d*uWarpFreq+13.0);
+    pos=d*shellR*shapeR(d,uShape)*(1.0+w2)*(0.95+0.09*hash(uv+3.1));
     life=0.8+3.2*hash(uv+5.3);
   }
   gl_FragColor=vec4(pos,life);
@@ -170,6 +178,7 @@ function build(){
     uTime:{value:0},uDelta:{value:0},uSpeed:{value:P.speed},uFreq:{value:P.freq},
     uSwirl:{value:P.swirl},uTurb:{value:P.turb},uPull:{value:P.pull},uRadius:{value:P.radius},
     uCoreR:{value:P.coreR},uCoreFrac:{value:P.coreFrac},uHaloFrac:{value:P.haloFrac},
+    uShape:{value:P.shape},uWarp:{value:P.warp},uWarpFreq:{value:P.warpFreq},uTwist:{value:P.twist},
   });
   const e=gpu.init(); if(e)console.error(e);
   const refs=new Float32Array(COUNT*2);
@@ -237,6 +246,7 @@ function animate(){
   u.uTime.value+=dt; u.uDelta.value=dt; u.uSpeed.value=P.speed; u.uFreq.value=P.freq;
   u.uSwirl.value=P.swirl; u.uTurb.value=P.turb; u.uPull.value=P.pull;
   u.uCoreR.value=P.coreR; u.uCoreFrac.value=P.coreFrac; u.uHaloFrac.value=P.haloFrac;
+  u.uShape.value=P.shape; u.uWarp.value=P.warp; u.uWarpFreq.value=P.warpFreq; u.uTwist.value=P.twist;
   gpu.compute();
   angC+=dt*P.spinCore; angS+=dt*P.spinShell; angH+=dt*P.spinHalo;
   const pr=renderer.getPixelRatio(), mu=mat.uniforms;
