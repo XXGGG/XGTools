@@ -27,24 +27,29 @@ import { GPUComputationRenderer } from "./vendor/GPUComputationRenderer.js";
 const P = {
   radius: 1.0, coreR: 0.5, coreFrac: 0.22, haloFrac: 0.28,
   freq: 1.0, swirl: 0.35, turb: 0.56, pull: 2.7,
-  shape: 2.0, warp: 0.0, warpFreq: 2.0, twist: 0.0, // 几何:形状(超椭球p)/表面起伏/起伏密度/扭转
-  speed: 0.75, follow: 0.4, tilt: 0.32,   // tilt=自转轴倾角(非垂直)
+  coreShape: 2.0, shellShape: 2.0, warp: 0.0, warpFreq: 2.0, twist: 0.0, // 几何:内核/外壳形状(超椭球p,独立)、起伏、扭转
+  speed: 0.75, follow: 0.4, tilt: 0.32, conn: 0.3, bow: 0.18, ctwist: 2.5,   // conn=连接强度;bow=弯曲振幅;ctwist=连接螺旋圈数(仿 Wisp connectionTwists)
   // 分层:内核 / 外壳 / 风沙 各自的颗粒大小、亮度、自转速度(差速自转)。偏 airy 更通透
   sizeCore: 1.35, sizeShell: 1.0, sizeHalo: 0.85,
   brightCore: 0.55, brightShell: 0.42, brightHalo: 0.34,
-  spinCore: 0.04, spinShell: 0.022, spinHalo: 0.012,
+  spinAll: 0.0, spinCore: 0.0, spinShell: 0.0, spinHalo: 0.0,   // 自转:整体 + 各层差速(-1~1,正负=两个方向;默认不转)
   color: new THREE.Color(0.85, 0.9, 1.0),
   bg: new THREE.Color(0, 0, 0),
 };
 const COUNTS = { 低: 460, 中: 640, 高: 820 };
 let widthKey = "高";
 let bgTransparent = true;        // 默认透明(融入应用);全屏时透明按黑底渲染
-const NUM_KEYS = ["radius","coreR","coreFrac","haloFrac","freq","swirl","turb","pull","shape","warp","warpFreq","twist","speed","follow","tilt",
-  "sizeCore","sizeShell","sizeHalo","brightCore","brightShell","brightHalo","spinCore","spinShell","spinHalo"];
+const NUM_KEYS = ["radius","coreR","coreFrac","haloFrac","freq","swirl","turb","pull","coreShape","shellShape","warp","warpFreq","twist","speed","follow","tilt","conn","bow","ctwist",
+  "sizeCore","sizeShell","sizeHalo","brightCore","brightShell","brightHalo","spinAll","spinCore","spinShell","spinHalo"];
+// PS = 平滑显示值,逐帧向 P(目标)插值 → 改参数时粒子缓慢移动过渡,而非瞬间闪变
+const PS = {}; NUM_KEYS.forEach(k => PS[k] = P[k]); const PSColor = P.color.clone();
+function snapPS(){ NUM_KEYS.forEach(k => PS[k] = P[k]); PSColor.copy(P.color); }  // 切预设/重建时立即到位
 
 // ---------- URL 参数(全屏/壁纸/屏保传入)----------
 const Q = new URLSearchParams(location.search);
 const FS = Q.get("fs") === "1"; // 全屏窗口
+const THUMB = Q.get("thumb") === "1"; // 缩略图模式:无入场动画/无甩动,供图集截图
+const RAW = Q.get("raw") === "1"; // 对照:跳过色调映射直接加法渲染(调试用)
 function setBg(v){ if(v==="transparent"){ bgTransparent=true; } else { P.bg.set(v); bgTransparent=false; } }
 (function applyUrl(){
   NUM_KEYS.forEach(k=>{ if(Q.has(k)){ const v=parseFloat(Q.get(k)); if(!isNaN(v)) P[k]=v; } });
@@ -61,16 +66,17 @@ window.__stormQuery = () => {
   return p.toString();
 };
 
-// 背景亮时改普通混合(否则加法混合下白底看不见粒子)
-function updateBlend(){
-  if(!mat) return;
-  const L = bgTransparent ? 0 : (0.299*P.bg.r + 0.587*P.bg.g + 0.114*P.bg.b);
-  const b = L > 0.5 ? THREE.NormalBlending : THREE.AdditiveBlending;
-  if(mat.blending !== b){ mat.blending = b; mat.needsUpdate = true; }
-}
+// 粒子始终加法累积进浮点 RT,再由保色相色调映射输出 → 无需按背景切混合
+function updateBlend(){ /* 保留占位:混合固定为 CustomBlending 加法 */ }
 // 入场动画:弹簧从小蹦到 1(带过冲)。初始也蹦一下。
-let entScale = 0.06, entVel = 0;
-function reenter(){ entScale = 0.06; entVel = 0; }
+let entScale = THUMB ? 1 : 0.06, entVel = 0;
+function reenter(){ if(THUMB) return; entScale = 0.06; entVel = 0; snapPS(); }  // 切预设:参数立即到位 + 入场弹跳
+// 图集截图:同步 render 后立刻取像(alpha 无 preserveDrawingBuffer,需同一帧内取)
+window.__stormShot = () => { try{
+  renderer.setRenderTarget(rt); renderer.setClearColor(0x000000,0); renderer.clear(); renderer.render(scene,camera);
+  renderer.setRenderTarget(null); renderer.setClearColor(0x000000, FS?1:0); renderer.clear(); renderer.render(compScene,compCam);
+  return renderer.domElement.toDataURL("image/jpeg",0.85);
+}catch(_){ return ""; } };
 
 // ---------- 接收 Vue 面板的参数补丁 ----------
 function applyPatch(p){
@@ -84,8 +90,11 @@ function applyPatch(p){
 addEventListener("contextmenu", e=>e.preventDefault());
 addEventListener("message", e=>{
   const m = e.data && e.data.__storm;
-  if(m){ if(m.patch) applyPatch(m.patch); if(m.reenter) reenter(); }
+  if(m){ if(m.patch) applyPatch(m.patch); if(m.reenter) reenter(); if("pause" in m) setPaused(!!m.pause); }
 });
+// 暂停/恢复渲染(壁纸被全屏应用遮挡时停 rAF → 近乎 0 GPU 占用)
+let paused=false;
+function setPaused(p){ p=!!p; if(p===paused) return; paused=p; if(!paused){ clock.getDelta(); requestAnimationFrame(animate); } }
 // 全屏窗口里 Esc → 通知父窗关闭
 addEventListener("keydown", e=>{ if(e.key==="Escape"){ try{ parent.postMessage({__storm:"close"},"*"); }catch(_){ } } });
 
@@ -99,7 +108,23 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
 camera.position.set(0, 0, 3.73); // 球占画布 ~72%,四周留边看飘离粒子
 let lastVW = 0, lastVH = 0;
-function fit(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); lastVW=w; lastVH=h; }
+// 浮点 RT:粒子加法累积(可超过 1),再做「保色相」色调映射 → 密集处不泛白(仿 Wisp)
+const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter });
+const compScene = new THREE.Scene(), compCam = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+const compMat = new THREE.ShaderMaterial({
+  uniforms:{ tSrc:{value:rt.texture}, uExposure:{value:1.7} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
+  // 保色相「软钳」+ 对比 S 曲线:m>1 的密集处按最亮通道等比压到 1(饱和纯色不泛白);
+  // 再用 smoothstep 压暗中低调、提亮高光 → 恢复亮边/流丝的高动态"跳"感,不再压平。
+  fragmentShader:`precision highp float; varying vec2 vUv; uniform sampler2D tSrc; uniform float uExposure;
+    void main(){ vec4 s=texture2D(tSrc,vUv); vec3 c=s.rgb*uExposure; float m=max(max(c.r,c.g),c.b);
+      if(m>1.0){ c /= m; } c=c*c*(3.0-2.0*c); gl_FragColor=vec4(c, clamp(s.a*uExposure,0.0,1.0)); }`,
+  transparent:true, depthTest:false, depthWrite:false,
+});
+compScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2), compMat));
+function fit(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h);
+  const dpr=renderer.getPixelRatio(); rt.setSize(Math.max(1,Math.round(w*dpr)), Math.max(1,Math.round(h*dpr)));
+  camera.aspect=w/h; camera.updateProjectionMatrix(); lastVW=w; lastVH=h; }
 addEventListener("resize", fit); fit();
 
 // ---------- 噪声 + curl ----------
@@ -127,7 +152,7 @@ vec3 curl(vec3 p){const float e=0.12;vec3 dx=vec3(e,0.,0.),dy=vec3(0.,e,0.),dz=v
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 `;
 const SIM = NOISE + `
-uniform float uTime,uDelta,uSpeed,uFreq,uSwirl,uTurb,uPull,uRadius,uCoreR,uCoreFrac,uHaloFrac,uShape,uWarp,uWarpFreq,uTwist;
+uniform float uTime,uDelta,uSpeed,uFreq,uSwirl,uTurb,uPull,uRadius,uCoreR,uCoreFrac,uHaloFrac,uCoreShape,uShellShape,uWarp,uWarpFreq,uTwist;
 // 超椭球形状因子:p=2 球;p<2 → 八面体/凹星;p>2 → 立方体
 float shapeR(vec3 d, float p){ p=max(p,0.6); vec3 a=pow(abs(d),vec3(p)); return 1.0/pow(a.x+a.y+a.z+1e-4, 1.0/p); }
 void main(){
@@ -136,13 +161,15 @@ void main(){
   vec3 pos=t.xyz; float life=t.w;
   float grp=hash(uv+100.0);
   float shellR=uRadius, pullMul=1.7, turbMul=0.42;
-  if(grp<uCoreFrac){ shellR=uCoreR; pullMul=1.5; turbMul=0.5; }
+  bool core=grp<uCoreFrac;
+  if(core){ shellR=uCoreR; pullMul=1.5; turbMul=0.5; }
   else if(grp>1.0-uHaloFrac){ pullMul=0.4; turbMul=1.7; }
+  float sp = core ? uCoreShape : uShellShape;   // 核/壳形状独立(壳含风沙)
   float r=length(pos)+1e-5;
   vec3 nrm=pos/r;
-  // 目标半径 = 层半径 × 形状(超椭球) × (1 + 方向起伏) —— 决定几何形态
+  // 目标半径 = 层半径 × 该层形状(超椭球) × (1 + 方向起伏)
   float warp = uWarp * snoise(nrm*uWarpFreq + 13.0);
-  float target = shellR * shapeR(nrm, uShape) * (1.0 + warp);
+  float target = shellR * shapeR(nrm, sp) * (1.0 + warp);
   vec3 c=curl(pos*uFreq+vec3(0.0,uTime*0.05,0.0));
   vec3 tang=c-nrm*dot(c,nrm);
   vec3 vel=(tang+nrm*dot(c,nrm)*0.5)*uTurb*turbMul;
@@ -154,23 +181,25 @@ void main(){
   if(life<=0.0){
     vec3 d=normalize(vec3(hash(uv+uTime),hash(uv+uTime+7.0),hash(uv+uTime+13.0))*2.0-1.0);
     float w2=uWarp*snoise(d*uWarpFreq+13.0);
-    pos=d*shellR*shapeR(d,uShape)*(1.0+w2)*(0.95+0.09*hash(uv+3.1));
+    pos=d*shellR*shapeR(d,sp)*(1.0+w2)*(0.95+0.09*hash(uv+3.1));
     life=0.8+3.2*hash(uv+5.3);
   }
   gl_FragColor=vec4(pos,life);
 }`;
 
-let gpu, posVar, points, mat, WIDTH, COUNT;
+let gpu, posVar, points, mat, lines, lmat, WIDTH, COUNT;
 function build(){
   if(points){ scene.remove(points); points.geometry.dispose(); mat.dispose(); }
+  if(lines){ lines.geometry.dispose(); lmat.dispose(); }
   WIDTH=COUNTS[widthKey]; COUNT=WIDTH*WIDTH;
   gpu=new GPUComputationRenderer(WIDTH,WIDTH,renderer);
-  const dt=gpu.createTexture(), a=dt.image.data;
+  const dt=gpu.createTexture(), a=dt.image.data, P0=new Float32Array(COUNT*3);
   for(let i=0;i<COUNT;i++){
     let x=Math.random()*2-1,y=Math.random()*2-1,z=Math.random()*2-1,l=Math.hypot(x,y,z)||1;
     const sh=Math.random()<P.coreFrac?P.coreR:P.radius;
     const r=sh*(0.94+0.12*Math.random());
     a[i*4]=x/l*r; a[i*4+1]=y/l*r; a[i*4+2]=z/l*r; a[i*4+3]=0.4+3.2*Math.random();
+    P0[i*3]=a[i*4]; P0[i*3+1]=a[i*4+1]; P0[i*3+2]=a[i*4+2];   // 初始位置(供连接线选近邻)
   }
   posVar=gpu.addVariable("texturePosition",SIM,dt);
   gpu.setVariableDependencies(posVar,[posVar]);
@@ -178,7 +207,7 @@ function build(){
     uTime:{value:0},uDelta:{value:0},uSpeed:{value:P.speed},uFreq:{value:P.freq},
     uSwirl:{value:P.swirl},uTurb:{value:P.turb},uPull:{value:P.pull},uRadius:{value:P.radius},
     uCoreR:{value:P.coreR},uCoreFrac:{value:P.coreFrac},uHaloFrac:{value:P.haloFrac},
-    uShape:{value:P.shape},uWarp:{value:P.warp},uWarpFreq:{value:P.warpFreq},uTwist:{value:P.twist},
+    uCoreShape:{value:P.coreShape},uShellShape:{value:P.shellShape},uWarp:{value:P.warp},uWarpFreq:{value:P.warpFreq},uTwist:{value:P.twist},
   });
   const e=gpu.init(); if(e)console.error(e);
   const refs=new Float32Array(COUNT*2);
@@ -217,10 +246,78 @@ function build(){
     fragmentShader:`precision highp float;varying float vLife;varying float vBright;uniform vec3 uColor;
       void main(){vec2 c=gl_PointCoord-0.5;float d=length(c);if(d>0.5)discard;
         float a=smoothstep(0.5,0.0,d)*clamp(vLife,0.0,1.0);gl_FragColor=vec4(uColor,a*vBright);}`,
-    transparent:true,blending:THREE.AdditiveBlending,depthTest:false,depthWrite:false,
+    transparent:true, blending:THREE.CustomBlending, blendEquation:THREE.AddEquation,
+    blendSrc:THREE.SrcAlphaFactor, blendDst:THREE.OneFactor, blendSrcAlpha:THREE.OneFactor, blendDstAlpha:THREE.OneFactor,
+    depthTest:false, depthWrite:false,
   });
   points=new THREE.Points(geo,mat); points.frustumCulled=false; scene.add(points);
-  updateBlend();
+
+  // ---------- 连接:沿近邻粒子对路径散布的"攀附粒子"(不是线段,全是粒子;随 curl 流动)----------
+  const L=Math.min(2600,(COUNT/55)|0), NPTS=24;   // 每条连接 NPTS 个粒子沿路径散布
+  const total=L*NPTS;
+  const lref=new Float32Array(total*2), loth=new Float32Array(total*2), lt=new Float32Array(total), lseed=new Float32Array(total);
+  const refOf=i=>[((i%WIDTH)+0.5)/WIDTH, (((i/WIDTH)|0)+0.5)/WIDTH];
+  for(let s=0;s<L;s++){
+    const iA=(Math.random()*COUNT)|0;
+    let iB=-1, best=1e9;                    // 挑距离最接近目标弧长(~0.72)的候选 → 可见的中等长度弧,螺旋才看得出
+    for(let k=0;k<12;k++){ const c=(Math.random()*COUNT)|0; if(c===iA) continue;
+      const dx=P0[c*3]-P0[iA*3], dy=P0[c*3+1]-P0[iA*3+1], dz=P0[c*3+2]-P0[iA*3+2];
+      const diff=Math.abs(Math.sqrt(dx*dx+dy*dy+dz*dz)-0.72);
+      if(diff<best){ best=diff; iB=c; } }
+    if(iB<0) iB=(iA+1)%COUNT;
+    const rA=refOf(iA), rB=refOf(iB), o=s*NPTS;
+    for(let j=0;j<NPTS;j++){
+      const idx=o+j;
+      lref[idx*2]=rA[0]; lref[idx*2+1]=rA[1]; loth[idx*2]=rB[0]; loth[idx*2+1]=rB[1];
+      lt[idx]=(j+0.5)/NPTS; lseed[idx]=Math.random()*97.0;
+    }
+  }
+  const lgeo=new THREE.BufferGeometry();
+  lgeo.setAttribute("position",new THREE.BufferAttribute(new Float32Array(total*3),3));
+  lgeo.setAttribute("reference",new THREE.BufferAttribute(lref,2));
+  lgeo.setAttribute("refOther",new THREE.BufferAttribute(loth,2));
+  lgeo.setAttribute("t",new THREE.BufferAttribute(lt,1));
+  lgeo.setAttribute("seed",new THREE.BufferAttribute(lseed,1));
+  const lpr=renderer.getPixelRatio();
+  lmat=new THREE.ShaderMaterial({
+    uniforms:{ texturePosition:{value:null}, uColor:{value:P.color}, uConn:{value:P.conn}, uSize:{value:lpr},
+      uAngle:{value:0}, uRadius:{value:P.radius}, uCoreR:{value:P.coreR}, uBow:{value:P.bow}, uCTwist:{value:P.ctwist}, uTime:{value:0}, uFreq:{value:P.freq} },
+    vertexShader: NOISE + `
+      uniform sampler2D texturePosition; uniform float uConn,uAngle,uRadius,uCoreR,uBow,uCTwist,uTime,uFreq,uSize;
+      attribute vec2 reference; attribute vec2 refOther; attribute float t; attribute float seed;
+      varying float vA;
+      void main(){
+        vec4 tO=texture2D(texturePosition,reference), tX=texture2D(texturePosition,refOther);
+        vec3 A=tO.xyz, B=tX.xyz;
+        float rO=length(A), rX=length(B), d=length(B-A), life=min(tO.w,tX.w);
+        vec3 base=mix(A,B,t);
+        float env=sin(t*3.14159265);                       // 两端收窄,中部最鼓
+        // 螺旋:绕连接轴旋转的麻花缕(仿 Wisp connectionTwists)→ 与风沙的乱流截然不同
+        vec3 dir=(B-A)/max(d,1e-4);
+        vec3 upv = abs(dir.y)<0.9 ? vec3(0.0,1.0,0.0) : vec3(1.0,0.0,0.0);
+        vec3 uu=normalize(cross(dir,upv)), vv=cross(dir,uu);
+        float ang=t*3.14159265*uCTwist + seed;             // seed 让每条起始相位错开
+        base += (cos(ang)*uu + sin(ang)*vv) * (uBow * d * env);
+        // 叠一点动画 curl 让螺旋活起来(轻)
+        base += curl(base*uFreq*0.7 + vec3(0.0,uTime*0.12,0.0)) * (uBow * 0.35 * d * env);
+        base += vec3(snoise(base*5.0+seed), snoise(base*5.0+seed+11.3), snoise(base*5.0+seed+23.7)) * 0.014; // 细微散布(比风沙紧,成缕)
+        float surf=smoothstep(uCoreR*1.2, uRadius, (rO+rX)*0.5); // 两端靠表面→亮
+        float shortA=1.0-smoothstep(0.35,1.4,d);                 // 越短越亮(长弦压暗)
+        vA=uConn*surf*shortA*clamp(life,0.0,1.0)*1.3;
+        float ca=cos(uAngle),sa=sin(uAngle); base.xz=mat2(ca,-sa,sa,ca)*base.xz; // 随外壳自转
+        vec4 mv=modelViewMatrix*vec4(base,1.0);
+        gl_PointSize=uSize*(2.1/-mv.z);
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader:`precision highp float; varying float vA; uniform vec3 uColor;
+      void main(){ vec2 c=gl_PointCoord-0.5; float dd=length(c); if(dd>0.5||vA<=0.002) discard;
+        float a=smoothstep(0.5,0.0,dd)*vA; gl_FragColor=vec4(uColor, a); }`,
+    transparent:true, blending:THREE.CustomBlending, blendEquation:THREE.AddEquation,
+    blendSrc:THREE.SrcAlphaFactor, blendDst:THREE.OneFactor, blendSrcAlpha:THREE.OneFactor, blendDstAlpha:THREE.OneFactor,
+    depthTest:false, depthWrite:false,
+  });
+  lines=new THREE.Points(lgeo,lmat); lines.frustumCulled=false; points.add(lines);
+  updateBlend(); snapPS();   // 重建(改密度)时平滑值立即到位,避免二次渐变
 }
 build();
 
@@ -229,7 +326,7 @@ let ox=0,oy=0,vx=0,vy=0,lastSX=null,lastSY=null;
 function windowForce(){
   const sx=window.screenX, sy=window.screenY;
   if(lastSX!==null){ let dx=sx-lastSX, dy=sy-lastSY;
-    if(Math.abs(dx)<500 && Math.abs(dy)<500){ vx+=-dx*0.0011*P.follow; vy+=+dy*0.0011*P.follow; } }
+    if(Math.abs(dx)<500 && Math.abs(dy)<500){ vx+=-dx*0.0011*PS.follow; vy+=+dy*0.0011*PS.follow; } }
   lastSX=sx; lastSY=sy;
   vx+=-ox*0.025; vy+=-oy*0.025; vx*=0.9; vy*=0.9; ox+=vx; oy+=vy;
   points.position.set(ox,oy,0);
@@ -239,31 +336,55 @@ function windowForce(){
 let angC=0, angS=0, angH=0; // 分层累积自转角
 const clock=new THREE.Clock();
 function animate(){
+  if(paused) return;                 // 被遮挡时停 rAF,省 GPU
   requestAnimationFrame(animate);
   if(innerWidth!==lastVW||innerHeight!==lastVH) fit();
   const dt=Math.min(clock.getDelta(),0.033);
+  // 逐帧把平滑值 PS 拉向目标 P(约 1~1.5s 到位)→ 改沙尘/形态时粒子缓慢流动过渡
+  const mr=1.0-Math.pow(0.03,dt);    // 与帧率无关的插值率(约 0.8~1.2s 到位,配合粒子自身流动 → 缓慢过渡)
+  for(let ki=0;ki<NUM_KEYS.length;ki++){ const k=NUM_KEYS[ki]; PS[k]+=(P[k]-PS[k])*mr; }
+  PSColor.lerp(P.color, mr);
   const u=posVar.material.uniforms;
-  u.uTime.value+=dt; u.uDelta.value=dt; u.uSpeed.value=P.speed; u.uFreq.value=P.freq;
-  u.uSwirl.value=P.swirl; u.uTurb.value=P.turb; u.uPull.value=P.pull;
-  u.uCoreR.value=P.coreR; u.uCoreFrac.value=P.coreFrac; u.uHaloFrac.value=P.haloFrac;
-  u.uShape.value=P.shape; u.uWarp.value=P.warp; u.uWarpFreq.value=P.warpFreq; u.uTwist.value=P.twist;
+  u.uTime.value+=dt; u.uDelta.value=dt; u.uSpeed.value=PS.speed; u.uFreq.value=PS.freq;
+  u.uSwirl.value=PS.swirl; u.uTurb.value=PS.turb; u.uPull.value=PS.pull;
+  u.uCoreR.value=PS.coreR; u.uCoreFrac.value=PS.coreFrac; u.uHaloFrac.value=PS.haloFrac;
+  u.uCoreShape.value=PS.coreShape; u.uShellShape.value=PS.shellShape; u.uWarp.value=PS.warp; u.uWarpFreq.value=PS.warpFreq; u.uTwist.value=PS.twist;
   gpu.compute();
-  angC+=dt*P.spinCore; angS+=dt*P.spinShell; angH+=dt*P.spinHalo;
+  const SK=0.7;   // 自转标定:滑条 ±1 → ±0.7 rad/s(约 9 秒一圈,清晰可见);整体+各层差速叠加
+  angC+=dt*(PS.spinAll+PS.spinCore)*SK; angS+=dt*(PS.spinAll+PS.spinShell)*SK; angH+=dt*(PS.spinAll+PS.spinHalo)*SK;
   const pr=renderer.getPixelRatio(), mu=mat.uniforms;
   mu.texturePosition.value=gpu.getCurrentRenderTarget(posVar).texture;
-  mu.uColor.value=P.color; mu.uCoreFrac.value=P.coreFrac; mu.uHaloFrac.value=P.haloFrac;
-  mu.uSizeCore.value=P.sizeCore*pr; mu.uSizeShell.value=P.sizeShell*pr; mu.uSizeHalo.value=P.sizeHalo*pr;
-  mu.uBrightCore.value=P.brightCore; mu.uBrightShell.value=P.brightShell; mu.uBrightHalo.value=P.brightHalo;
+  mu.uColor.value=PSColor; mu.uCoreFrac.value=PS.coreFrac; mu.uHaloFrac.value=PS.haloFrac;
+  mu.uSizeCore.value=PS.sizeCore*pr; mu.uSizeShell.value=PS.sizeShell*pr; mu.uSizeHalo.value=PS.sizeHalo*pr;
+  mu.uBrightCore.value=PS.brightCore; mu.uBrightShell.value=PS.brightShell; mu.uBrightHalo.value=PS.brightHalo;
   mu.uAngleCore.value=angC; mu.uAngleShell.value=angS; mu.uAngleHalo.value=angH;
+  // 连接:跟随外壳自转,参数也走平滑值 → 切换连接时缓慢过渡
+  lines.visible = PS.conn>0.003;
+  if(lines.visible){ const lu=lmat.uniforms;
+    lu.texturePosition.value=mu.texturePosition.value; lu.uColor.value=PSColor; lu.uConn.value=PS.conn;
+    lu.uAngle.value=angS; lu.uRadius.value=PS.radius; lu.uCoreR.value=PS.coreR;
+    lu.uBow.value=PS.bow; lu.uCTwist.value=PS.ctwist; lu.uTime.value=u.uTime.value; lu.uFreq.value=PS.freq; lu.uSize.value=pr*1.15; }
   // 入场弹簧(过冲)+ 倾斜自转轴
   entVel += (1 - entScale) * 0.028; entVel *= 0.86; entScale += entVel;
   points.scale.setScalar(entScale);
-  points.rotation.set(P.tilt, 0, P.tilt * 0.45);
-  windowForce();
-  // 透明:应用内 alpha=0 融入背景;全屏则黑底不透。选了颜色则用该色。
-  if(bgTransparent) renderer.setClearColor(0x000000, FS ? 1 : 0);
-  else renderer.setClearColor(P.bg, 1);
-  renderer.render(scene,camera);
+  points.rotation.set(PS.tilt, 0, PS.tilt * 0.45);
+  if(!THUMB) windowForce();
+  if(RAW){ // 对照:直接加法渲到画布(不走色调映射)
+    renderer.setRenderTarget(null);
+    renderer.setClearColor(0x000000, FS?1:0); renderer.clear();
+    renderer.render(scene,camera);
+  } else {
+    // ① 粒子加法累积进浮点 RT(始终透明底)
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(0x000000, 0); renderer.clear();
+    renderer.render(scene,camera);
+    // ② 输出到屏幕:保色相色调映射;透明融入应用,全屏则黑底
+    renderer.setRenderTarget(null);
+    if(bgTransparent) renderer.setClearColor(0x000000, FS ? 1 : 0);
+    else renderer.setClearColor(P.bg, 1);
+    renderer.clear();
+    renderer.render(compScene, compCam);
+  }
 }
 animate();
 

@@ -81,6 +81,7 @@
     "resources": {
       "resources/ocr/*": "resources/ocr/",
       "resources/ffmpeg/*": "resources/ffmpeg/"
-    }
+    },
+    "externalBin": ["binaries/xgtools-wallpaper"]
   }
 }
