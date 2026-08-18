@@ -4,6 +4,7 @@ mod ocr_commands;
 mod window_detect;
 mod translate_commands;
 mod convert_commands;
+mod wallpaper_commands;
 
 #[cfg(windows)]
 mod icon_extractor;
@@ -100,6 +101,8 @@ pub fn run() {
         .manage(convert_commands::ConvertState {
             cancel_flags: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
+        .manage(wallpaper_commands::SaverState::default())
+        .manage(wallpaper_commands::WallpaperProc::default())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -162,6 +165,11 @@ pub fn run() {
             convert_commands::download_ffmpeg,
             convert_commands::cancel_convert,
             convert_commands::resolve_output_dir,
+            // 动态壁纸 / 定时屏保
+            wallpaper_commands::start_wallpaper,
+            wallpaper_commands::stop_wallpaper,
+            wallpaper_commands::start_screensaver,
+            wallpaper_commands::stop_screensaver,
         ])
         .setup(|app| {
             // --- Input listener (for key visualizer) ---

@@ -57,7 +57,7 @@ onMounted(async () => {
   if (win.label === 'dock') { isDockWindow.value = true; return }
   if (win.label === 'screenshot') { isScreenshotWindow.value = true; return }
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
-  if (win.label === 'storm') { isStorm.value = true; return }
+  if (win.label === 'storm' || win.label === 'wallpaper' || win.label === 'saver') { isStorm.value = true; return }
 
   // 恢复按键显示窗口状态
   const store = new LazyStore('settings.json')
@@ -90,6 +90,21 @@ onMounted(async () => {
     const names = e.payload.map(k => shortcutNameMap[k] || k).join('、')
     shortcutWarning.value = `「${names}」快捷键被其他程序占用，请在设置中更换`
     setTimeout(() => { shortcutWarning.value = '' }, 8000)
+  })
+
+  // 定时屏保:后端检测到闲置 → 弹全屏球窗;有输入 → 收起(主窗口统一管理,即使在托盘也生效)
+  listen<string>('saver-show', async (e) => {
+    const existing = await WebviewWindow.getByLabel('saver')
+    if (existing) return
+    new WebviewWindow('saver', {
+      url: `index.html?${e.payload || ''}&fs=1`,
+      title: 'XGTools Screensaver',
+      fullscreen: true, decorations: false, alwaysOnTop: true, skipTaskbar: true,
+    })
+  })
+  listen('saver-hide', async () => {
+    const w = await WebviewWindow.getByLabel('saver')
+    if (w) await w.close()
   })
 })
 </script>
