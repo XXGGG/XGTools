@@ -68,6 +68,22 @@ export const dirtyPaths = computed(() =>
   new Set(vault.tabs.filter((t) => t.content !== t.saved).map((t) => t.path)))
 
 /** 文件类型 → 圆点颜色。用颜色区分比塞一堆图标干净,窄侧栏里也不挤。 */
+/**
+ * 界面上显示的文件名:去掉后缀。
+ *
+ * 类型已经由前面那个彩色圆点说明了,再挂一串 `.md` `.base` 是重复信息,
+ * 而且长文件名本来就容易被截断,省下这几个字符很值。
+ * 只去掉我们认识的那几种 —— 不认识的(比如 .png)留着,那时候后缀才是信息。
+ */
+const KNOWN_EXT = ['.excalidraw.md', '.md', '.base', '.canvas', '.excalidraw']
+
+export function displayName(name: string): string {
+  for (const e of KNOWN_EXT) {
+    if (name.toLowerCase().endsWith(e)) return name.slice(0, -e.length)
+  }
+  return name
+}
+
 export function dotColor(ext: string): string {
   switch (ext) {
     case 'md': return 'bg-sky-400'
@@ -286,6 +302,41 @@ export async function saveActive() {
 // ── 文件操作 ──────────────────────────────────────────
 
 /** 在 `dirRel` 下新建。名字重复时自动加序号,而不是弹错误让用户自己想名字。 */
+/**
+ * 移除当前工作区。
+ *
+ * 只断开,不动磁盘上的任何文件 —— 「从工作区移除」是把库摘掉,不是删库。
+ * 标签和展开状态一起清掉,否则重新选一个库之后,上一个库的标签还挂在那儿,
+ * 点开就是「文件不存在」。
+ */
+export function clearVault() {
+  localStorage.removeItem(ROOT_KEY)
+  localStorage.removeItem(TABS_KEY)
+  vault.root = ''
+  vault.children = {}
+  vault.expanded = new Set()
+  vault.tabs = []
+  vault.activeTab = ''
+  vault.query = ''
+  vault.hits = []
+  vault.error = ''
+  restoring = null      // 下次选库要能重新恢复,不能被上一次的在途 Promise 挡住
+}
+
+/** 新建一个带初始内容的文件。空文件打开就是一片空白,有些格式(画布、数据库)还打不开。 */
+export async function createWithContent(dirRel: string, base: string, content: string) {
+  const rel = await createEntry(dirRel, false, base)
+  if (!rel) return ''
+  try {
+    await invoke('vault_write', { root: vault.root, rel, content })
+    const tab = vault.tabs.find((t) => t.path === rel)
+    if (tab) { tab.content = content; tab.saved = content }
+  } catch (e) {
+    vault.error = String(e)
+  }
+  return rel
+}
+
 export async function createEntry(dirRel: string, isDir: boolean, base: string) {
   const siblings = vault.children[dirRel] ?? []
   const taken = new Set(siblings.map((e) => e.name))

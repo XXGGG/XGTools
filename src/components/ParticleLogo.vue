@@ -35,9 +35,20 @@ const props = withDefaults(defineProps<{
   step?: number
   /** 鼠标影响半径（CSS 像素） */
   radius?: number
+  /**
+   * 要采样的图标路径。默认是 lucide 的 box（和侧栏 Logo 同一个）。
+   * 换图标时 viewBox 和描边宽度也要跟着换 —— 不同图标集的视框尺寸不一样
+   * （lucide 是 24，arcticons 是 48），只换 path 会得到一个巨大或极小的图形。
+   */
+  iconPaths?: string[]
+  /** 上面那些 path 用的视框边长 */
+  iconViewBox?: number
+  /** 描边宽度，按 viewBox 的单位算 */
+  iconStrokeWidth?: number
 }>(), {
   iconSize: 104, text: 'XGTools', fontSize: 46, gap: 2,
   pad: 90, step: 1.5, radius: 100,
+  iconViewBox: 24, iconStrokeWidth: 2,
 })
 
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -103,16 +114,16 @@ function buildParticles(dpr: number) {
   const pad = props.pad * dpr
   const iconPx = props.iconSize * dpr
 
-  // 图标：把 24×24 视口缩放到 iconPx，水平居中放在上方留白之下
+  // 图标：把视框缩放到 iconPx，水平居中放在上方留白之下
   c.save()
   c.translate((off.width - iconPx) / 2, pad)
-  const scale = iconPx / 24
+  const scale = iconPx / props.iconViewBox
   c.scale(scale, scale)
   c.strokeStyle = '#fff'
-  c.lineWidth = 2
+  c.lineWidth = props.iconStrokeWidth
   c.lineCap = 'round'
   c.lineJoin = 'round'
-  for (const d of ICON_PATHS) c.stroke(new Path2D(d))
+  for (const d of (props.iconPaths ?? ICON_PATHS)) c.stroke(new Path2D(d))
   c.restore()
 
   // 字标

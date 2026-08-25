@@ -13,7 +13,18 @@
     "tauri:build": "tauri build && if exist release rd /s /q release & mkdir release && for %f in (src-tauri\\target\\release\\bundle\\nsis\\*setup.exe) do copy /Y \"%f\" release\\ & for %f in (src-tauri\\target\\release\\bundle\\msi\\*en-US.msi) do copy /Y \"%f\" release\\"
   },
   "dependencies": {
+    "@atomic-editor/editor": "^0.6.2",
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.9",
     "@internationalized/date": "^3.11.0",
+    "@lezer/common": "^1.5.2",
+    "@lezer/highlight": "^1.2.3",
+    "@lezer/markdown": "^1.7.2",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-autostart": "~2.5.1",
