@@ -185,11 +185,36 @@ onMounted(async () => {
           不受这层 padding 影响,所以居中页面照样铺满整窗。
           离场也不用再补 absolute —— 两层本来就 inset-0 完全重叠,天然是交叉淡化。
         -->
+        <!--
+          切页动画:**只有入场,没有离场**。
+            入场 95% → 100% 淡入(新页面从小长出来)
+            离场 直接消失
+
+          为什么砍掉离场:两张整页同时做缩放 + 淡出,合成器要把两棵完整的 DOM 树
+          各画一遍再叠起来。现在任一时刻只有一页在动,开销减半。
+
+          ⚠️ **transition 属性里必须写 scale,不能只写 transform。**
+          Tailwind v4 把 scale-95 编译成独立的 `scale` CSS 属性(v3 才是 transform: scale()),
+          `transition-property: transform` 根本盖不到它 —— 现象是**透明度在渐变、
+          大小却一帧跳到位**,看着就是"卡了一下"。查了很久才发现,把入场时长临时调到 2s
+          才量得出来:加上 scale 之前比例一直是 1.000,加上之后才连续爬 0.960→0.981。
+          translate-*/rotate-* 同理,以后要动它们记得一起加进这个列表。
+
+          `leave-active-class="hidden"` 是同步加上去的(Vue 在 onLeave 里立刻加 active 类),
+          所以旧页面在同一帧就 display:none,不会和新页面重叠;
+          又因为新旧两个元素是同时存在的(不是 out-in 模式),中间也不会露出一帧空背景。
+          :duration 的 leave:0 是告诉 Vue 别等 transitionend —— hidden 不产生过渡事件,
+          不给这个 0 它会一直等到超时才把节点摘掉。
+
+          will-change 让这一页在动画期间单独提到合成层走 GPU,动画结束 Vue 会把类去掉,
+          不会长期占着显存。这里写 transform 而不是 scale:提升合成层用 transform 是所有
+          浏览器都认的写法,而真正要过渡的属性在上面那个 transition- 里。
+        -->
         <Transition
-          enter-active-class="transition-[opacity,transform] duration-300 ease-out"
+          enter-active-class="transition-[opacity,scale] duration-300 ease-out will-change-[opacity,transform]"
           enter-from-class="opacity-0 scale-95" enter-to-class="opacity-100 scale-100"
-          leave-active-class="transition-[opacity,transform] duration-200 ease-in"
-          leave-from-class="opacity-100 scale-100" leave-to-class="opacity-0 scale-105">
+          leave-active-class="hidden"
+          :duration="{ enter: 300, leave: 0 }">
           <div :key="currentView" class="absolute inset-0 overflow-auto pt-[4.875rem] pl-[4.875rem]">
             <HomeView v-if="currentView === 'Home'" />
             <AgentView v-else-if="currentView === 'Agent'" />
