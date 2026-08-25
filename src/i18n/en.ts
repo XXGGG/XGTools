@@ -303,6 +303,15 @@ export const en: Messages = {
     kindFile: 'File',
     kindSession: 'Session',
   },
+  tray: {
+    openMain: 'Open XGTools',
+    palette: 'Command palette',
+    screenshot: 'Screenshot',
+    dock: 'Launcher',
+    pet: 'Keyboard pet',
+    forceClose: 'Force-close all overlays',
+    quit: 'Quit',
+  },
   dock: {
     emptyTitle: 'No apps in the launcher yet',
     emptyHint: 'Add them under Launcher → Apps, or scan your Start menu',

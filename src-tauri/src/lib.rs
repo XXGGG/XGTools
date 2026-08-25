@@ -9,6 +9,7 @@ mod dsh_commands;
 mod dsh_bridge;
 mod vault_commands;
 mod file_search_commands;
+mod tray;
 
 #[cfg(windows)]
 mod icon_extractor;
@@ -61,7 +62,7 @@ fn init_input_listener(app: tauri::AppHandle) {
 }
 
 /// 无边框全屏：将窗口设为整个主显示器大小（覆盖任务栏）
-fn fullscreen_borderless(window: &tauri::WebviewWindow) {
+pub(crate) fn fullscreen_borderless(window: &tauri::WebviewWindow) {
     use tauri::{PhysicalPosition, PhysicalSize};
     if let Ok(Some(monitor)) = window.primary_monitor() {
         let pos = monitor.position();
@@ -115,6 +116,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // 窗口背景特效(云母/亚克力/模糊)
             window_effects::set_window_effect,
+            window_effects::set_window_corners,
             // DSH 边车:探测环境、按需安装、随应用起停
             dsh_commands::dsh_preflight,
             dsh_commands::dsh_install,
@@ -130,6 +132,15 @@ pub fn run() {
             dsh_bridge::dsh_respond,
             dsh_bridge::dsh_connect,
             dsh_bridge::dsh_disconnect,
+            // 托盘菜单(自绘窗口,不是系统原生菜单 —— 见 tray.rs 顶部)
+            tray::anchor_tray_menu,
+            tray::hide_tray_menu,
+            tray::tray_show_main,
+            tray::tray_toggle_dock,
+            tray::tray_open_palette,
+            tray::tray_screenshot,
+            tray::tray_force_close_overlays,
+            tray::tray_quit,
             // 全盘文件搜索(每个平台一个后端,见 file_search_commands.rs)
             file_search_commands::file_search_status,
             file_search_commands::file_search,
@@ -204,65 +215,9 @@ pub fn run() {
             init_input_listener(app.handle().clone());
 
             // --- System Tray ---
-            let show_main = MenuItem::with_id(app, "show", "打开主界面", true, None::<&str>)?;
-            let show_dock = MenuItem::with_id(app, "show_dock", "显示启动台", true, None::<&str>)?;
-            let force_close_screenshot = MenuItem::with_id(app, "force_close_screenshot", "强制结束截图", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&force_close_screenshot, &show_main, &show_dock, &quit])?;
-
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("XGTools")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
-                        "show_dock" => {
-                            // 和快捷键那条一样:只摆位 + 喊一声,显示与否归前端。
-                            // 两处都 show 的话状态会对不上,启动台就再也关不掉了。
-                            if let Some(win) = app.get_webview_window("dock") {
-                                fullscreen_borderless(&win);
-                            }
-                            let _ = app.emit("toggle-dock", true);
-                        }
-                        "force_close_screenshot" => {
-                            // 强制关闭截图窗口
-                            if let Some(win) = app.get_webview_window("screenshot") {
-                                use tauri::PhysicalPosition;
-                                let _ = win.set_always_on_top(false);
-                                let _ = win.set_position(PhysicalPosition::new(-10000i32, -10000i32));
-                                let _ = win.hide();
-                            }
-                            // 通知前端重置状态
-                            let _ = app.emit("force-cancel-screenshot", ());
-                        }
-                        _ => {}
-                    }
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
-                .build(app)?;
+            // 菜单是自绘的小窗口,不是系统原生菜单 —— 原生那套在 Windows 上
+            // 会被任务栏挡住,而位置归系统管改不了。详见 tray.rs。
+            tray::setup(app.handle())?;
 
             // --- Ensure app data directory exists (for Dock) ---
             let app_dir = app.path().app_data_dir()?;

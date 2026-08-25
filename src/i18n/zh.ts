@@ -297,6 +297,15 @@ export const zh = {
     kindFile: '文件',
     kindSession: '会话',
   },
+  tray: {
+    openMain: '打开主界面',
+    palette: '命令面板',
+    screenshot: '截图',
+    dock: '启动台',
+    pet: '键盘桌宠',
+    forceClose: '强制关闭所有浮层',
+    quit: '退出',
+  },
   dock: {
     emptyTitle: '启动台里还没有应用',
     emptyHint: '到「启动台 → 应用管理」里添加，或从开始菜单扫一批进来',

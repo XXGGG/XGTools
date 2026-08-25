@@ -77,6 +77,21 @@
         "visible": false,
         "focus": false,
         "backgroundThrottling": "disabled"
+      },
+      {
+        "label": "tray-menu",
+        "url": "index.html",
+        "title": "XGTools",
+        "width": 230,
+        "height": 320,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false
       }
     ],
     "security": {

@@ -8,7 +8,8 @@
     "dock",
     "palette",
     "screenshot",
-    "pin_*"
+    "pin_*",
+    "tray-menu"
   ],
   "permissions": [
     "core:default",

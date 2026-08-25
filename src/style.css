@@ -137,7 +137,9 @@
   }
   /* 命令面板同理。不加这条,圆角卡片外面会露出一圈白 ——
      body 默认带 bg-background,而窗口是 transparent 的,底色就直接透出来了。 */
-  body.palette-window {
+  body.palette-window,
+  /* 托盘菜单也是透明窗口,而且四周还留了一圈给阴影,更不能有底色 */
+  body.tray-window {
     background: transparent !important;
   }
   /* 主窗口开了云母/亚克力时:窗口本身全透明,底面完全由 CSS 画(见文件末尾的 body.vibrancy 段)。
@@ -187,11 +189,11 @@
    之前是底面和卡片一起透到底,整个界面看着"暗沉"其实是文字压在没有衬底的模糊材质上。
    写在 @layer 外面,优先级高于 Tailwind 的 utilities。 */
 
-/* 透明窗口(命令面板)要排除在外:它们的圆角是卡片画的,
+/* 透明窗口(命令面板、托盘菜单)要排除在外:它们的圆角是卡片画的,
    body 一旦有底色就会在圆角外面露出一个矩形,看着就是「四个角是尖的」。
    那两条规则在 @layer base 里,而这条在 layer 外面 —— 层叠规则在 !important
    参与时会反转,与其赌谁赢不如写清楚。 */
-body.vibrancy:not(.palette-window) {
+body.vibrancy:not(.palette-window):not(.tray-window) {
   background-color: color-mix(in srgb, var(--background) calc(var(--vibrancy-alpha, 40) * 1%), transparent) !important;
 
   /* 边框和选中底色都跟着主题走,而不是用固定色:
