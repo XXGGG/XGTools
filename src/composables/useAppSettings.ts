@@ -77,6 +77,19 @@ const KEY = 'app_settings'
 let store: LazyStore | null = null
 let loaded = false
 
+/**
+ * 强制重读一次设置。
+ *
+ * loadSettings 有 `if (loaded) return` 的一次性守卫,再调是空转 —— 对主窗口没问题
+ * (它自己改自己),但**常驻的附属窗口(命令面板、托盘菜单)是独立 webview,
+ * 各有一份自己的 settings**,主界面里改了主题/材质它们一无所知,
+ * 会一直停在启动那一刻的样子。那两扇窗每次显示前要调这个。
+ */
+export async function reloadSettings() {
+  loaded = false
+  await loadSettings()
+}
+
 export async function loadSettings() {
   if (loaded) return
   loaded = true
@@ -174,7 +187,11 @@ export function applyTheme() {
  * 注意 r/g/b/a 在 Win11 build >= 22523 上会被 DWM 忽略,仍然传是为了兼容老版本
  * 走 SetWindowCompositionAttribute 的那条路径。
  */
-export async function applyWindowEffect(kind: BlurKind = settings.blurKind): Promise<string | null> {
+export async function applyWindowEffect(
+  kind: BlurKind = settings.blurKind,
+  /** 目标窗口。命令面板要跟主窗口用同一套材质,所以这里能指定标签。 */
+  label?: string,
+): Promise<string | null> {
   const dark = isDarkNow()
   const tint = dark ? [10, 10, 12] : [246, 246, 248]
   try {
@@ -183,6 +200,7 @@ export async function applyWindowEffect(kind: BlurKind = settings.blurKind): Pro
       r: tint[0], g: tint[1], b: tint[2],
       a: Math.round((settings.blurOpacity / 100) * 255),
       dark,
+      label,
     })
     return null
   } catch (e: any) {

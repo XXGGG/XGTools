@@ -9,6 +9,8 @@ import { Cropper } from 'vue-advanced-cropper'
 import 'vue-advanced-cropper/dist/style.css'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsTrigger } from '@/components/ui/tabs'
+import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
 import type { AppEntry, CustomIcon } from '../types'
@@ -41,7 +43,7 @@ interface Settings {
 const screenshotStore = new LazyStore('settings.json')
 
 // --- State ---
-const currentTab = ref<'general' | 'apps' | 'icons'>('general')
+const currentTab = ref<'general' | 'apps' | 'icons' | 'palette'>('general')
 const apps = ref<AppEntry[]>([])
 const dockEnabled = ref(false)
 const settingsLoaded = ref(false)
@@ -55,6 +57,32 @@ const paddingTop = ref(92)
 const paddingHorizontal = ref(56)
 const iconGlow = ref(0)
 const isRecordingShortcut = ref(false)
+
+/*
+  命令面板的设置放在这一页,是因为它和启动台是同一类东西:
+  常驻后台、靠全局快捷键唤起、平时不占界面。快捷键也共用 update_all_shortcuts
+  那一次原子的「全注销再全注册」—— 分开注册会在改其中一个时把另一个弄丢。
+  存储位置跟着截图走(tauri-plugin-store 的 settings.json),不是启动台自己的那份。
+*/
+const paletteEnabled = ref(true)
+const paletteShortcut = ref('Ctrl+Alt+Space')
+const paletteRecording = ref(false)
+const paletteError = ref('')
+
+/*
+  文件搜索后端的状态。
+
+  **三个平台一律用系统自带的索引,没有「安装」这一步** ——
+  Windows 走 Windows Search(开始菜单的搜索就靠它,本来就在跑)、
+  macOS 走 Spotlight、Linux 走 plocate。我们不建索引、不扫盘、不装东西,
+  所以这里只需要显示"能不能用"和"不能用是为什么"。
+*/
+type FsStatus = { backend: string; ready: boolean; detail: string }
+const fs = ref<FsStatus | null>(null)
+
+async function loadFs() {
+  try { fs.value = await invoke<FsStatus>('file_search_status') } catch { fs.value = null }
+}
 const recordingKeys = ref('')
 
 // Refresh icons
@@ -111,6 +139,7 @@ const filteredStartMenuApps = computed(() => {
 onMounted(async () => {
   await loadSettings()
   await loadApps()
+  void loadFs()
   try {
     startMenuApps.value = await invoke<StartMenuEntry[]>('get_start_menu_cache')
     if (startMenuApps.value.some(e => !e.icon)) {
@@ -175,6 +204,8 @@ watch([showNames, iconSize, hoverScale, iconGlow, paddingTop, paddingHorizontal]
 async function syncAllShortcuts() {
   try {
     await screenshotStore.init()
+    paletteEnabled.value = (await screenshotStore.get<boolean>('palette_enabled')) ?? true
+    paletteShortcut.value = (await screenshotStore.get<string>('palette_shortcut')) ?? 'Ctrl+Alt+Space'
     const ssEnabled = (await screenshotStore.get<boolean>('screenshot_enabled')) ?? true
     const ssShortcut = (await screenshotStore.get<string>('screenshot_shortcut')) ?? 'Ctrl+Alt+A'
     const stEnabled = (await screenshotStore.get<boolean>('screenshot_translate_enabled')) ?? false
@@ -184,6 +215,7 @@ async function syncAllShortcuts() {
         dock_shortcut: dockEnabled.value ? shortcutKey.value : null,
         screenshot_shortcut: ssEnabled ? ssShortcut : null,
         screenshot_translate_shortcut: stEnabled && stShortcut ? stShortcut : null,
+        palette_shortcut: paletteEnabled.value ? paletteShortcut.value : null,
       }
     })
   } catch (e) {
@@ -191,23 +223,46 @@ async function syncAllShortcuts() {
   }
 }
 
+watch(paletteEnabled, async () => {
+  if (!settingsLoaded.value) return
+  await savePalette()
+})
+
 watch(dockEnabled, async () => {
   if (!settingsLoaded.value) return
   await saveSettings()
   await syncAllShortcuts()
 })
 
-// Shortcut recorder
-function startRecordingShortcut() {
+/*
+  录制快捷键。
+
+  进入录制先把我们自己的全局快捷键全摘掉(pause_shortcuts) —— 否则用户想把
+  某个功能改成一个**已经被我们占用**的组合时,那个键在系统层就被截走,
+  网页收不到 keydown,表现是「按了完全没反应」而且看不出被谁挡的。
+  录完或取消都要 syncAllShortcuts() 装回去,不然快捷键会一直是停用状态。
+*/
+async function startRecordingShortcut() {
   isRecordingShortcut.value = true
   recordingKeys.value = ''
+  try { await invoke('pause_shortcuts') } catch { /* 装不上就照常录,顶多某些键录不到 */ }
+}
+
+async function startRecordingPalette() {
+  paletteRecording.value = true
+  try { await invoke('pause_shortcuts') } catch { /* 同上 */ }
 }
 
 function handleShortcutKeydown(e: KeyboardEvent) {
-  if (!isRecordingShortcut.value) return
+  if (!isRecordingShortcut.value && !paletteRecording.value) return
   e.preventDefault()
   e.stopPropagation()
-  if (e.key === 'Escape') { cancelRecording(); return }
+  if (e.key === 'Escape') {
+    cancelRecording()
+    paletteRecording.value = false
+    void syncAllShortcuts()      // 取消也要把摘掉的键装回去
+    return
+  }
   if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return
 
   const parts: string[] = []
@@ -233,9 +288,37 @@ function handleShortcutKeydown(e: KeyboardEvent) {
 
   parts.push(key)
   const shortcutStr = parts.join('+')
+  if (paletteRecording.value) {
+    paletteRecording.value = false
+    paletteShortcut.value = shortcutStr
+    void savePalette()
+    return
+  }
   recordingKeys.value = shortcutStr
   isRecordingShortcut.value = false
   applyShortcut(shortcutStr)
+}
+
+async function savePalette() {
+  // 以前这里是 void savePalette() 直接扔掉,写失败完全无声 ——
+  // 界面上快捷键改了、磁盘里没变,重启就打回原形,查不出所以然。
+  paletteError.value = ''
+  try {
+    await screenshotStore.init()
+    await screenshotStore.set('palette_enabled', paletteEnabled.value)
+    await screenshotStore.set('palette_shortcut', paletteShortcut.value)
+    await screenshotStore.save()
+  } catch (e) {
+    paletteError.value = '保存失败: ' + String(e)
+    console.error('[palette] 存设置失败', e)
+    return
+  }
+  try {
+    await syncAllShortcuts()
+  } catch (e) {
+    paletteError.value = '快捷键注册失败: ' + String(e)
+    console.error('[palette] 注册失败', e)
+  }
 }
 
 async function applyShortcut(shortcutStr: string) {
@@ -256,6 +339,7 @@ async function applyShortcut(shortcutStr: string) {
 function cancelRecording() {
   isRecordingShortcut.value = false
   recordingKeys.value = ''
+  void syncAllShortcuts()
 }
 
 async function loadApps() {
@@ -546,32 +630,90 @@ async function saveIconName(id: string) {
 <template>
   <div class="h-full w-full flex flex-col p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-    <!-- Tab switcher -->
-    <div class="flex gap-2 mb-6 max-w-2xl mx-auto w-full">
-      <Button
-        :variant="currentTab === 'general' ? 'default' : 'outline'"
-        size="sm"
-        @click="currentTab = 'general'"
-      >
-        <span class="icon-[lucide--settings] w-4 h-4" />
-        {{ t('dock.tabGeneral') }}
-      </Button>
-      <Button
-        :variant="currentTab === 'apps' ? 'default' : 'outline'"
-        size="sm"
-        @click="currentTab = 'apps'"
-      >
-        <span class="icon-[lucide--layout-grid] w-4 h-4" />
-        {{ t('dock.tabApps') }}
-      </Button>
-      <Button
-        :variant="currentTab === 'icons' ? 'default' : 'outline'"
-        size="sm"
-        @click="currentTab = 'icons'"
-      >
-        <span class="icon-[lucide--image] w-4 h-4" />
-        {{ t('dock.tabIcons') }}
-      </Button>
+    <!--
+      页签搬到标题栏,和设置页同一套(Tabs + TitleBarTabs)。
+      这里的 <Tabs> 只包住触发器,下面各页的内容仍然用 v-if 判断 currentTab ——
+      reka-ui 的 Tabs 靠 provide/inject 传上下文,走的是组件树不是 DOM 树,
+      所以隔着 Teleport 照样工作,而内容块不必也塞进来。
+    -->
+    <Tabs v-model="currentTab">
+      <TitleBarTabs>
+        <TabsTrigger value="general" class="h-11 px-4 rounded-xl">{{ t('dock.tabGeneral') }}</TabsTrigger>
+        <TabsTrigger value="apps" class="h-11 px-4 rounded-xl">{{ t('dock.tabApps') }}</TabsTrigger>
+        <TabsTrigger value="icons" class="h-11 px-4 rounded-xl">{{ t('dock.tabIcons') }}</TabsTrigger>
+        <TabsTrigger value="palette" class="h-11 px-4 rounded-xl">{{ t('dock.tabPalette') }}</TabsTrigger>
+      </TitleBarTabs>
+    </Tabs>
+
+    <!-- ==================== 命令面板 ==================== -->
+    <div v-if="currentTab === 'palette'" class="flex-1 overflow-y-auto space-y-3 max-w-2xl mx-auto w-full">
+      <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+            <span class="icon-[lucide--search] w-5 h-5" />
+          </div>
+          <div>
+            <h3 class="font-medium">{{ t('dock.paletteEnable') }}</h3>
+            <p class="text-xs text-muted-foreground">{{ t('dock.paletteEnableHint') }}</p>
+          </div>
+        </div>
+        <Switch :model-value="paletteEnabled" @update:model-value="paletteEnabled = $event" />
+      </div>
+
+      <div :class="{ 'opacity-40 pointer-events-none select-none': !paletteEnabled }"
+        class="space-y-3 transition-opacity duration-300">
+        <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+              <span class="icon-[lucide--keyboard] w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="font-medium">{{ t('dock.paletteHotkey') }}</h3>
+              <p class="text-xs text-muted-foreground">{{ t('dock.paletteHotkeyHint') }}</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" class="min-w-[120px] font-mono"
+            @click="paletteRecording ? (paletteRecording = false, syncAllShortcuts()) : startRecordingPalette()">
+            {{ paletteRecording ? t('dock.pressKeys') : paletteShortcut }}
+          </Button>
+        </div>
+
+        <!-- 文件搜索后端 -->
+        <div v-if="fs" class="flex items-center justify-between p-4 border rounded-lg">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="flex items-center justify-center w-9 h-9 rounded-md shrink-0"
+              :class="fs.ready ? 'text-emerald-600' : 'text-muted-foreground'">
+              <span :class="fs.ready ? 'icon-[lucide--file-search]' : 'icon-[lucide--file-question]'"
+                class="w-5 h-5" />
+            </div>
+            <div class="min-w-0">
+              <h3 class="font-medium">{{ t('dock.fsTitle') }}</h3>
+              <p class="text-xs text-muted-foreground truncate">
+                {{ fs.ready
+                  ? t('dock.fsReady') + ' · ' + t(
+                      fs.backend === 'windows-search' ? 'dock.fsBackendWindows'
+                      : fs.backend === 'spotlight' ? 'dock.fsBackendSpotlight'
+                      : 'dock.fsBackendPlocate')
+                  : fs.detail }}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <p v-if="paletteError" class="text-xs text-red-500 wrap-break-word px-1">{{ paletteError }}</p>
+
+        <div class="flex items-center justify-between p-4 border rounded-lg">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+              <span class="icon-[lucide--layers] w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="font-medium">{{ t('dock.paletteSources') }}</h3>
+              <p class="text-xs text-muted-foreground">{{ t('dock.paletteSourcesHint') }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ==================== GENERAL TAB ==================== -->

@@ -49,6 +49,20 @@
         "visible": false
       },
       {
+        "label": "palette",
+        "url": "index.html",
+        "width": 720,
+        "height": 64,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": true
+      },
+      {
         "label": "screenshot",
         "title": "XGTools Screenshot Overlay",
         "url": "index.html",

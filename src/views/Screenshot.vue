@@ -5,6 +5,8 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsTrigger } from '@/components/ui/tabs'
+import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { useI18n } from '@/i18n'
 
 const { t } = useI18n()
@@ -182,26 +184,13 @@ const bgColorPresets = [
   <div class="h-full w-full flex flex-col p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
     <div class="flex-1 overflow-y-auto max-w-2xl mx-auto w-full space-y-4">
 
-      <!-- Tabs -->
-      <div class="flex gap-1 p-1 bg-muted rounded-lg shrink-0">
-        <button
-          v-for="tab in [
-            { id: 'screenshot' as const, label: '截图', icon: 'icon-[lucide--focus]' },
-            { id: 'translate' as const, label: '截图翻译', icon: 'icon-[lucide--languages]' },
-          ]"
-          :key="tab.id"
-          @click="activeTab = tab.id"
-          :class="[
-            'flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all duration-200',
-            activeTab === tab.id
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground',
-          ]"
-        >
-          <span :class="tab.icon" class="w-4 h-4" />
-          {{ tab.label }}
-        </button>
-      </div>
+      <!-- 页签搬到标题栏,和设置页同一套;原来那两个标签是硬编码中文,顺手接进 i18n -->
+      <Tabs v-model="activeTab">
+        <TitleBarTabs>
+          <TabsTrigger value="screenshot" class="h-11 px-4 rounded-xl">{{ t('shot.tabShot') }}</TabsTrigger>
+          <TabsTrigger value="translate" class="h-11 px-4 rounded-xl">{{ t('shot.tabTranslate') }}</TabsTrigger>
+        </TitleBarTabs>
+      </Tabs>
 
       <!-- ======== 截图 Tab ======== -->
       <div v-if="activeTab === 'screenshot'" class="space-y-3">

@@ -11,6 +11,7 @@ pub struct ShortcutBindings {
     pub dock: Option<tauri_plugin_global_shortcut::Shortcut>,
     pub screenshot: Option<tauri_plugin_global_shortcut::Shortcut>,
     pub screenshot_translate: Option<tauri_plugin_global_shortcut::Shortcut>,
+    pub palette: Option<tauri_plugin_global_shortcut::Shortcut>,
 }
 
 #[derive(Deserialize)]
@@ -18,6 +19,21 @@ pub struct AllShortcuts {
     pub dock_shortcut: Option<String>,
     pub screenshot_shortcut: Option<String>,
     pub screenshot_translate_shortcut: Option<String>,
+    pub palette_shortcut: Option<String>,
+}
+
+/// 录制快捷键期间,把我们自己注册的全局快捷键全部摘掉。
+///
+/// 不摘的话有个很隐蔽的后果:用户想把某个功能改成 Ctrl+Space,可 Ctrl+Space
+/// 此刻正被我们自己占着 —— 全局快捷键在系统层就被截走,网页压根收不到 keydown,
+/// 表现就是「按了没反应,一直停在『按下组合键…』」,看不出是被谁挡的。
+/// 录制结束(确定或取消)必须调 update_all_shortcuts 装回去。
+#[tauri::command]
+pub fn pause_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| format!("暂停快捷键失败: {}", e))
 }
 
 /// 统一更新所有快捷键（原子操作：先全部注销再注册）
@@ -36,6 +52,7 @@ pub fn update_all_shortcuts(
     let dock = shortcuts.dock_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
     let screenshot = shortcuts.screenshot_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
     let ss_translate = shortcuts.screenshot_translate_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
+    let palette = shortcuts.palette_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
 
     if let Some(sc) = dock {
         app.global_shortcut().register(sc).map_err(|e| format!("注册 Dock 快捷键失败: {}", e))?;
@@ -46,11 +63,15 @@ pub fn update_all_shortcuts(
     if let Some(sc) = ss_translate {
         app.global_shortcut().register(sc).map_err(|e| format!("注册截图翻译快捷键失败: {}", e))?;
     }
+    if let Some(sc) = palette {
+        app.global_shortcut().register(sc).map_err(|e| format!("注册命令面板快捷键失败: {}", e))?;
+    }
 
     let mut b = bindings.lock().unwrap();
     b.dock = dock;
     b.screenshot = screenshot;
     b.screenshot_translate = ss_translate;
+    b.palette = palette;
 
     Ok(())
 }

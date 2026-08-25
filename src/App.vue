@@ -56,6 +56,7 @@ import TranslateView from './views/Translate.vue'
 const ConvertView = defineAsyncComponent(() => import('./views/Convert.vue'))
 import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
+import PaletteWindow from './palette/PaletteWindow.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
 
@@ -87,6 +88,7 @@ watch(menuItems, (items) => {
 
 const isKeyVisualizer = ref(false)
 const isDockWindow = ref(false)
+const isPaletteWindow = ref(false)
 const isScreenshotWindow = ref(false)
 const isPinWindow = ref(false)
 
@@ -97,12 +99,14 @@ const shortcutNameMap: Record<string, string> = {
   dock: 'nav.dock',
   screenshot: 'nav.screenshot',
   screenshot_translate: 'nav.screenshot',
+  palette: 'dock.tabPalette',
 }
 
 onMounted(async () => {
   const win = getCurrentWindow()
   if (win.label === 'key_visualizer') { isKeyVisualizer.value = true; return }
   if (win.label === 'dock') { isDockWindow.value = true; return }
+  if (win.label === 'palette') { isPaletteWindow.value = true; return }
   if (win.label === 'screenshot') { isScreenshotWindow.value = true; return }
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
 
@@ -145,6 +149,27 @@ onMounted(async () => {
     console.error('Failed to restore Key Visualizer state:', err)
   }
 
+  /*
+    命令面板的回车动作。面板是独立窗口,只能靠事件把结果送回主窗口。
+    三种都要先把视图切过去,再去打开具体那一条。
+  */
+  listen<{ view: string }>('palette-go', e => { currentView.value = e.payload.view })
+
+  listen<{ path: string }>('palette-open-note', async e => {
+    currentView.value = 'Vault'
+    // 笔记页是懒加载的,这一整个会话里可能还没挂载过 —— 那样工作区根目录是空的,
+    // openFile 会打不开。所以先补一次恢复,已经恢复过的话它自己会跳过。
+    const { restoreVault, openFile, vault } = await import('./composables/useVault')
+    if (!vault.root) await restoreVault()
+    await openFile(e.payload.path)
+  })
+
+  listen<{ sessionId: string }>('palette-open-session', async e => {
+    currentView.value = 'Agent'
+    const { openSession } = await import('./composables/useDshChat')
+    await openSession(e.payload.sessionId)
+  })
+
   // 监听快捷键注册失败通知
   listen<string[]>('shortcut-register-failed', (e) => {
     const names = e.payload.map(k => (shortcutNameMap[k] ? t(shortcutNameMap[k]) : k)).join('、')
@@ -158,6 +183,7 @@ onMounted(async () => {
 <template>
   <KeyVisualizerWindow v-if="isKeyVisualizer" />
   <DockWindow v-else-if="isDockWindow" />
+  <PaletteWindow v-else-if="isPaletteWindow" />
   <ScreenshotWindow v-else-if="isScreenshotWindow" />
   <PinWindow v-else-if="isPinWindow" />
 

@@ -8,12 +8,11 @@ mod window_effects;
 mod dsh_commands;
 mod dsh_bridge;
 mod vault_commands;
+mod file_search_commands;
 
 #[cfg(windows)]
 mod icon_extractor;
 
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
 use std::thread;
@@ -131,6 +130,9 @@ pub fn run() {
             dsh_bridge::dsh_respond,
             dsh_bridge::dsh_connect,
             dsh_bridge::dsh_disconnect,
+            // 全盘文件搜索(每个平台一个后端,见 file_search_commands.rs)
+            file_search_commands::file_search_status,
+            file_search_commands::file_search,
             // Markdown 工作区
             vault_commands::vault_list,
             vault_commands::vault_read,
@@ -154,6 +156,7 @@ pub fn run() {
             dock_commands::get_settings,
             dock_commands::save_settings,
             dock_commands::update_shortcut,
+            dock_commands::pause_shortcuts,
             dock_commands::update_all_shortcuts,
             dock_commands::refresh_all_icons,
             dock_commands::update_acrylic,
@@ -344,6 +347,29 @@ pub fn run() {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
+            // 命令面板:默认 Ctrl+Alt+Space。
+            // 这个默认值是试出来的,另外两个"看着更顺手"的都不能用:
+            //   Ctrl+Space —— Windows 上中英文输入法切换的默认键。抢过来会让人
+            //                 以为输入法坏了,而且根本想不到是被这里占的。
+            //   Alt+Space  —— 系统菜单。实测按下去弹的是系统菜单不是面板;
+            //                 PowerToys Run 能用它是因为走低层键盘钩子,
+            //                 而 Tauri 用的是 RegisterHotKey,抢不过系统。
+            // 和启动台一样,关掉时就不注册,不占用这个组合。
+            let palette_enabled = store_json.as_ref()
+                .and_then(|v| v.get("palette_enabled"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+
+            let palette_shortcut = if palette_enabled {
+                store_json.as_ref()
+                    .and_then(|v| v.get("palette_shortcut"))
+                    .and_then(|v| v.as_str())
+                    .or(Some("Ctrl+Alt+Space"))
+                    .and_then(|s| dock_commands::parse_shortcut_str(s).ok())
+            } else {
+                None
+            };
+
             let screenshot_translate_shortcut = if screenshot_translate_enabled {
                 store_json.as_ref()
                     .and_then(|v| v.get("screenshot_translate_shortcut"))
@@ -358,6 +384,7 @@ pub fn run() {
                 dock: Some(dock_shortcut),
                 screenshot: Some(screenshot_shortcut),
                 screenshot_translate: screenshot_translate_shortcut,
+                palette: palette_shortcut,
             }));
             app.manage(bindings.clone());
 
@@ -385,6 +412,13 @@ pub fn run() {
                             let _ = app.emit("execute-screenshot", ());
                         } else if b.screenshot_translate.as_ref() == Some(shortcut) {
                             let _ = app.emit("execute-screenshot-translate", ());
+                        } else if b.palette.as_ref() == Some(shortcut) {
+                            if let Some(win) = app.get_webview_window("palette") {
+                                // 定位和 show 都交给窗口里的 JS 做 ——
+                                // 面板要落在鼠标所在的那块屏幕上,而且高度随结果条数变,
+                                // 先 show 再摆位会闪一下。隐藏的 webview 照样能执行 eval。
+                                let _ = win.eval("window.__togglePalette && window.__togglePalette()");
+                            }
                         } else if b.dock.as_ref() == Some(shortcut) {
                             if let Some(win) = app.get_webview_window("dock") {
                                 // 先摆好位置(窗口还藏着,摆位不会闪),然后**只喊一声**。
@@ -418,6 +452,13 @@ pub fn run() {
             try_register(screenshot_shortcut, "screenshot", &mut failed_shortcuts);
             if let Some(sc) = screenshot_translate_shortcut {
                 try_register(sc, "screenshot_translate", &mut failed_shortcuts);
+            }
+            // 命令面板。**加新快捷键要改三个地方**:读配置、放进 bindings、在这里注册。
+            // 漏掉这一条的后果很难查:bindings 里有它,所以分发逻辑看着是对的,
+            // 但系统层压根没登记过这个键,按下去走的是 Windows 自己的处理
+            // (Alt+Space 就会弹出窗口的系统菜单)。
+            if let Some(sc) = palette_shortcut {
+                try_register(sc, "palette", &mut failed_shortcuts);
             }
 
             // 通知前端有哪些快捷键注册失败
