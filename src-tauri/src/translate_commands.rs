@@ -38,19 +38,45 @@ pub async fn translate(request: TranslateRequest) -> Result<TranslateResult, Str
         });
     }
 
-    match request.engine.as_str() {
-        "google" => google_translate(&request.text, &request.source_lang, &request.target_lang).await,
-        "bing" => bing_translate(&request.text, &request.source_lang, &request.target_lang).await,
-        "deepl" => deepl_translate(&request.text, &request.source_lang, &request.target_lang).await,
-        "transmart" => transmart_translate(&request.text, &request.source_lang, &request.target_lang).await,
-        "yandex" => yandex_translate(&request.text, &request.source_lang, &request.target_lang).await,
-        "mymemory" => mymemory_translate(&request.text, &request.source_lang, &request.target_lang).await,
+    // AI 引擎用的是用户自己的 key,失败通常是 key 或额度问题,换一家也救不了 —— 不降级,直接抛回去。
+    if matches!(request.engine.as_str(),
         "openai" | "claude" | "gemini" | "deepseek"
-        | "qwen" | "zhipu" | "yi" | "moonshot" | "groq" | "custom" => {
-            let config = request.ai_config.as_ref().ok_or("AI 引擎需要配置 API Key")?;
-            ai_translate(&request.text, &request.source_lang, &request.target_lang, config, &request.engine).await
+        | "qwen" | "zhipu" | "yi" | "moonshot" | "groq" | "custom")
+    {
+        let config = request.ai_config.as_ref().ok_or("AI 引擎需要配置 API Key")?;
+        return ai_translate(&request.text, &request.source_lang, &request.target_lang, config, &request.engine).await;
+    }
+
+    if !FREE_ENGINES.contains(&request.engine.as_str()) {
+        return Err(format!("不支持的翻译引擎: {}", request.engine));
+    }
+
+    // 免费引擎全是"白嫖网页端接口",随时会被限流、改版或下架(Bing 那个 auth 端点就这么没的)。
+    // 所以选中的失败时自动往后试,而不是把失败直接摔给用户。
+    // 顺序:用户选的排第一,其余按 FREE_ENGINES 的顺序补齐。
+    let mut chain: Vec<&str> = vec![request.engine.as_str()];
+    chain.extend(FREE_ENGINES.iter().copied().filter(|e| *e != request.engine));
+
+    let mut errors: Vec<String> = Vec::new();
+    for engine in chain {
+        match call_free_engine(engine, &request.text, &request.source_lang, &request.target_lang).await {
+            Ok(r) => return Ok(r),
+            Err(e) => errors.push(format!("{}: {}", engine, e)),
         }
-        _ => Err(format!("不支持的翻译引擎: {}", request.engine)),
+    }
+    Err(format!("所有免费引擎都失败了 —— {}", errors.join("；")))
+}
+
+/// 免费引擎清单,同时也是降级顺序。Google 放第一是因为实测最稳。
+const FREE_ENGINES: &[&str] = &["google", "bing", "deepl", "mymemory"];
+
+async fn call_free_engine(engine: &str, text: &str, src: &str, tgt: &str) -> Result<TranslateResult, String> {
+    match engine {
+        "google" => google_translate(text, src, tgt).await,
+        "bing" => bing_translate(text, src, tgt).await,
+        "deepl" => deepl_translate(text, src, tgt).await,
+        "mymemory" => mymemory_translate(text, src, tgt).await,
+        _ => Err(format!("不支持的翻译引擎: {}", engine)),
     }
 }
 
@@ -101,39 +127,103 @@ async fn google_translate(text: &str, src: &str, tgt: &str) -> Result<TranslateR
 }
 
 // ─── Bing/Microsoft Translate (免费) ─────────────────
+//
+// 旧路子(edge.microsoft.com/translate/auth 换 token → api-edge.cognitive...)已经 404,
+// 微软把那个端点撤了。现在走网页版:先抓 bing.com/translator 页面里的 IG 与
+// params_AbusePreventionHelper = [key, token, ttl],再 form-post 到 ttranslatev3。
+// 响应结构和旧端点一致,所以下面的解析没变。实测不需要 cookie。
+
+/// 抓来的凭据。key 本身是毫秒时间戳,页面给的 ttl 是 3600000ms;
+/// 这里按 50 分钟过期,留出余量,免得卡在边界上失败一次。
+struct BingCreds {
+    ig: String,
+    key: String,
+    token: String,
+    fetched_at: std::time::Instant,
+}
+static BING_CREDS: std::sync::Mutex<Option<BingCreds>> = std::sync::Mutex::new(None);
+
+const BING_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+async fn bing_fetch_creds(client: &reqwest::Client) -> Result<(String, String, String), String> {
+    {
+        let guard = BING_CREDS.lock().map_err(|_| "Bing 凭据锁中毒")?;
+        if let Some(c) = guard.as_ref() {
+            if c.fetched_at.elapsed() < std::time::Duration::from_secs(50 * 60) {
+                return Ok((c.ig.clone(), c.key.clone(), c.token.clone()));
+            }
+        }
+    }
+
+    let html = client
+        .get("https://www.bing.com/translator")
+        .header("User-Agent", BING_UA)
+        .send()
+        .await
+        .map_err(|e| format!("Bing 打开翻译页失败: {}", e))?
+        .text()
+        .await
+        .map_err(|e| format!("Bing 翻译页读取失败: {}", e))?;
+
+    // IG:"XXXXXXXX"
+    let ig = html
+        .split("IG:\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .ok_or("Bing 页面里找不到 IG(页面结构可能又变了)")?
+        .to_string();
+
+    // params_AbusePreventionHelper = [1787629798358,"xxxx",3600000]
+    let seg = html
+        .split("params_AbusePreventionHelper")
+        .nth(1)
+        .and_then(|s| s.split(']').next())
+        .ok_or("Bing 页面里找不到 AbusePreventionHelper(页面结构可能又变了)")?;
+    let key = seg
+        .split('[')
+        .nth(1)
+        .and_then(|s| s.split(',').next())
+        .ok_or("Bing 凭据 key 解析失败")?
+        .trim()
+        .to_string();
+    let token = seg
+        .split('"')
+        .nth(1)
+        .ok_or("Bing 凭据 token 解析失败")?
+        .to_string();
+
+    if let Ok(mut guard) = BING_CREDS.lock() {
+        *guard = Some(BingCreds {
+            ig: ig.clone(),
+            key: key.clone(),
+            token: token.clone(),
+            fetched_at: std::time::Instant::now(),
+        });
+    }
+    Ok((ig, key, token))
+}
 
 async fn bing_translate(text: &str, src: &str, tgt: &str) -> Result<TranslateResult, String> {
     let client = reqwest::Client::new();
+    let (ig, key, token) = bing_fetch_creds(&client).await?;
 
-    // 1. 获取 auth token
-    let token = client
-        .get("https://edge.microsoft.com/translate/auth")
-        .header("User-Agent", "Mozilla/5.0")
-        .send()
-        .await
-        .map_err(|e| format!("Bing 获取 token 失败: {}", e))?
-        .text()
-        .await
-        .map_err(|e| format!("Bing token 解析失败: {}", e))?;
-
-    // 2. 构建翻译请求
-    let mut query = vec![
-        ("api-version".to_string(), "3.0".to_string()),
-        ("to".to_string(), bing_lang_code(tgt).to_string()),
+    let from = if src == "auto" { "auto-detect".to_string() } else { bing_lang_code(src).to_string() };
+    let form = [
+        ("fromLang", from.as_str()),
+        ("text", text),
+        ("to", bing_lang_code(tgt)),
+        ("token", token.as_str()),
+        ("key", key.as_str()),
     ];
-    if src != "auto" {
-        query.push(("from".to_string(), bing_lang_code(src).to_string()));
-    }
-
-    let body = serde_json::json!([{ "Text": text }]);
 
     let resp = client
-        .post("https://api-edge.cognitive.microsofttranslator.com/translate")
-        .query(&query)
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .header("User-Agent", "Mozilla/5.0")
-        .json(&body)
+        .post(format!(
+            "https://www.bing.com/ttranslatev3?isVertical=1&IG={}&IID=translator.5023",
+            ig
+        ))
+        .header("User-Agent", BING_UA)
+        .header("Referer", "https://www.bing.com/translator")
+        .form(&form)
         .send()
         .await
         .map_err(|e| format!("Bing 翻译请求失败: {}", e))?;
@@ -143,15 +233,20 @@ async fn bing_translate(text: &str, src: &str, tgt: &str) -> Result<TranslateRes
         .await
         .map_err(|e| format!("Bing 翻译解析失败: {}", e))?;
 
-    // 解析: [{ "translations": [{ "text": "...", "to": "..." }], "detectedLanguage": { "language": "...", "score": 1.0 } }]
-    let translated = result
+    // 凭据过期时 Bing 返回的是错误对象而不是数组,这时清掉缓存让下次重新抓
+    let translated = match result
         .get(0)
         .and_then(|v| v.get("translations"))
         .and_then(|v| v.get(0))
         .and_then(|v| v.get("text"))
         .and_then(|v| v.as_str())
-        .ok_or("Bing 翻译返回格式错误")?
-        .to_string();
+    {
+        Some(t) => t.to_string(),
+        None => {
+            if let Ok(mut g) = BING_CREDS.lock() { *g = None; }
+            return Err("Bing 翻译返回格式错误(凭据可能已过期,请重试)".into());
+        }
+    };
 
     let detected = result
         .get(0)
@@ -307,147 +402,7 @@ async fn deepl_translate(text: &str, src: &str, tgt: &str) -> Result<TranslateRe
     })
 }
 
-// ─── 腾讯交互翻译 TransMart (免费) ─────────────────
 
-async fn transmart_translate(text: &str, src: &str, tgt: &str) -> Result<TranslateResult, String> {
-    let client = reqwest::Client::new();
-
-    // 按换行拆分文本
-    let text_list: Vec<&str> = text.lines().collect();
-
-    // 生成 client_key（模拟浏览器指纹）
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let client_key = format!(
-        "browser-chrome-134.0.0-Windows_NT-{:08x}-{:04x}-{:04x}-{:04x}-{:012x}-{}",
-        ts as u32, (ts >> 32) as u16, (ts >> 48) as u16, (ts >> 16) as u16, ts, ts
-    );
-
-    let body = serde_json::json!({
-        "header": {
-            "fn": "auto_translation",
-            "client_key": client_key
-        },
-        "type": "plain",
-        "model_category": "normal",
-        "source": {
-            "lang": if src == "auto" { "auto" } else { src },
-            "text_list": text_list
-        },
-        "target": {
-            "lang": tgt
-        }
-    });
-
-    let resp = client
-        .post("https://yi.qq.com/api/imt")
-        .header("Content-Type", "application/json")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36")
-        .header("Referer", "https://yi.qq.com/zh-CN/index")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("TransMart 请求失败: {}", e))?;
-
-    let status = resp.status();
-    let result: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("TransMart 解析失败: {}", e))?;
-
-    if !status.is_success() {
-        return Err(format!("TransMart API 错误 ({}): {:?}", status, result));
-    }
-
-    // 解析: auto_translation 是数组，用 \n join
-    let translated = result
-        .get("auto_translation")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .filter(|s| !s.is_empty())
-        .ok_or("TransMart 返回格式错误")?;
-
-    Ok(TranslateResult {
-        text: translated,
-        detected_lang: None,
-        engine: "transmart".into(),
-    })
-}
-
-// ─── Yandex 翻译 (免费) ─────────────────────────────
-
-async fn yandex_translate(text: &str, src: &str, tgt: &str) -> Result<TranslateResult, String> {
-    let client = reqwest::Client::new();
-
-    // 生成 UUID 风格的 ID
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let uuid = format!("{:032x}", ts);
-    let yandex_id = format!("{}-0-0", uuid);
-
-    let url = format!(
-        "https://translate.yandex.net/api/v1/tr.json/translate?id={}&srv=android",
-        yandex_id
-    );
-
-    // source_lang 为空字符串表示自动检测
-    let from = if src == "auto" { "" } else { src };
-
-    let form_body = format!(
-        "source_lang={}&target_lang={}&text={}",
-        from,
-        tgt,
-        urlencoding::encode(text)
-    );
-
-    let resp = client
-        .post(&url)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("User-Agent", "Mozilla/5.0")
-        .body(form_body)
-        .send()
-        .await
-        .map_err(|e| format!("Yandex 请求失败: {}", e))?;
-
-    let status = resp.status();
-    let result: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Yandex 解析失败: {}", e))?;
-
-    if !status.is_success() {
-        return Err(format!("Yandex API 错误 ({}): {:?}", status, result));
-    }
-
-    // 解析: text[0]
-    let translated = result
-        .get("text")
-        .and_then(|t| t.get(0))
-        .and_then(|t| t.as_str())
-        .ok_or("Yandex 返回格式错误")?
-        .to_string();
-
-    let detected = result
-        .get("detected")
-        .and_then(|d| d.get("lang"))
-        .and_then(|l| l.as_str())
-        .map(|s| s.to_string());
-
-    Ok(TranslateResult {
-        text: translated,
-        detected_lang: detected,
-        engine: "yandex".into(),
-    })
-}
 
 // ─── MyMemory 翻译 (免费，中国可用) ────────────────
 
