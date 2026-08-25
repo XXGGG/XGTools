@@ -5,11 +5,13 @@ import { emit } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { LogicalSize } from '@tauri-apps/api/window'
 import { Button } from '@/components/ui/button'
+import { Slider } from '@/components/ui/slider'
 
 const isKeyVisOpen = ref(false)
 const isEditMode = ref(false)
 const isAvoidMouse = ref(false)
 const isAutoClear = ref(false)
+const autoClearSec = ref(3)          // 自动清除延时(秒),2~20
 const store = new LazyStore('settings.json')
 
 const toggleEditMode = async () => {
@@ -46,6 +48,7 @@ const checkWindowState = async () => {
   if (savedState && !isKeyVisOpen.value) await toggleKeyVis()
   isAvoidMouse.value = await store.get<boolean>('avoid_mouse') || false
   isAutoClear.value = await store.get<boolean>('auto_clear_enabled') || false
+  autoClearSec.value = await store.get<number>('auto_clear_delay') ?? 3
 }
 
 onMounted(() => checkWindowState())
@@ -54,6 +57,16 @@ const toggleAutoClear = async () => {
   isAutoClear.value = !isAutoClear.value
   await emit('toggle-auto-clear', isAutoClear.value)
   await store.set('auto_clear_enabled', isAutoClear.value)
+  await store.save()
+}
+
+// 延时改动要实时推给按键显示窗口(它是独立 webview,读不到这边的状态)
+const setAutoClearSec = async (v?: number[]) => {
+  const n = v?.[0]
+  if (typeof n !== 'number') return
+  autoClearSec.value = n
+  await emit('set-auto-clear-delay', n)
+  await store.set('auto_clear_delay', n)
   await store.save()
 }
 
@@ -140,6 +153,20 @@ onUnmounted(() => emit('toggle-key-visualizer-edit', false))
           <span :class="isKeyVisOpen ? 'icon-[lucide--eye]' : 'icon-[lucide--eye-off]'" class="w-5 h-5" />
         </Button>
       </div>
+    </div>
+
+    <!-- 自动清除开启后才出现:同样的外框,调延时 -->
+    <div v-if="isKeyVisOpen && isAutoClear"
+      class="w-full max-w-2xl mx-auto border rounded-lg p-4 flex items-center gap-4 hover:bg-accent/50 transition-colors">
+      <div class="flex items-center gap-3 shrink-0">
+        <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+          <span class="icon-[lucide--timer] w-5 h-5" />
+        </div>
+        <span class="font-medium">自动清除延时</span>
+      </div>
+      <Slider class="flex-1" :model-value="[autoClearSec]" :min="2" :max="20" :step="1"
+        @update:model-value="setAutoClearSec" />
+      <span class="shrink-0 w-12 text-right text-sm font-mono text-muted-foreground">{{ autoClearSec }}s</span>
     </div>
 
     <div class="w-full max-w-2xl mx-auto flex-1 border border-dashed rounded-lg p-8 flex flex-col items-center justify-center space-y-4 text-muted-foreground/60">

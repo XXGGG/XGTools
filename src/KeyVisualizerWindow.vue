@@ -25,12 +25,13 @@ let unlisten: (() => void) | null = null;// 事件监听取消函数
 let unlistenConfig: (() => void) | null = null; // 配置监听取消函数
 let unlistenMove: (() => void) | null = null;
 let unlistenAvoidMouse: (() => void) | null = null; // 避免鼠标监听取消函数
+let unlistenClearDelay: (() => void) | null = null;
 let unlistenAutoClear: (() => void) | null = null; // 自动清除监听取消函数
 let clearTimer: ReturnType<typeof setInterval> | null = null;// 定时器引用（用于控制定时器的启动和停止）
 const isEditMode = ref(false);// 是否编辑模式
 const isAvoidMouse = ref(false);// 是否躲避鼠标
 const isAutoClear = ref(false);// 是否启用自动清除功能
-const AUTO_CLEAR_DELAY = 3000; // 3秒后自动清除 // 自动清除的延迟时间（毫秒）
+const autoClearDelay = ref(3000); // 自动清除延迟(毫秒),由主窗口的滑块驱动,2~20 秒
 
 // 配置
 const MAX_ITEMS = 4; // 最大显示按键项数量
@@ -433,7 +434,14 @@ onMounted(async () => {
 
     // ✅ 新增：恢复自动清除配置
     isAutoClear.value = await store.get('auto_clear_enabled') || false;
-    console.log('自动清除功能状态:', isAutoClear.value);
+    autoClearDelay.value = ((await store.get<number>('auto_clear_delay')) ?? 3) * 1000;
+    console.log('自动清除功能状态:', isAutoClear.value, '延时', autoClearDelay.value, 'ms');
+
+    // 主窗口拖滑块时实时同步过来(本窗口是独立 webview,不共享状态)
+    unlistenClearDelay = await listen('set-auto-clear-delay', (event) => {
+        const sec = Number(event.payload);
+        if (Number.isFinite(sec)) autoClearDelay.value = sec * 1000;
+    });
 
     // ✅ 新增：监听自动清除配置变更
     unlistenAutoClear = await listen('toggle-auto-clear', async (event: any) => {
@@ -472,7 +480,7 @@ const startClearTimer = () => {
         const lastKey = keys.value[keys.value.length - 1];
         const timePassed = Date.now() - lastKey.timestamp;
 
-        if (timePassed > AUTO_CLEAR_DELAY) {
+        if (timePassed > autoClearDelay.value) {
             // 移除最后一个按键
             keys.value.pop();
         }
@@ -497,6 +505,7 @@ onUnmounted(() => {
     if (unlistenMove) unlistenMove();  // <-- 添加这一行！
     if (unlistenAvoidMouse) unlistenAvoidMouse(); //移除避免鼠标事件监听
     if (unlistenAutoClear) unlistenAutoClear(); //移除自动清除事件监听
+    if (unlistenClearDelay) unlistenClearDelay(); //移除延时变更事件监听
     // ✅ 确保有这一行：清理自动清除定时器
     stopClearTimer();
 });

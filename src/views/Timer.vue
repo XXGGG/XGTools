@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, toRaw } from 'vue'
 import { watchDebounced } from '@vueuse/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Tabs, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { usePomodoroTimer } from '@/composables/usePomodoroTimer'
 
 // ── Types ──
@@ -106,40 +106,11 @@ function discardRecord() {
   elapsedMs.value = 0
 }
 
-function deleteRecord(id: string) {
-  cubeRecords.value = cubeRecords.value.filter(r => r.id !== id)
-}
-
-function clearAllRecords() {
-  cubeRecords.value = []
-}
-
 // ── Records Panel ──
 
-const showRecords = ref(false)
 
 // 有新记录时自动弹出面板
-watch(() => cubeRecords.value.length, (newLen, oldLen) => {
-  if (newLen > oldLen) showRecords.value = true
-})
-
 // ── Cube Stats ──
-
-const bestTime = computed(() => {
-  if (!cubeRecords.value.length) return null
-  return Math.min(...cubeRecords.value.map(r => r.time))
-})
-
-const worstTime = computed(() => {
-  if (!cubeRecords.value.length) return null
-  return Math.max(...cubeRecords.value.map(r => r.time))
-})
-
-const avgTime = computed(() => {
-  if (!cubeRecords.value.length) return null
-  const sum = cubeRecords.value.reduce((s, r) => s + r.time, 0)
-  return sum / cubeRecords.value.length
-})
 
 // ── Pomodoro ──
 
@@ -191,19 +162,25 @@ watchDebounced(durationInput, async () => {
 </script>
 
 <template>
-  <div class="h-full w-full flex flex-col p-8">
-    <Tabs v-model="activeTab" class="flex-1 overflow-hidden flex flex-col max-w-4xl mx-auto w-full">
+  <!--
+    absolute inset-0:逃出 main 的 pt/pl(绝对定位对齐 padding box,不受那层 padding 影响),
+    这样内容是相对**整个窗口**居中的 —— 侧栏和顶栏是浮层,不再把居中点往右下推。
+    p-8 是对称的,不影响 mx-auto 的居中。
+  -->
+  <div class="absolute inset-0 flex flex-col p-8">
+    <!-- 秒表页不限宽:其他页面用 max-w-* 收着怕太散,这一页就是要铺满 -->
+    <Tabs v-model="activeTab" class="flex-1 overflow-hidden flex flex-col w-full">
 
-      <TabsList class="shrink-0 w-fit mx-auto">
-        <TabsTrigger value="cube" class="gap-1.5">
+      <TitleBarTabs>
+        <TabsTrigger value="cube" class="gap-1.5 h-11 px-4 rounded-xl">
           <span class="icon-[lucide--box] w-4 h-4" />
           魔方计时
         </TabsTrigger>
-        <TabsTrigger value="pomodoro" class="gap-1.5">
+        <TabsTrigger value="pomodoro" class="gap-1.5 h-11 px-4 rounded-xl">
           <span class="icon-[lucide--clock] w-4 h-4" />
           番茄时钟
         </TabsTrigger>
-      </TabsList>
+      </TitleBarTabs>
 
       <!-- ═══════ Cube Timer ═══════ -->
       <TabsContent value="cube" class="flex-1 flex flex-col min-h-0 mt-0">
@@ -212,7 +189,7 @@ watchDebounced(durationInput, async () => {
         <div class="flex-1 flex flex-col items-center justify-center shrink-0">
           <div
             :class="[
-              'font-mono tracking-wider transition-colors duration-200 text-5xl sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl',
+              'font-mono tracking-wider transition-colors duration-200 leading-none text-[clamp(3rem,9vw,7rem)]',
               cubeState === 'holding' ? 'text-primary' : 'text-foreground',
             ]"
           >
@@ -327,76 +304,5 @@ watchDebounced(durationInput, async () => {
 
     </Tabs>
 
-    <!-- ═══════ Records Floating Panel ═══════ -->
-    <div v-if="cubeRecords.length > 0 && activeTab === 'cube'" class="fixed right-2.5 bottom-2.5 z-40 flex flex-col items-end gap-2">
-
-      <!-- Panel (above the toggle button) -->
-      <Transition
-        enter-active-class="transition-all duration-200 ease-out"
-        leave-active-class="transition-all duration-150 ease-in"
-        enter-from-class="opacity-0 translate-y-2 scale-95"
-        leave-to-class="opacity-0 translate-y-2 scale-95"
-      >
-        <div
-          v-if="showRecords"
-          class="w-48 rounded-xl bg-background/95 backdrop-blur border border-border shadow-lg flex flex-col overflow-hidden"
-        >
-          <!-- Stats column -->
-          <div class="shrink-0 flex flex-col gap-1.5 px-3 py-2.5 border-b border-border/50">
-            <div class="flex items-center gap-1.5">
-              <span class="icon-[lucide--zap] w-3 h-3 text-green-500 shrink-0" />
-              <span class="font-mono text-xs">{{ bestTime != null ? formatCubeTime(bestTime) : '--' }}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="icon-[lucide--minus] w-3 h-3 text-muted-foreground shrink-0" />
-              <span class="font-mono text-xs">{{ avgTime != null ? formatCubeTime(avgTime) : '--' }}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="icon-[lucide--turtle] w-3 h-3 text-orange-500 shrink-0" />
-              <span class="font-mono text-xs">{{ worstTime != null ? formatCubeTime(worstTime) : '--' }}</span>
-            </div>
-          </div>
-
-          <!-- Records list (fixed height container for ScrollArea) -->
-          <div class="h-56 overflow-hidden">
-            <ScrollArea class="h-full **:data-[slot=scroll-area-scrollbar]:hidden">
-              <div class="px-3 py-1.5 flex flex-col">
-                <div
-                  v-for="(record, i) in cubeRecords" :key="record.id"
-                  class="flex items-center gap-1.5 group py-1 rounded-md hover:bg-muted/50 px-1 -mx-1"
-                >
-                  <span class="text-muted-foreground/40 text-[10px] w-4 text-right shrink-0">{{ i + 1 }}</span>
-                  <span class="font-mono text-xs flex-1">{{ formatCubeTime(record.time) }}</span>
-                  <button
-                    class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                    @click="deleteRecord(record.id)"
-                  >
-                    <span class="icon-[lucide--x] w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-            </ScrollArea>
-          </div>
-        </div>
-      </Transition>
-
-      <!-- Bottom bar: clear + toggle -->
-      <div class="flex items-center gap-2">
-        <button
-          v-if="showRecords && cubeRecords.length > 1"
-          class="rounded-full bg-muted/80 backdrop-blur px-3 py-1.5 text-[10px] text-muted-foreground/40 hover:text-destructive transition-colors border border-border/50"
-          @click="clearAllRecords"
-        >
-          清除全部
-        </button>
-        <button
-          class="flex items-center gap-1.5 rounded-full bg-muted/80 backdrop-blur px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors shadow-sm border border-border/50"
-          @click="showRecords = !showRecords"
-        >
-          <span :class="showRecords ? 'icon-[lucide--chevron-down]' : 'icon-[lucide--list]'" class="w-3.5 h-3.5" />
-          {{ cubeRecords.length }}
-        </button>
-      </div>
-    </div>
   </div>
 </template>

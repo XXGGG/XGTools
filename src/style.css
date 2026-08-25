@@ -135,6 +135,8 @@
   body.screenshot-window {
     background: transparent !important;
   }
+  /* 主窗口开了云母/亚克力时:窗口本身全透明,底面完全由 CSS 画(见文件末尾的 body.vibrancy 段)。
+     由 App.vue 根据 settings.blurKind 加/去这个类。 */
   html,
   body,
   #app {
@@ -164,4 +166,84 @@
 /* 全局不可选 */
 * {
   user-select: none;
+}
+
+/* ============ 窗口特效开启时的表面体系 ============
+   思路:窗口交给系统全透明,**底面和卡片一律由 CSS 画**,这样每一层都在我们手里。
+   原因:Win11 build >= 22523 上 window_vibrancy 的 apply_acrylic/apply_mica 走 DWM 的
+   DWMWA_SYSTEMBACKDROP_TYPE,那条 API 没有着色/alpha 参数,传什么颜色都被忽略 ——
+   系统只负责"模糊",染色和明暗只能我们自己来。
+
+   --vibrancy-alpha = 底面不透明度(由设置页滑块换算而来,见 useAppSettings 的 applyVibrancyVars)。
+
+   卡片的不透明度取「底面与全实心的中点」,也就是**永远只透到底面的一半**:
+     底面 0  → 卡片 50      底面 20 → 卡片 60      底面 50 → 卡片 75
+   这样底面拉到 0 时卡片仍有一半底色,文字和图标还有可读的衬底 ——
+   之前是底面和卡片一起透到底,整个界面看着"暗沉"其实是文字压在没有衬底的模糊材质上。
+   写在 @layer 外面,优先级高于 Tailwind 的 utilities。 */
+
+body.vibrancy {
+  background-color: color-mix(in srgb, var(--background) calc(var(--vibrancy-alpha, 40) * 1%), transparent) !important;
+
+  /* 边框和选中底色都跟着主题走,而不是用固定色:
+     亮色主题的 --border 是完全不透明的浅灰,压在半透明卡片上就是"白白一条";
+     暗色主题的是 10% 白,在明亮的材质上又会糊成一圈白晕。
+     --muted 同理 —— 亮色是 oklch(0.97) 近乎纯白,选中框压上去就是一块死白。
+     统一改成"前景色的低透明度",亮暗两边都只是一层柔和的染色,材质仍透得过来。
+     覆盖的是变量本身,所以 border-border / bg-muted 用到的每一处都自动适配。 */
+  --border: color-mix(in srgb, var(--foreground) 12%, transparent);
+  --input: color-mix(in srgb, var(--foreground) 16%, transparent);
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --accent: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+body.vibrancy .bg-card,
+body.vibrancy .bg-background,
+body.vibrancy .bg-popover {
+  background-color: color-mix(in srgb, var(--card) calc((var(--vibrancy-alpha, 40) + 100) / 2 * 1%), transparent);
+}
+
+/* Tabs 里被选中的那一项要比 TabsList 再实一点,否则和背板糊在一起分不出选没选。
+   shadcn 的 TabsTrigger 选中态在亮色下是 bg-background、暗色下是 bg-input/30,
+   两条路径颜色不一样,这里统一按卡片色走,亮暗一致。 */
+/* 选中的页签要比 TabsList 背板再实一点才分得出选没选:取「卡片与全实心」的中点。 */
+body.vibrancy [data-slot="tabs-trigger"][data-state="active"] {
+  background-color: color-mix(in srgb, var(--card) calc((var(--vibrancy-alpha, 40) + 300) / 4 * 1%), transparent);
+  border-color: transparent;
+}
+
+/* 页面内元素的阴影:统一成低透明度的黑。
+   暗色卡片配浅色阴影会出现白晕,而低透明度的黑在亮暗两种主题下都成立 ——
+   压在明亮材质上是柔和暗影,压在暗色材质上几乎看不见。 */
+body.vibrancy .shadow-sm,
+body.vibrancy .shadow,
+body.vibrancy .shadow-md,
+body.vibrancy .shadow-lg {
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.08);
+}
+
+/* ============ 浮空卡片的高度模型 ============
+   照真实光学来:物体贴着底面时,影子紧、偏移小、模糊小,颜色相对集中;
+   抬起来之后,影子偏移变大、模糊变大,单位面积反而更淡 —— 也就是"扩散开"。
+   所以悬停不是简单加深,而是让影子摊开;卡片本身**不位移**,高度完全由影子表达。
+
+   两层叠加是为了同时有"接触影"(贴近处那道短而实的)和"环境影"(远处那片大而淡的),
+   只用一层的话要么假、要么脏。 */
+.float-card {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.07),   /* 接触影:紧贴底面 */
+    0 2px 5px rgb(0 0 0 / 0.06);   /* 环境影:很小的扩散 */
+  transition: box-shadow 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.float-card:hover {
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 0.05),   /* 接触影变淡:离开底面了 */
+    0 10px 24px rgb(0 0 0 / 0.09); /* 环境影摊开:偏移和模糊都变大 */
+}
+
+/* 可点的东西一律给手型。Tailwind v4 的 preflight 不再给 button 设 cursor,
+   不补这一条,侧栏图标、圆点、Tabs 点上去都是箭头。 */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
 }
