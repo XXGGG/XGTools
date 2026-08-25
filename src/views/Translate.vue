@@ -24,8 +24,6 @@ const freeEngines = [
   { id: 'google', label: 'Google 翻译' },
   { id: 'bing', label: 'Bing 翻译' },
   { id: 'deepl', label: 'DeepL 翻译' },
-  { id: 'transmart', label: '腾讯交互翻译' },
-  { id: 'yandex', label: 'Yandex 翻译' },
   { id: 'mymemory', label: 'MyMemory 翻译' },
 ]
 
