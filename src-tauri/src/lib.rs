@@ -7,6 +7,7 @@ mod convert_commands;
 mod window_effects;
 mod dsh_commands;
 mod dsh_bridge;
+mod vault_commands;
 
 #[cfg(windows)]
 mod icon_extractor;
@@ -130,6 +131,15 @@ pub fn run() {
             dsh_bridge::dsh_respond,
             dsh_bridge::dsh_connect,
             dsh_bridge::dsh_disconnect,
+            // Markdown 工作区
+            vault_commands::vault_list,
+            vault_commands::vault_read,
+            vault_commands::vault_write,
+            vault_commands::vault_create,
+            vault_commands::vault_rename,
+            vault_commands::vault_delete,
+            vault_commands::vault_reveal,
+            vault_commands::vault_search,
             // Dock commands
             dock_commands::get_apps,
             dock_commands::save_apps,
