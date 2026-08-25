@@ -236,6 +236,9 @@ body.vibrancy .shadow-lg {
 
    两层叠加是为了同时有"接触影"(贴近处那道短而实的)和"环境影"(远处那片大而淡的),
    只用一层的话要么假、要么脏。 */
+/* 圆角统一 14px(rounded-[14px]),写在各自的 class 里而不是这儿 ——
+   右上角三颗控制点那张是 rounded-full 的胶囊,收进这里会被一起改掉。
+   要调弧度就全局替换 `float-card` 那几处的 rounded-[14px]。 */
 .float-card {
   box-shadow:
     0 1px 2px rgb(0 0 0 / 0.07),   /* 接触影:紧贴底面 */

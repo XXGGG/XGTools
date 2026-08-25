@@ -7,9 +7,13 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { settings, loadSettings, applyVibrancyVars, applyWindowEffect } from './composables/useAppSettings'
 import { MENU_ITEMS, reconcile, splitGroups } from './lib/sidebar-prefs'
 import { useI18n } from './i18n'
+import { autoStartDsh } from './composables/useDsh'
+
 
 import TitleBar from './components/TitleBar.vue'
 import HomeView from './views/Home.vue'
+import AgentView from './views/Agent.vue'
+const VaultView = defineAsyncComponent(() => import('./views/Vault.vue'))
 import SettingsView from './views/Settings.vue'
 import TimerView from './views/Timer.vue'
 import DockView from './views/Dock.vue'
@@ -23,7 +27,7 @@ import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
 
 const { t } = useI18n()
-const currentView = ref('Timer')
+const currentView = ref('Agent')
 // 侧栏显示哪些页、什么顺序,由设置页驱动(清单本体在 lib/sidebar-prefs.ts)
 const menuItems = computed(() =>
   reconcile(MENU_ITEMS, { order: settings.sidebarOrder, hidden: settings.sidebarHidden })
@@ -70,6 +74,12 @@ onMounted(async () => {
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
 
   await loadSettings()
+
+  // 「打开 XGTools 就是打开智能体」—— 边车在这里就拉起来,不等用户切到那一页。
+  // 不 await:装了 DSH 的话它要几秒才 ready,挂在这儿会把整个界面的首屏卡住。
+  // 环境不齐时它什么都不做,由智能体页去引导。
+  void autoStartDsh()
+
   // 恢复上次的窗口特效(主题已在 loadSettings 里应用,材质跟着主题走)
   if (settings.blurKind !== 'none') {
     const err = await applyWindowEffect()
@@ -146,8 +156,10 @@ onMounted(async () => {
           enter-from-class="opacity-0 scale-95" enter-to-class="opacity-100 scale-100"
           leave-active-class="transition-[opacity,transform] duration-200 ease-in"
           leave-from-class="opacity-100 scale-100" leave-to-class="opacity-0 scale-105">
-          <div :key="currentView" class="absolute inset-0 overflow-auto pt-[5.75rem] pl-[5.75rem]">
+          <div :key="currentView" class="absolute inset-0 overflow-auto pt-[4.875rem] pl-[4.875rem]">
             <HomeView v-if="currentView === 'Home'" />
+            <AgentView v-else-if="currentView === 'Agent'" />
+            <VaultView v-else-if="currentView === 'Vault'" />
             <SettingsView v-else-if="currentView === 'Settings'" />
             <TimerView v-else-if="currentView === 'Timer'" />
             <DockView v-else-if="currentView === 'Dock'" />
@@ -170,7 +182,7 @@ onMounted(async () => {
       enter-from-class="opacity-0 translate-y-2" leave-active-class="transition-all duration-200 ease-in"
       leave-to-class="opacity-0 translate-y-2">
       <div v-if="shortcutWarning"
-        class="float-card fixed bottom-4 right-4 z-[60] max-w-sm rounded-2xl border bg-card
+        class="float-card fixed bottom-4 right-4 z-[60] max-w-sm rounded-[14px] border bg-card
                px-4 py-3 flex items-center gap-3 text-sm">
         <span class="icon-[lucide--triangle-alert] w-4 h-4 text-amber-500 shrink-0" />
         <span class="flex-1 leading-snug">{{ shortcutWarning }}</span>
@@ -192,15 +204,19 @@ onMounted(async () => {
         └──────────────────────────────────────────────────────────────
         ①③ 必须分开:以前用 py-1 做纵向留白,横向却没有,结果上下 10px、左右 5px 不等。
         现在边距只由 ① 决定(四边同一个值),间距只由 ③ 决定,互不干扰。
-        对齐:卡片 mx-auto 居中在 72px 列里,图标中心才和 Logo 同列 —— 改卡片宽度会让 Logo 错位。
+        **列宽 = 卡片宽 = 58,卡片不居中、外边距 0。**
+        以前列是 72、卡片 mx-auto 居中,左右各多出 7px —— 于是左边实际留白是 10+7=17,
+        而右边和底部只有 10,四边不等。现在把那 7 去掉,四边一律 10px。
+        Logo 也要跟着收成 58 宽才和图标同列(TitleBar.vue),别只改一边。
       -->
       <!--
-        top-[5.75rem] = 10(外缩) + 72(顶栏高) + 10(间距) —— 必须从顶栏下面开始。
+        top-[4.875rem] = 10(外缩) + 58(顶栏卡片高) + 10(间距) —— 必须从顶栏下面开始。
         以前写 top-2.5,侧栏第一张卡片会直接压在浮空顶栏的 Logo 上面把它盖住。
-        这个 5.75rem 和 main 的 pt- 是同一个值,改一个要改两个。
+        这个 4.875rem(78px) 也是 main 的 pt-/pl-,还有各页面的 pl- ——
+        58 是全局模数,改它要连着 TitleBar 的 h-/w- 一起改。
       -->
-      <aside class="absolute left-2.5 top-[5.75rem] bottom-2.5 z-40 w-18 flex flex-col overflow-y-auto">
-        <nav v-if="tools.length" class="float-card mx-auto rounded-2xl border bg-card p-1.5 flex flex-col items-center gap-1">
+      <aside class="absolute left-2.5 top-[4.875rem] bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto">
+        <nav v-if="tools.length" class="float-card rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1">
           <button v-for="item in tools" :key="item.id" @click="currentView = item.id" :title="t(item.labelKey)" :class="[
             'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
             currentView === item.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -213,7 +229,7 @@ onMounted(async () => {
           设置常驻,所以这张卡片永远存在;上面那张在工具全关时整张消失(不留空壳)。
           mt-auto 而不是靠父级 justify-between:后者在只剩这一张卡片时会把它顶到最上面去。
         -->
-        <div class="float-card mt-auto mx-auto rounded-2xl border bg-card p-1.5 flex flex-col items-center gap-1">
+        <div class="float-card mt-auto rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1">
           <button v-for="item in configs" :key="item.id" @click="currentView = item.id" :title="t(item.labelKey)" :class="[
             'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
             currentView === item.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'

@@ -19,6 +19,8 @@ export type SidebarPrefs = { order: string[]; hidden: string[] }
  */
 export const MENU_ITEMS: MenuItem[] = [
   // 上卡片:平时会打开来用的工具
+  { id: 'Agent', labelKey: 'nav.agent', icon: 'icon-[ri--deepseek-line]', group: 'tool' },
+  { id: 'Vault', labelKey: 'nav.vault', icon: 'icon-[arcticons--obsidian]', group: 'tool' },
   { id: 'Timer', labelKey: 'nav.timer', icon: 'icon-[lucide--timer]', group: 'tool' },
   { id: 'Translate', labelKey: 'nav.translate', icon: 'icon-[lucide--languages]', group: 'tool' },
   { id: 'Convert', labelKey: 'nav.convert', icon: 'icon-[lucide--refresh-ccw]', group: 'tool' },
@@ -45,7 +47,12 @@ export function splitGroups(items: MenuItem[], overrides: Record<string, string>
 
 /**
  * 按存档顺序排列全部项(不过滤隐藏)。
- * 存档里有的按存档序;代码新增的追加到末尾;存档里有但代码已删除的忽略。
+ * 存档里有的按存档序;存档里有但代码已删除的忽略;代码新增的插到它在代码里的位置上。
+ *
+ * 「插到代码位置」而不是「追加到末尾」:老存档里没有的新页,追加就一定排在最后,
+ * 而新页未必是最不重要的那个 —— 加在 MENU_ITEMS 第一位的页,在老用户机器上会掉到底部。
+ * 规则:找它在代码清单里前面最近的、已经排进结果的兄弟,插在那个兄弟后面;
+ * 一个都找不到(它就是代码里的第一个)就插到最前面。用户自己拖过的顺序不受影响。
  */
 export function orderedAll(all: MenuItem[], prefs: SidebarPrefs | null): MenuItem[] {
   if (!prefs?.order?.length) return [...all]
@@ -55,7 +62,19 @@ export function orderedAll(all: MenuItem[], prefs: SidebarPrefs | null): MenuIte
     const m = byId.get(id)
     if (m) { out.push(m); byId.delete(id) }
   }
-  for (const m of all) if (byId.has(m.id)) out.push(m)
+  // byId 里剩下的就是存档里没有的新页。按代码顺序逐个安置,
+  // 先安置的会成为后面那个的锚点,所以同时新增多页也能保持它们在代码里的相对次序。
+  for (let i = 0; i < all.length; i++) {
+    const m = all[i]
+    if (!byId.has(m.id)) continue
+    let at = 0
+    for (let j = i - 1; j >= 0; j--) {
+      const k = out.findIndex((x) => x.id === all[j].id)
+      if (k >= 0) { at = k + 1; break }
+    }
+    out.splice(at, 0, m)
+    byId.delete(m.id)
+  }
   return out
 }
 
