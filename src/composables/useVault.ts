@@ -103,12 +103,26 @@ function sortEntries(list: Entry[]): Entry[] {
  * 上次那个路径可能暂时还不存在。所以读失败不清掉存档 —— 清了用户就得重新挑,
  * 而问题其实几秒后自己就好了。只把错误摆出来,给一个「重试」。
  */
-export async function restoreVault() {
-  const saved = localStorage.getItem(ROOT_KEY)
-  if (!saved) return
-  vault.root = saved
-  await refreshDir('')
-  restoreTabs()
+/*
+  恢复工作区。**必须幂等**:笔记页的 onMounted 会调,命令面板跳转过来时也会调,
+  两边可能同时开跑 —— 那样 restoreTabs 会把每个存档标签各开两遍
+  (openFile 的去重检查在 await 之前,两个并发调用都会判定「还没开」)。
+  现象是标签栏里同一个文件出现两三次。
+
+  返回同一个在途 Promise,后来的调用等它就行,不重跑。
+*/
+let restoring: Promise<void> | null = null
+
+export function restoreVault(): Promise<void> {
+  if (restoring) return restoring
+  restoring = (async () => {
+    const saved = localStorage.getItem(ROOT_KEY)
+    if (!saved) return
+    vault.root = saved
+    await refreshDir('')
+    await restoreTabs()
+  })()
+  return restoring
 }
 
 export async function pickVault() {
@@ -235,6 +249,12 @@ export async function openFile(rel: string, activate = true) {
       vault.error = String(e)
       return
     }
+  }
+  // 读盘期间可能有别的调用把同一个文件开出来了 —— 上面那次检查是在 await 之前做的,
+  // 挡不住并发。这里再查一遍,否则同一个文件会出现两个标签。
+  if (vault.tabs.some((t) => t.path === rel)) {
+    if (activate) vault.activeTab = rel
+    return
   }
   vault.tabs.push({ path: rel, name, content, saved: content, kind })
   if (activate) vault.activeTab = rel
