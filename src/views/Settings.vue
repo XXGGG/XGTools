@@ -8,8 +8,24 @@ import { Tabs, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
+import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  dshFootprint, uninstallDsh, humanSize, dsh, listPlugins, addPlugin, PLUGIN_INFO,
+  type DshFootprint, type PluginState,
+} from '@/composables/useDsh'
+import {
+  chatReady, describeCredentials, setCredential, unsetCredential,
+  CREDENTIAL_REFS, type CredentialView,
+} from '@/composables/useDshChat'
+import { watch } from 'vue'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { settings, applyWindowEffect, applyTheme, type BlurKind, type ThemeMode } from '@/composables/useAppSettings'
+import { settings, applyWindowEffect, applyTheme, AGENT_SIDEBAR,
+  type BlurKind, type ThemeMode, type ChatSurface } from '@/composables/useAppSettings'
 import { useI18n, detectLocale, type Locale } from '@/i18n'
 import { MENU_ITEMS, orderedAll, type MenuItem } from '@/lib/sidebar-prefs'
 
@@ -33,6 +49,102 @@ async function setAutostart(v: boolean) {
     autostart.value = await isEnabled().catch(() => false)   // 失败回读真实状态,别让开关停在假位置
   }
 }
+
+// ---------- 智能体页 ----------
+const CHAT_SURFACES: { key: ChatSurface; nameKey: string; descKey: string }[] = [
+  { key: 'card', nameKey: 'settings.dshSurfaceCard', descKey: 'settings.dshSurfaceCardDesc' },
+  { key: 'flat', nameKey: 'settings.dshSurfaceFlat', descKey: 'settings.dshSurfaceFlatDesc' },
+]
+
+/** 滑块给的是数组(range 组件的通用签名),这里只用第一个值 */
+function setAgentSidebarWidth(v?: number[] | null) {
+  if (v?.length) settings.agentSidebarWidth = v[0]
+}
+
+// ── API 密钥 ──
+const creds = ref<Record<string, CredentialView>>({})
+/** 草稿是一次性的:发走就清空,永远不回显 —— 界面上不该留着密钥 */
+const keyDraft = ref<Record<string, string>>({})
+const keyError = ref<Record<string, string>>({})
+const keySaved = ref('')
+
+async function loadCreds() {
+  if (!chatReady.value) return
+  try { creds.value = await describeCredentials() } catch (e) { console.error('读凭据状态失败:', e) }
+}
+
+async function saveKey(ref: string) {
+  const v = (keyDraft.value[ref] ?? '').trim()
+  if (!v) return
+  keyError.value = { ...keyError.value, [ref]: '' }
+  try {
+    await setCredential(ref, v)
+    keyDraft.value = { ...keyDraft.value, [ref]: '' }   // 立刻清掉,不在内存里多留
+    keySaved.value = ref
+    setTimeout(() => { if (keySaved.value === ref) keySaved.value = '' }, 3000)
+    await loadCreds()
+  } catch (e) {
+    keyError.value = { ...keyError.value, [ref]: String(e) }
+  }
+}
+
+async function clearKey(ref: string) {
+  try { await unsetCredential(ref); await loadCreds() }
+  catch (e) { keyError.value = { ...keyError.value, [ref]: String(e) } }
+}
+
+// 连上之后才读得到凭据状态,所以要等 chatReady 翻绿而不是只在挂载时读一次
+watch(chatReady, (ok) => { if (ok) loadCreds() }, { immediate: true })
+
+// ── 可选插件 ──
+const plugins = ref<PluginState[]>([])
+const addingPlugin = ref('')
+const pluginError = ref('')
+
+async function loadPlugins() { plugins.value = await listPlugins() }
+
+async function installPlugin(pkg: string) {
+  addingPlugin.value = pkg
+  pluginError.value = ''
+  try {
+    await addPlugin(pkg)
+    await loadPlugins()
+  } catch (e) {
+    pluginError.value = String(e)
+  } finally {
+    addingPlugin.value = ''
+  }
+}
+
+onMounted(loadPlugins)
+
+// ── DSH 卸载 ──
+const footprint = ref<DshFootprint | null>(null)
+const uninstallOpen = ref(false)
+const purgeHome = ref(false)
+const uninstalling = ref(false)
+const dshInstalled = computed(() => !!dsh.pre?.dshEntry)
+
+/** 每次打开确认框都重新量一次:体积和会话数是会变的,拿缓存来吓唬人不合适 */
+async function openUninstall() {
+  footprint.value = await dshFootprint()
+  purgeHome.value = false          // 危险选项每次都从「不勾」开始
+  uninstallOpen.value = true
+}
+
+async function doUninstall() {
+  uninstalling.value = true
+  try {
+    await uninstallDsh(purgeHome.value)
+    footprint.value = await dshFootprint()
+  } catch (e) {
+    console.error('卸载失败:', e)
+  } finally {
+    uninstalling.value = false
+  }
+}
+
+onMounted(async () => { footprint.value = await dshFootprint() })
 
 // ---------- 窗口背景特效 ----------
 const BLUR_KINDS: { key: BlurKind; nameKey: string }[] = [
@@ -125,6 +237,7 @@ function toggleItem(id: string) {
         <TitleBarTabs>
           <TabsTrigger value="general" class="h-11 px-4 rounded-xl">{{ t('settings.general') }}</TabsTrigger>
           <TabsTrigger value="sidebar" class="h-11 px-4 rounded-xl">{{ t('settings.nav') }}</TabsTrigger>
+          <TabsTrigger value="dsh" class="h-11 px-4 rounded-xl">{{ t('settings.dsh') }}</TabsTrigger>
         </TitleBarTabs>
 
         <!-- ================= 常规（含外观 / 关于）================= -->
@@ -277,7 +390,200 @@ function toggleItem(id: string) {
           </section>
 
         </TabsContent>
+
+        <!-- ═══════ DSH ═══════ -->
+        <TabsContent value="dsh" class="space-y-6">
+
+          <section class="space-y-3">
+            <div class="text-sm font-medium">{{ t('settings.dshSurface') }}</div>
+            <div class="grid grid-cols-2 gap-2">
+              <button v-for="s in CHAT_SURFACES" :key="s.key" @click="settings.agentChatSurface = s.key" :class="[
+                'rounded-xl border px-4 py-3 text-left transition-colors',
+                settings.agentChatSurface === s.key ? 'border-foreground/60 bg-muted/60' : 'hover:bg-muted/40'
+              ]">
+                <div class="text-sm">{{ t(s.nameKey) }}</div>
+                <div class="text-xs text-muted-foreground mt-1 leading-relaxed">{{ t(s.descKey) }}</div>
+              </button>
+            </div>
+          </section>
+
+          <div class="rounded-xl border divide-y">
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--message-square-quote] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.dshGreeting') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.dshGreetingDesc') }}</div>
+              </div>
+              <Input v-model="settings.agentGreeting" :placeholder="t('settings.dshGreetingPlaceholder')"
+                class="w-52 shrink-0" />
+            </div>
+
+            <div class="px-4 py-3.5 space-y-3">
+              <div class="flex items-center gap-4">
+                <span class="icon-[lucide--panel-left] w-5 h-5 shrink-0 text-muted-foreground" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm">{{ t('settings.dshSidebarWidth') }}</div>
+                  <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.dshSidebarWidthDesc') }}</div>
+                </div>
+                <span class="text-xs font-mono text-muted-foreground">{{ settings.agentSidebarWidth }}px</span>
+              </div>
+              <Slider :model-value="[settings.agentSidebarWidth]"
+                :min="AGENT_SIDEBAR.min" :max="AGENT_SIDEBAR.max" :step="4"
+                @update:model-value="setAgentSidebarWidth" />
+            </div>
+          </div>
+
+          <!--
+            可选插件。装的是 **DSH 的插件**,不是我们的功能 —— 装上之后模型多一个
+            能力,界面一行都不用改。这就是「一切皆插件」在产品层面的样子。
+          -->
+          <section class="space-y-3">
+            <div>
+              <div class="text-sm font-medium">{{ t('settings.dshPlugins') }}</div>
+              <div class="text-xs text-muted-foreground mt-1">{{ t('settings.dshPluginsDesc') }}</div>
+            </div>
+            <div class="rounded-xl border divide-y">
+              <div v-for="p in plugins" :key="p.package" class="flex items-start gap-4 px-4 py-3.5">
+                <span class="icon-[lucide--puzzle] w-5 h-5 shrink-0 mt-0.5 text-muted-foreground" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm">{{ PLUGIN_INFO[p.id]?.name ?? p.id }}</div>
+                  <div class="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                    {{ PLUGIN_INFO[p.id]?.desc ?? p.package }}
+                  </div>
+                </div>
+                <span v-if="p.installed" class="text-xs text-emerald-500 shrink-0 mt-1">
+                  {{ t('settings.dshPluginInstalled') }}
+                </span>
+                <button v-else @click="installPlugin(p.package)" :disabled="!!addingPlugin"
+                  class="h-8 px-3.5 shrink-0 rounded-lg border border-border text-sm transition-colors
+                         hover:bg-muted disabled:opacity-50">
+                  {{ addingPlugin === p.package ? t('settings.dshPluginAdding') : t('settings.dshPluginAdd') }}
+                </button>
+              </div>
+            </div>
+            <p v-if="pluginError" class="text-xs text-red-500 wrap-break-word">{{ pluginError }}</p>
+          </section>
+
+          <!--
+            API 密钥。
+            走 DSH 的 credentials 接口而不是手改它的 yaml —— 那接口的 describe
+            **永远不返回值**,所以 XGTools 全程不持有你的密钥,界面上也没法泄露。
+            输入框是一次性的:填完就发走清空,不回显。
+          -->
+          <section class="space-y-3">
+            <div>
+              <div class="text-sm font-medium">{{ t('settings.dshKeys') }}</div>
+              <div class="text-xs text-muted-foreground mt-1">{{ t('settings.dshKeysDesc') }}</div>
+            </div>
+
+            <p v-if="!chatReady" class="text-xs text-muted-foreground">{{ t('settings.dshKeyNeedConnect') }}</p>
+
+            <div v-else class="rounded-xl border divide-y">
+              <div v-for="c in CREDENTIAL_REFS" :key="c.ref" class="px-4 py-3.5 space-y-2.5">
+                <div class="flex items-center gap-3">
+                  <span class="icon-[lucide--key-round] w-4 h-4 shrink-0 text-muted-foreground" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm">{{ c.label }}</div>
+                    <div class="text-xs mt-0.5" :class="creds[c.ref]?.configured ? 'text-emerald-500' : 'text-muted-foreground'">
+                      {{ creds[c.ref]?.configured ? t('settings.dshKeySet') : t('settings.dshKeyUnset') }}
+                      <template v-if="creds[c.ref]?.configured && creds[c.ref]?.source">
+                        · {{ creds[c.ref]?.source === 'env' ? t('settings.dshKeySourceEnv') : t('settings.dshKeySourceFile') }}
+                      </template>
+                    </div>
+                  </div>
+                  <button v-if="creds[c.ref]?.configured && creds[c.ref]?.writable"
+                    @click="clearKey(c.ref)"
+                    class="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted">
+                    {{ t('settings.dshKeyClear') }}
+                  </button>
+                </div>
+
+                <!-- 环境变量层是只读的:那种情况下写进去也不会生效,与其让用户白填,不如直说 -->
+                <p v-if="creds[c.ref] && !creds[c.ref].writable" class="text-xs text-amber-500 pl-7">
+                  {{ t('settings.dshKeyLocked') }}
+                </p>
+                <div v-else class="flex gap-2 pl-7">
+                  <Input v-model="keyDraft[c.ref]" type="password" autocomplete="off"
+                    :placeholder="t('settings.dshKeyPlaceholder')" class="flex-1"
+                    @keydown.enter="saveKey(c.ref)" />
+                  <button @click="saveKey(c.ref)" :disabled="!keyDraft[c.ref]?.trim()"
+                    class="h-9 px-3.5 rounded-lg border border-border text-sm transition-colors
+                           hover:bg-muted disabled:opacity-40">
+                    {{ t('settings.dshKeySave') }}
+                  </button>
+                </div>
+                <p v-if="keySaved === c.ref" class="text-xs text-emerald-500 pl-7">{{ t('settings.dshKeySaved') }}</p>
+                <p v-if="keyError[c.ref]" class="text-xs text-red-500 pl-7 wrap-break-word">{{ keyError[c.ref] }}</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- 卸载。能一键装就得能一键卸,否则那 250MB 只能让用户自己去 AppData 里翻。 -->
+          <div class="rounded-xl border divide-y">
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--trash-2] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.dshUninstall') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">
+                  {{ dshInstalled
+                    ? t('settings.dshUninstallDesc', { size: humanSize(footprint?.installBytes ?? 0) })
+                    : t('settings.dshNothing') }}
+                </div>
+              </div>
+              <button v-if="dshInstalled" @click="openUninstall" :disabled="uninstalling"
+                class="h-8 px-3.5 rounded-lg border border-destructive/40 text-sm text-destructive
+                       transition-colors hover:bg-destructive/10 disabled:opacity-50">
+                {{ uninstalling ? t('settings.dshUninstalling') : t('settings.dshUninstallBtn') }}
+              </button>
+            </div>
+          </div>
+
+        </TabsContent>
       </Tabs>
     </div>
+
+    <!--
+      卸载确认。用项目自己的 AlertDialog,不用浏览器原生 confirm。
+      正文里给的是真实数字(占用体积、会话数、有没有密钥)—— 只写"会清除记忆"
+      用户没法判断这个决定有多重。
+    -->
+    <AlertDialog v-model:open="uninstallOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ t('settings.dshUninstallTitle') }}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {{ t('settings.dshUninstallBody', { size: humanSize(footprint?.installBytes ?? 0) }) }}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <!-- DSH 自己的家目录单独一档:它装的是聊天历史和密钥,不该跟着程序本体一起被删 -->
+        <div v-if="footprint?.homePath" class="rounded-xl border p-3.5 space-y-2.5">
+          <label class="flex items-start gap-3 cursor-pointer">
+            <Checkbox v-model="purgeHome" class="mt-0.5 shrink-0" />
+            <span class="min-w-0">
+              <span class="block text-sm">{{ t('settings.dshPurge') }}</span>
+              <span class="block text-xs text-muted-foreground mt-1 font-mono wrap-break-word">
+                {{ footprint.homePath }}
+              </span>
+              <span class="block text-xs text-muted-foreground mt-0.5">
+                {{ footprint.sessionCount }} 段会话 · {{ humanSize(footprint.homeBytes) }}<template
+                  v-if="footprint.hasCredentials">{{ t('settings.dshPurgeCred') }}</template>
+              </span>
+            </span>
+          </label>
+          <p v-if="purgeHome" class="text-xs leading-relaxed text-amber-500">
+            {{ t('settings.dshPurgeWarn') }}
+          </p>
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ t('convert.cancel') }}</AlertDialogCancel>
+          <AlertDialogAction @click="doUninstall"
+            class="bg-destructive text-white hover:bg-destructive/90">
+            {{ t('settings.dshUninstallBtn') }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </ScrollArea>
 </template>

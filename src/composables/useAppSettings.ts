@@ -27,7 +27,27 @@ export type AppSettings = {
   sidebarHidden: string[]
   /** 条目归哪一组的用户覆盖(id → 'tool' | 'config')。空表示用代码里的默认分组。 */
   sidebarGroups: Record<string, string>
+
+  // ── 智能体页 ──
+  /** 会话侧栏宽度(px)。用户可以拖,写回这里。范围由 AGENT_SIDEBAR 约束。 */
+  agentSidebarWidth: number
+  /** 空态那句招呼语。留空就用当前语言的默认文案 —— 存空串而不是存默认值,
+   *  否则切语言时会被钉死在设置那天的那个语种上。 */
+  agentGreeting: string
+  /** 聊天区外观:'card' 和侧栏一样是张浮空卡片;'flat' 直接铺在窗口材质上,更透。 */
+  agentChatSurface: ChatSurface
+
+  // ── 笔记页 ──
+  vaultTreeWidth: number
+  vaultChatWidth: number
+  /** 右边那栏收起来的状态。没配 DSH 的人不该被一个用不了的面板占掉屏幕。 */
+  vaultChatOpen: boolean
 }
+
+/** 会话侧栏可拖的范围。maxRatio 是「最多占窗口宽的几成」—— 光设 max 挡不住小窗口下把聊天区挤没。 */
+export const AGENT_SIDEBAR = { min: 200, max: 420, minChat: 460 } as const
+
+export type ChatSurface = 'card' | 'flat'
 
 const SETTINGS_VERSION = 2
 
@@ -40,6 +60,12 @@ const DEFAULTS: AppSettings = {
   sidebarOrder: [],
   sidebarHidden: [],
   sidebarGroups: {},
+  agentSidebarWidth: 240,
+  agentGreeting: '',
+  agentChatSurface: 'card',
+  vaultTreeWidth: 260,
+  vaultChatWidth: 320,
+  vaultChatOpen: true,
 }
 
 export const settings = reactive<AppSettings>({ ...DEFAULTS })
@@ -74,6 +100,8 @@ export async function loadSettings() {
       settings.v = SETTINGS_VERSION
     }
     settings.blurOpacity = Math.min(100, Math.max(0, settings.blurOpacity))
+    settings.agentSidebarWidth = Math.min(AGENT_SIDEBAR.max,
+      Math.max(AGENT_SIDEBAR.min, Math.round(settings.agentSidebarWidth)))
     // 旧存档可能选的是已移除的高斯模糊,迁到亚克力,免得停在一个界面上不存在的选项
     if ((settings.blurKind as string) === 'blur') settings.blurKind = 'acrylic'
     // 语言:选了 auto 就每次启动重新看系统语言,否则用存档里选定的那个

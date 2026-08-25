@@ -5,6 +5,8 @@ mod window_detect;
 mod translate_commands;
 mod convert_commands;
 mod window_effects;
+mod dsh_commands;
+mod dsh_bridge;
 
 #[cfg(windows)]
 mod icon_extractor;
@@ -98,6 +100,8 @@ pub fn run() {
             initializing: std::sync::atomic::AtomicBool::new(false),
         })
         .manage(window_detect::ComThread::spawn())
+        .manage(dsh_commands::DshSidecar::default())
+        .manage(dsh_bridge::DshBridge::default())
         .manage(convert_commands::ConvertState {
             cancel_flags: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
@@ -111,6 +115,21 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // 窗口背景特效(云母/亚克力/模糊)
             window_effects::set_window_effect,
+            // DSH 边车:探测环境、按需安装、随应用起停
+            dsh_commands::dsh_preflight,
+            dsh_commands::dsh_install,
+            dsh_commands::dsh_start,
+            dsh_commands::dsh_stop,
+            dsh_commands::dsh_status,
+            dsh_commands::dsh_footprint,
+            dsh_commands::dsh_uninstall,
+            dsh_commands::dsh_plugins,
+            dsh_commands::dsh_plugin_add,
+            // DSH 通信桥:一元 RPC + 两条事件流
+            dsh_bridge::dsh_rpc,
+            dsh_bridge::dsh_respond,
+            dsh_bridge::dsh_connect,
+            dsh_bridge::dsh_disconnect,
             // Dock commands
             dock_commands::get_apps,
             dock_commands::save_apps,
@@ -412,6 +431,13 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // 主窗口关闭只是隐藏(托盘应用),所以边车不能挂在 CloseRequested 上收 ——
+            // 那样最小化到托盘就把智能体杀了。只在进程真正退出时收。
+            if let tauri::RunEvent::Exit = event {
+                dsh_commands::shutdown(app);
+            }
+        });
 }
