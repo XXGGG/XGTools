@@ -9,7 +9,7 @@ English | [官话 - 简体中文](README-cmn_CN.md) | [官話 - 繁體中文](RE
 <h1 align='center'>XGTools</h1>
 
 <p align='center'>
-  <samp>A desktop toolbox for Windows — one window instead of six little utilities</samp>
+  <samp>A desktop toolbox — the small utilities you reach for daily, behind one icon</samp>
 </p>
 
 <p align='center'>
@@ -31,8 +31,8 @@ English | [官话 - 简体中文](README-cmn_CN.md) | [官話 - 繁體中文](RE
 
 XGTools puts the small utilities you reach for every day — a timer, a translator, a file
 converter, a screenshot tool with OCR, an app launcher, a key-press overlay — behind a
-single icon in the tray, instead of six separate programs each with its own updater,
-its own tray icon and its own idea of what a settings window should look like.
+single icon in the tray, instead of a separate program per task — each with its own
+updater, its own tray icon and its own idea of what a settings window should look like.
 
 It is a personal tool, built for one Windows machine and shared as-is.
 
