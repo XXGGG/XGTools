@@ -199,8 +199,15 @@ body.vibrancy {
 
 body.vibrancy .bg-card,
 body.vibrancy .bg-background,
+/*
+  浮层(右键菜单、下拉、气泡)不跟着底面的不透明度走。
+  它们是压在内容上面的临时表面 —— 底面调到 0 时,跟着透会让菜单文字和
+  它盖住的正文糊在一起,根本读不清。所以给一个下限:至少 88% 实心,
+  再叠一点毛玻璃兜住背后的高对比内容。
+*/
 body.vibrancy .bg-popover {
-  background-color: color-mix(in srgb, var(--card) calc((var(--vibrancy-alpha, 40) + 100) / 2 * 1%), transparent);
+  background-color: color-mix(in srgb, var(--popover) 92%, transparent);
+  backdrop-filter: blur(12px) saturate(1.4);
 }
 
 /* Tabs 里被选中的那一项要比 TabsList 再实一点,否则和背板糊在一起分不出选没选。
