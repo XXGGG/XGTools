@@ -251,6 +251,24 @@ body.vibrancy .shadow-lg {
     0 10px 24px rgb(0 0 0 / 0.09); /* 环境影摊开:偏移和模糊都变大 */
 }
 
+/* 自制图标:走和 iconify 一样的"遮罩 + currentColor"路子,只是 SVG 是本地文件。
+   为什么不继续用 icon-[arcticons--obsidian]:那个描边太细,和旁边 lucide 的图标
+   不是一个量级(算式写在 assets/icons/obsidian.svg 里)。改粗要改那个文件,不是这里。
+
+   **必须放在 @layer components 里。** 写在图层外面的规则会赢过 @layer utilities,
+   于是这里的 width:1em 把用法处的 w-6 h-6 顶掉,图标被压回 16px ——
+   现象是"图标比邻居小一圈"而不是报错,很难看出来。踩过一次。 */
+@layer components {
+  .icon-xg-obsidian {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    background-color: currentColor;
+    -webkit-mask: url('./assets/icons/obsidian.svg') no-repeat center / 100% 100%;
+    mask: url('./assets/icons/obsidian.svg') no-repeat center / 100% 100%;
+  }
+}
+
 /* 可点的东西一律给手型。Tailwind v4 的 preflight 不再给 button 设 cursor,
    不补这一条,侧栏图标、圆点、Tabs 点上去都是箭头。 */
 button:not(:disabled),
