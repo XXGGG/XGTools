@@ -224,12 +224,12 @@ pub fn run() {
                             }
                         }
                         "show_dock" => {
-                            let _ = app.emit("toggle-dock", true);
+                            // 和快捷键那条一样:只摆位 + 喊一声,显示与否归前端。
+                            // 两处都 show 的话状态会对不上,启动台就再也关不掉了。
                             if let Some(win) = app.get_webview_window("dock") {
                                 fullscreen_borderless(&win);
-                                let _ = win.show();
-                                let _ = win.set_focus();
                             }
+                            let _ = app.emit("toggle-dock", true);
                         }
                         "force_close_screenshot" => {
                             // 强制关闭截图窗口
@@ -387,9 +387,11 @@ pub fn run() {
                             let _ = app.emit("execute-screenshot-translate", ());
                         } else if b.dock.as_ref() == Some(shortcut) {
                             if let Some(win) = app.get_webview_window("dock") {
+                                // 先摆好位置(窗口还藏着,摆位不会闪),然后**只喊一声**。
+                                // 不在这里 show —— 显示与否是前端那个 __toggleDock 的事。
+                                // 以前这儿有 show() + set_focus(),结果前端决定"不显示"时
+                                // 窗口照样被显示出来,状态就此对不上,再也切不回去。
                                 fullscreen_borderless(&win);
-                                let _ = win.show();
-                                let _ = win.set_focus();
                                 let _ = win.eval("window.__toggleDock && window.__toggleDock()");
                             }
                         }
