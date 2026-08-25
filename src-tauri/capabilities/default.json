@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for all windows",
-  "windows": ["main", "key_visualizer", "dock", "screenshot", "pin_*", "storm", "wallpaper", "saver"],
+  "windows": ["main", "key_visualizer", "dock", "screenshot", "pin_*"],
   "permissions": [
     "core:default",
     "core:window:default",
