@@ -41,6 +41,11 @@ export type AppSettings = {
   vaultTreeWidth: number
   vaultChatWidth: number
   /** 右边那栏收起来的状态。没配 DSH 的人不该被一个用不了的面板占掉屏幕。 */
+  /** 正文字体:默认 / 手绘风 / 等线 */
+  vaultFont: 'default' | 'hand' | 'dengxian'
+  /** 正文是否铺满整栏。关掉时像 Obsidian 那样收窄并居中 */
+  vaultFullWidth: boolean
+  vaultTreeOpen: boolean
   vaultChatOpen: boolean
 }
 
@@ -65,6 +70,9 @@ const DEFAULTS: AppSettings = {
   agentChatSurface: 'card',
   vaultTreeWidth: 260,
   vaultChatWidth: 320,
+  vaultFont: 'default',
+  vaultFullWidth: false,
+  vaultTreeOpen: true,
   vaultChatOpen: true,
 }
 
@@ -126,8 +134,22 @@ export async function loadSettings() {
   }
 }
 
+/*
+  **只读窗口不许回写设置。**
+
+  命令面板、托盘菜单都是独立 webview,各自跑一份这个模块、各自持有一份
+  settings。如果它们也注册自动保存,就成了"后写的赢":任何一个附属窗口
+  在旧值上触发一次保存,都会把主窗口刚改的东西**整份盖掉** ——
+  而且是静默的,用户只会觉得"我改的设置自己变回去了"。
+
+  它们只消费设置,不产生设置,所以在 loadSettings 之前调这个把回写关掉。
+*/
+let persistEnabled = true
+export function disableSettingsPersist() { persistEnabled = false }
+
 let saveTimer: number | undefined
 function startAutoSave() {
+  if (!persistEnabled) return
   watch(settings, () => {
     if (!store) return
     window.clearTimeout(saveTimer)

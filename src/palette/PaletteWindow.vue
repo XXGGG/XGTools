@@ -17,7 +17,8 @@ import {
 import { useI18n } from '@/i18n'
 import { invoke } from '@tauri-apps/api/core'
 import {
-  settings, loadSettings, reloadSettings, applyTheme, watchSystemTheme, applyVibrancyVars,
+  settings, loadSettings, reloadSettings, disableSettingsPersist,
+  applyTheme, watchSystemTheme, applyVibrancyVars,
   applyWindowEffect,
 } from '@/composables/useAppSettings'
 import {
@@ -248,6 +249,7 @@ onMounted(async () => {
     }
   }
 
+  disableSettingsPersist()   // 这扇窗只读设置,不回写(见 useAppSettings 的注释)
   document.body.classList.add('palette-window')
   try {
     await loadSettings()

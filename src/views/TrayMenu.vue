@@ -16,7 +16,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { useI18n } from '@/i18n'
-import { loadSettings, reloadSettings, applyTheme, watchSystemTheme } from '@/composables/useAppSettings'
+import {
+  loadSettings, reloadSettings, disableSettingsPersist, applyTheme, watchSystemTheme,
+} from '@/composables/useAppSettings'
 
 const { t } = useI18n()
 const win = getCurrentWindow()
@@ -89,6 +91,7 @@ async function togglePet() {
 }
 
 onMounted(async () => {
+  disableSettingsPersist()   // 这扇窗只读设置,不回写(见 useAppSettings 的注释)
   document.body.classList.add('tray-window')
   try {
     await loadSettings()
