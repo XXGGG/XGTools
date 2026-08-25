@@ -12,12 +12,16 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@
 import { Slider } from '@/components/ui/slider'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useI18n } from '@/i18n'
 import {
   type FileInfo, type FileEntry, type ConvertProgress, type ConvertOptions,
   type OutputLocation, type MediaType,
   IMAGE_FORMATS, VIDEO_FORMATS, AUDIO_FORMATS,
   getTargetFormats, getMediaTypeIcon, formatFileSize,
 } from '@/types/convert'
+
+
+const { t } = useI18n()
 
 const store = new LazyStore('settings.json')
 
@@ -188,7 +192,7 @@ async function pickFiles() {
   const result = await openDialog({
     multiple: true,
     filters: [{
-      name: '所有支持格式',
+      name: t('convert.allFormats'),
       extensions: [...IMAGE_FORMATS, ...VIDEO_FORMATS, ...AUDIO_FORMATS] as string[],
     }],
   })
@@ -226,7 +230,7 @@ async function startConvert() {
         files.value[p.file_index].progress = 100
       } else if (p.status === 'error') {
         files.value[p.file_index].status = 'error'
-        files.value[p.file_index].error = p.error || '转换失败'
+        files.value[p.file_index].error = p.error || t('convert.failed')
       } else {
         files.value[p.file_index].status = 'converting'
       }
@@ -288,7 +292,7 @@ async function startConvert() {
       }
     } catch (e: any) {
       entry.status = 'error'
-      entry.error = typeof e === 'string' ? e : e?.message || '转换失败'
+      entry.error = typeof e === 'string' ? e : e?.message || t('convert.failed')
     }
   }
 
@@ -455,8 +459,8 @@ function getStatusColor(status: FileEntry['status']) {
               <span class="icon-[lucide--download] w-5 h-5 text-muted-foreground" />
             </div>
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium">需要下载 FFmpeg</p>
-              <p class="text-xs text-muted-foreground mt-0.5">视频/音频格式转换需要 FFmpeg（约 100 MB）。图片转换不受影响。</p>
+              <p class="text-sm font-medium">{{ t('convert.ffmpegNeeded') }}</p>
+              <p class="text-xs text-muted-foreground mt-0.5">{{ t('convert.ffmpegHint') }}</p>
               <!-- Download progress -->
               <div v-if="ffmpegDownloading" class="mt-3 space-y-1.5">
                 <Progress :model-value="ffmpegProgress" class="h-1.5" />
@@ -475,7 +479,7 @@ function getStatusColor(status: FileEntry['status']) {
               class="shrink-0"
             >
               <span class="icon-[lucide--download] w-3.5 h-3.5 mr-1.5" />
-              一键下载
+              {{ t('convert.download') }}
             </Button>
           </div>
         </div>
@@ -499,18 +503,18 @@ function getStatusColor(status: FileEntry['status']) {
               <span class="icon-[lucide--upload] w-7 h-7 text-primary" />
             </div>
             <div>
-              <p class="font-medium text-sm">拖拽文件到此处，或点击选择</p>
-              <p class="text-xs text-muted-foreground mt-1">支持图片 / 视频 / 音频格式</p>
+              <p class="font-medium text-sm">{{ t('convert.dropHere') }}</p>
+              <p class="text-xs text-muted-foreground mt-1">{{ t('convert.dropHint') }}</p>
             </div>
           </template>
           <div class="flex gap-2" :class="hasFiles ? '' : 'mt-1'">
             <Button variant="outline" size="sm" @click.stop="pickFiles">
               <span class="icon-[lucide--file-plus] w-4 h-4 mr-1.5" />
-              选择文件
+              {{ t('convert.pickFiles') }}
             </Button>
             <Button variant="outline" size="sm" @click.stop="openBatchFolder">
               <span class="icon-[lucide--folder-open] w-4 h-4 mr-1.5" />
-              选择文件夹 (批量)
+              {{ t('convert.pickFolder') }}
             </Button>
           </div>
         </div>
@@ -522,15 +526,15 @@ function getStatusColor(status: FileEntry['status']) {
         <!-- File list header -->
         <div class="flex items-center justify-between shrink-0">
           <div class="flex items-center gap-2">
-            <h3 class="font-medium text-sm">文件列表</h3>
-            <Badge variant="secondary" class="text-xs">{{ files.length }} 个文件</Badge>
+            <h3 class="font-medium text-sm">{{ t('convert.fileList') }}</h3>
+            <Badge variant="secondary" class="text-xs">{{ t('convert.nFiles', { n: files.length }) }}</Badge>
           </div>
           <Button
             v-if="!converting"
             variant="ghost"
             size="icon-sm"
             @click="clearFiles"
-            title="清空列表"
+            :title="t('convert.clearList')"
           >
             <span class="icon-[lucide--trash-2] w-4 h-4" />
           </Button>
@@ -603,10 +607,10 @@ function getStatusColor(status: FileEntry['status']) {
           <!-- Target format + Quality row -->
           <div class="flex items-center gap-4">
             <div class="flex items-center gap-2 flex-1">
-              <span class="text-xs text-muted-foreground whitespace-nowrap">目标格式</span>
+              <span class="text-xs text-muted-foreground whitespace-nowrap">{{ t('convert.targetFormat') }}</span>
               <Select v-model="targetFormat">
                 <SelectTrigger class="w-[120px] h-8">
-                  <SelectValue :placeholder="targetFormat ? targetFormat.toUpperCase() : '选择格式'" />
+                  <SelectValue :placeholder="targetFormat ? targetFormat.toUpperCase() : t('convert.pickFormat')" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem v-for="fmt in availableFormats" :key="fmt" :value="fmt">
@@ -617,7 +621,7 @@ function getStatusColor(status: FileEntry['status']) {
             </div>
 
             <div v-if="dominantMediaType === 'image'" class="flex items-center gap-2 flex-1">
-              <span class="text-xs text-muted-foreground whitespace-nowrap">质量</span>
+              <span class="text-xs text-muted-foreground whitespace-nowrap">{{ t('convert.quality') }}</span>
               <Slider v-model="imageQuality" :min="1" :max="100" :step="1" class="flex-1" />
               <span class="text-xs text-muted-foreground w-8 text-right">{{ imageQuality[0] }}%</span>
             </div>
@@ -625,15 +629,15 @@ function getStatusColor(status: FileEntry['status']) {
 
           <!-- Output location -->
           <div class="flex items-center gap-2">
-            <span class="text-xs text-muted-foreground whitespace-nowrap">输出位置</span>
+            <span class="text-xs text-muted-foreground whitespace-nowrap">{{ t('convert.outputDir') }}</span>
             <Select v-model="outputLocation">
               <SelectTrigger class="w-[140px] h-8">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="original">原始位置</SelectItem>
-                <SelectItem value="desktop">桌面</SelectItem>
-                <SelectItem value="custom">自定义...</SelectItem>
+                <SelectItem value="original">{{ t('convert.sameAsSource') }}</SelectItem>
+                <SelectItem value="desktop">{{ t('convert.desktop') }}</SelectItem>
+                <SelectItem value="custom">{{ t('convert.custom') }}</SelectItem>
               </SelectContent>
             </Select>
             <Button
@@ -644,7 +648,7 @@ function getStatusColor(status: FileEntry['status']) {
               @click="pickCustomDir"
             >
               <span class="icon-[lucide--folder] w-3.5 h-3.5 mr-1" />
-              {{ customOutputDir ? customOutputDir.split('\\').pop() : '选择文件夹' }}
+              {{ customOutputDir ? customOutputDir.split('\\').pop() : t('convert.chooseFolder') }}
             </Button>
           </div>
         </div>
@@ -660,9 +664,9 @@ function getStatusColor(status: FileEntry['status']) {
           <div v-else class="flex-1">
             <span v-if="doneCount > 0" class="text-xs text-green-500">
               <span class="icon-[lucide--check] w-3 h-3 inline-block mr-0.5 align-text-bottom" />
-              已完成 {{ doneCount }} 个
+              {{ t('convert.doneCount', { n: doneCount }) }}
               <span v-if="errorCount > 0" class="text-destructive ml-2">
-                {{ errorCount }} 个失败
+                {{ t('convert.failedCount', { n: errorCount }) }}
               </span>
             </span>
           </div>
@@ -675,7 +679,7 @@ function getStatusColor(status: FileEntry['status']) {
               @click="cancelConvert"
             >
               <span class="icon-[lucide--square] w-3.5 h-3.5 mr-1.5" />
-              取消
+              {{ t('convert.cancel') }}
             </Button>
             <Button
               v-else
@@ -684,7 +688,7 @@ function getStatusColor(status: FileEntry['status']) {
               @click="startConvert"
             >
               <span class="icon-[lucide--play] w-3.5 h-3.5 mr-1.5" />
-              开始转换
+              {{ t('convert.start') }}
             </Button>
           </div>
         </div>
@@ -709,7 +713,7 @@ function getStatusColor(status: FileEntry['status']) {
         <!-- Header -->
         <div class="p-5 pb-3 flex items-center justify-between">
           <div>
-            <h3 class="font-medium">批量转换</h3>
+            <h3 class="font-medium">{{ t('convert.batch') }}</h3>
             <p class="text-xs text-muted-foreground mt-0.5">{{ batchFolderPath.split('\\').pop() }}</p>
           </div>
           <Button variant="ghost" size="icon-sm" @click="batchDialogOpen = false">
@@ -719,15 +723,15 @@ function getStatusColor(status: FileEntry['status']) {
 
         <!-- Format selection -->
         <div class="flex-1 overflow-y-auto px-5 pb-3">
-          <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-3">选择要转换的格式</p>
+          <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-3">{{ t('convert.pickFormatHint') }}</p>
 
           <div v-if="batchScanning" class="py-8 text-center text-muted-foreground">
             <span class="icon-[lucide--loader-2] w-5 h-5 animate-spin inline-block mb-2" />
-            <p class="text-sm">扫描中...</p>
+            <p class="text-sm">{{ t('convert.scanning') }}</p>
           </div>
 
           <div v-else-if="batchScannedFormats.length === 0" class="py-8 text-center text-muted-foreground">
-            <p class="text-sm">未找到支持的文件</p>
+            <p class="text-sm">{{ t('convert.noSupported') }}</p>
           </div>
 
           <div v-else class="space-y-2">
@@ -741,13 +745,13 @@ function getStatusColor(status: FileEntry['status']) {
                 @update:checked="(val: boolean) => item.checked = val"
               />
               <Badge variant="outline" class="text-xs uppercase">{{ item.ext }}</Badge>
-              <span class="text-xs text-muted-foreground">{{ item.count }} 个文件</span>
+              <span class="text-xs text-muted-foreground">{{ t('convert.nFiles', { n: item.count }) }}</span>
             </label>
           </div>
 
           <!-- Target format -->
           <div v-if="batchScannedFormats.length > 0" class="mt-4 flex items-center gap-2">
-            <span class="text-xs text-muted-foreground whitespace-nowrap">转换为</span>
+            <span class="text-xs text-muted-foreground whitespace-nowrap">{{ t('convert.convertTo') }}</span>
             <Select v-model="batchTargetFormat">
               <SelectTrigger class="w-[120px] h-8">
                 <SelectValue />
@@ -764,12 +768,12 @@ function getStatusColor(status: FileEntry['status']) {
         <!-- Footer -->
         <div class="p-4 pt-3 border-t flex items-center justify-between">
           <span class="text-xs text-muted-foreground">
-            已选择 {{ batchSelectedCount }} 个文件
+            {{ t('convert.selectedCount', { n: batchSelectedCount }) }}
           </span>
           <div class="flex gap-2">
-            <Button variant="outline" size="sm" @click="batchDialogOpen = false">取消</Button>
+            <Button variant="outline" size="sm" @click="batchDialogOpen = false">{{ t('convert.cancel') }}</Button>
             <Button size="sm" :disabled="batchSelectedCount === 0" @click="confirmBatch">
-              确认添加
+              {{ t('convert.confirmAdd') }}
             </Button>
           </div>
         </div>

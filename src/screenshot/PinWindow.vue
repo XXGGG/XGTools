@@ -3,6 +3,9 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, emit as tauriEmit } from '@tauri-apps/api/event'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
+import { useI18n, applySavedLocale } from '@/i18n'
+
+const { t } = useI18n()
 
 const imgSrc = ref('')
 const appWindow = getCurrentWindow()
@@ -57,6 +60,7 @@ function onMouseUp() {
 }
 
 onMounted(async () => {
+  applySavedLocale()   // 副窗口独立 WebView，语言要自己从 settings.json 取一次
   document.body.classList.add('screenshot-window')
 
   // 监听定向发送给本窗口的图片数据
@@ -111,7 +115,7 @@ onUnmounted(() => {
       :style="{ left: menuX + 'px', top: menuY + 'px' }"
       @mousedown.stop
     >
-      <button class="ctx-item" @click="closePin">关闭</button>
+      <button class="ctx-item" @click="closePin">{{ t('window.close') }}</button>
     </div>
   </div>
 </template>

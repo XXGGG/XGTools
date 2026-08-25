@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
+import { useI18n } from '@/i18n'
 import { usePomodoroTimer } from '@/composables/usePomodoroTimer'
 
 // ── Types ──
@@ -21,6 +22,7 @@ type TimerTab = 'cube' | 'pomodoro'
 
 // ── Tab ──
 
+const { t } = useI18n()
 const activeTab = ref<TimerTab>('cube')
 
 // ── Cube Timer ──
@@ -174,11 +176,11 @@ watchDebounced(durationInput, async () => {
       <TitleBarTabs>
         <TabsTrigger value="cube" class="gap-1.5 h-11 px-4 rounded-xl">
           <span class="icon-[lucide--box] w-4 h-4" />
-          魔方计时
+          {{ t('timer.cube') }}
         </TabsTrigger>
         <TabsTrigger value="pomodoro" class="gap-1.5 h-11 px-4 rounded-xl">
           <span class="icon-[lucide--clock] w-4 h-4" />
-          番茄时钟
+          {{ t('timer.pomodoro') }}
         </TabsTrigger>
       </TitleBarTabs>
 
@@ -197,21 +199,21 @@ watchDebounced(durationInput, async () => {
           </div>
 
           <p v-if="cubeState === 'idle'" class="text-muted-foreground text-sm mt-4">
-            按住空格键开始
+            {{ t('timer.holdSpace') }}
           </p>
           <p v-else-if="cubeState === 'holding'" class="text-primary text-sm mt-4 animate-pulse">
-            松开开始计时...
+            {{ t('timer.releaseToStart') }}
           </p>
           <p v-else-if="cubeState === 'running'" class="text-muted-foreground/50 text-sm mt-4">
-            按空格键停止
+            {{ t('timer.spaceToStop') }}
           </p>
 
           <div v-if="cubeState === 'stopped'" class="flex flex-col items-center gap-2 mt-4">
             <div class="flex gap-3">
-              <Button @click="acceptRecord">保存</Button>
-              <Button variant="outline" @click="discardRecord">丢弃</Button>
+              <Button @click="acceptRecord">{{ t('timer.save') }}</Button>
+              <Button variant="outline" @click="discardRecord">{{ t('timer.discard') }}</Button>
             </div>
-            <p class="text-xs text-muted-foreground/50">按空格键快速保存</p>
+            <p class="text-xs text-muted-foreground/50">{{ t('timer.spaceToSave') }}</p>
           </div>
         </div>
 
@@ -249,7 +251,7 @@ watchDebounced(durationInput, async () => {
 
         <!-- Duration setting -->
         <div v-if="pomodoro.state.value === 'idle'" class="flex items-center gap-3">
-          <span class="text-sm text-muted-foreground">时长</span>
+          <span class="text-sm text-muted-foreground">{{ t('timer.duration') }}</span>
           <Input
             v-model.number="durationInput"
             type="number"
@@ -257,7 +259,7 @@ watchDebounced(durationInput, async () => {
             class="w-20 text-center"
             @change="applyDuration"
           />
-          <span class="text-sm text-muted-foreground">分钟</span>
+          <span class="text-sm text-muted-foreground">{{ t('timer.minutes') }}</span>
         </div>
 
         <!-- Controls -->
@@ -267,7 +269,7 @@ watchDebounced(durationInput, async () => {
             @click="pomodoro.start()"
           >
             <span class="icon-[lucide--play] w-4 h-4 mr-1.5" />
-            开始
+            {{ t('timer.start') }}
           </Button>
 
           <Button
@@ -276,7 +278,7 @@ watchDebounced(durationInput, async () => {
             @click="pomodoro.pause()"
           >
             <span class="icon-[lucide--pause] w-4 h-4 mr-1.5" />
-            暂停
+            {{ t('timer.pause') }}
           </Button>
 
           <Button
@@ -284,7 +286,7 @@ watchDebounced(durationInput, async () => {
             @click="pomodoro.start()"
           >
             <span class="icon-[lucide--play] w-4 h-4 mr-1.5" />
-            继续
+            {{ t('timer.resume') }}
           </Button>
 
           <Button
@@ -293,12 +295,12 @@ watchDebounced(durationInput, async () => {
             @click="pomodoro.reset()"
           >
             <span class="icon-[lucide--rotate-ccw] w-4 h-4 mr-1.5" />
-            重置
+            {{ t('timer.reset') }}
           </Button>
         </div>
 
         <p v-if="pomodoro.state.value === 'finished'" class="text-sm text-muted-foreground animate-pulse">
-          时间到！
+          {{ t('timer.timeUp') }}
         </p>
       </TabsContent>
 

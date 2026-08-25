@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
-import { useDark } from '@vueuse/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit, listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import { settings, loadSettings, applyVibrancyVars } from './composables/useAppSettings'
-import { invoke } from '@tauri-apps/api/core'
+import { settings, loadSettings, applyVibrancyVars, applyWindowEffect } from './composables/useAppSettings'
 import { MENU_ITEMS, reconcile, splitGroups } from './lib/sidebar-prefs'
+import { useI18n } from './i18n'
 
 import TitleBar from './components/TitleBar.vue'
 import HomeView from './views/Home.vue'
@@ -23,6 +22,7 @@ import DockWindow from './dock/DockWindow.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
 
+const { t } = useI18n()
 const currentView = ref('Timer')
 // 侧栏显示哪些页、什么顺序,由设置页驱动(清单本体在 lib/sidebar-prefs.ts)
 const menuItems = computed(() =>
@@ -47,7 +47,6 @@ watch(menuItems, (items) => {
   if (!items.some((m) => m.id === currentView.value)) currentView.value = items[0].id
 })
 
-useDark()
 
 const isKeyVisualizer = ref(false)
 const isDockWindow = ref(false)
@@ -56,10 +55,11 @@ const isPinWindow = ref(false)
 
 const shortcutWarning = ref('')
 
+// 后端传回来的是快捷键的内部名,这里映射到 i18n 的键再翻译
 const shortcutNameMap: Record<string, string> = {
-  dock: '启动台',
-  screenshot: '截图',
-  screenshot_translate: '截图翻译',
+  dock: 'nav.dock',
+  screenshot: 'nav.screenshot',
+  screenshot_translate: 'nav.screenshot',
 }
 
 onMounted(async () => {
@@ -70,21 +70,10 @@ onMounted(async () => {
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
 
   await loadSettings()
-  // 恢复上次的窗口特效。失败不阻断启动(比如系统不支持云母),外壳会退回不透明底。
+  // 恢复上次的窗口特效(主题已在 loadSettings 里应用,材质跟着主题走)
   if (settings.blurKind !== 'none') {
-    try {
-      const dark = document.documentElement.classList.contains('dark')
-      const tint = dark ? [10, 10, 12] : [246, 246, 248]
-      await invoke('set_window_effect', {
-        kind: settings.blurKind,
-        r: tint[0], g: tint[1], b: tint[2],
-        a: Math.round((settings.blurOpacity / 100) * 255),
-        dark,
-      })
-    } catch (e) {
-      console.error('恢复窗口特效失败:', e)
-      settings.blurKind = 'none'
-    }
+    const err = await applyWindowEffect()
+    if (err) { console.error('恢复窗口特效失败:', err); settings.blurKind = 'none' }
   }
 
   // 恢复按键显示窗口状态
@@ -115,8 +104,8 @@ onMounted(async () => {
 
   // 监听快捷键注册失败通知
   listen<string[]>('shortcut-register-failed', (e) => {
-    const names = e.payload.map(k => shortcutNameMap[k] || k).join('、')
-    shortcutWarning.value = `「${names}」快捷键被其他程序占用，请在设置中更换`
+    const names = e.payload.map(k => (shortcutNameMap[k] ? t(shortcutNameMap[k]) : k)).join('、')
+    shortcutWarning.value = t('common.shortcutTaken', { name: names })
     setTimeout(() => { shortcutWarning.value = '' }, 8000)
   })
 
@@ -185,7 +174,7 @@ onMounted(async () => {
                px-4 py-3 flex items-center gap-3 text-sm">
         <span class="icon-[lucide--triangle-alert] w-4 h-4 text-amber-500 shrink-0" />
         <span class="flex-1 leading-snug">{{ shortcutWarning }}</span>
-        <button @click="shortcutWarning = ''" title="关闭"
+        <button @click="shortcutWarning = ''" :title="t('window.close')"
           class="shrink-0 -mr-1 size-6 rounded-lg flex items-center justify-center
                  text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
           <span class="icon-[lucide--x] w-3.5 h-3.5" />
@@ -212,7 +201,7 @@ onMounted(async () => {
       -->
       <aside class="absolute left-2.5 top-[5.75rem] bottom-2.5 z-40 w-18 flex flex-col overflow-y-auto">
         <nav v-if="tools.length" class="float-card mx-auto rounded-2xl border bg-card p-1.5 flex flex-col items-center gap-1">
-          <button v-for="item in tools" :key="item.id" @click="currentView = item.id" :class="[
+          <button v-for="item in tools" :key="item.id" @click="currentView = item.id" :title="t(item.labelKey)" :class="[
             'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
             currentView === item.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           ]">
@@ -225,14 +214,14 @@ onMounted(async () => {
           mt-auto 而不是靠父级 justify-between:后者在只剩这一张卡片时会把它顶到最上面去。
         -->
         <div class="float-card mt-auto mx-auto rounded-2xl border bg-card p-1.5 flex flex-col items-center gap-1">
-          <button v-for="item in configs" :key="item.id" @click="currentView = item.id" :class="[
+          <button v-for="item in configs" :key="item.id" @click="currentView = item.id" :title="t(item.labelKey)" :class="[
             'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
             currentView === item.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           ]">
             <span :class="item.icon" class="w-6 h-6" />
           </button>
           <div v-if="configs.length" class="w-7 h-px bg-border" />
-          <button @click="currentView = 'Settings'" :class="[
+          <button @click="currentView = 'Settings'" :title="t('nav.settings')" :class="[
             'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
             currentView === 'Settings' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           ]">

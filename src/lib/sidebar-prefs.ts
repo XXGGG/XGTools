@@ -6,25 +6,26 @@
  */
 
 export type MenuGroup = 'tool' | 'config'
-export type MenuItem = { id: string; label: string; icon: string; group: MenuGroup }
+/** label 是 i18n 的键(见 i18n/zh.ts 的 nav 段),不是可以直接显示的文字 */
+export type MenuItem = { id: string; labelKey: string; icon: string; group: MenuGroup }
 export type SidebarPrefs = { order: string[]; hidden: string[] }
 
 /**
  * 侧栏功能页的唯一真相源。加工具页只改这里。
  *
  * 「习惯打卡」(views/Habits.vue + components/todo/)代码保留但不接入口 —— 是刻意隐藏,不是漏了。
- * 要放回来:在这里加回 { id: 'Habits', label: '习惯打卡', icon: 'icon-[lucide--flame]' },
+ * 要放回来:在这里加回 { id: 'Habits', icon: 'icon-[lucide--flame]' },
  * 并在 App.vue 的视图链里加回 <HabitsView v-else-if="currentView === 'Habits'" />。
  */
 export const MENU_ITEMS: MenuItem[] = [
   // 上卡片:平时会打开来用的工具
-  { id: 'Timer', label: '计时器', icon: 'icon-[lucide--timer]', group: 'tool' },
-  { id: 'Translate', label: '翻译', icon: 'icon-[lucide--languages]', group: 'tool' },
-  { id: 'Convert', label: '格式转换', icon: 'icon-[lucide--refresh-ccw]', group: 'tool' },
+  { id: 'Timer', labelKey: 'nav.timer', icon: 'icon-[lucide--timer]', group: 'tool' },
+  { id: 'Translate', labelKey: 'nav.translate', icon: 'icon-[lucide--languages]', group: 'tool' },
+  { id: 'Convert', labelKey: 'nav.convert', icon: 'icon-[lucide--refresh-ccw]', group: 'tool' },
   // 下卡片:后台功能的配置页,和最下面的应用设置挨在一起
-  { id: 'Dock', label: '启动台', icon: 'icon-[lucide--layout-grid]', group: 'config' },
-  { id: 'KeyboardPet', label: '键盘桌宠', icon: 'icon-[lucide--keyboard]', group: 'config' },
-  { id: 'Screenshot', label: '截图', icon: 'icon-[lucide--focus]', group: 'config' },
+  { id: 'Dock', labelKey: 'nav.dock', icon: 'icon-[lucide--layout-grid]', group: 'config' },
+  { id: 'KeyboardPet', labelKey: 'nav.keyboard', icon: 'icon-[lucide--keyboard]', group: 'config' },
+  { id: 'Screenshot', labelKey: 'nav.screenshot', icon: 'icon-[lucide--focus]', group: 'config' },
 ]
 
 /**

@@ -6,7 +6,9 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { LogicalSize } from '@tauri-apps/api/window'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
+import { useI18n } from '@/i18n'
 
+const { t } = useI18n()
 const isKeyVisOpen = ref(false)
 const isEditMode = ref(false)
 const isAvoidMouse = ref(false)
@@ -120,36 +122,36 @@ onUnmounted(() => emit('toggle-key-visualizer-edit', false))
         <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
           <span class="icon-[lucide--keyboard] w-5 h-5" />
         </div>
-        <span class="font-medium">按键显示</span>
+        <span class="font-medium">{{ t('keyboard.keyDisplay') }}</span>
       </div>
 
       <div class="flex items-center gap-2">
         <Button v-if="isKeyVisOpen" variant="ghost" size="icon" @click="toggleAutoClear"
           :class="isAutoClear ? 'bg-blue-500 text-white hover:bg-blue-600 hover:text-white' : 'text-muted-foreground hover:text-foreground'"
-          title="自动清除">
+          :title="t('keyboard.autoClear')">
           <span class="icon-[lucide--eraser] w-5 h-5" />
         </Button>
 
         <Button v-if="isKeyVisOpen" variant="ghost" size="icon" @click="toggleAvoidMouse"
           :class="isAvoidMouse ? 'bg-green-500 text-white hover:bg-green-600 hover:text-white' : 'text-muted-foreground hover:text-foreground'"
-          title="躲避鼠标">
+          :title="t('keyboard.avoidMouse')">
           <span class="icon-[lucide--square-dashed-mouse-pointer] w-5 h-5" />
         </Button>
 
         <Button v-if="isKeyVisOpen" variant="ghost" size="icon" @click="resetWindowPosition"
-          class="text-muted-foreground hover:text-foreground" title="重置位置">
+          class="text-muted-foreground hover:text-foreground" :title="t('keyboard.resetPosition')">
           <span class="icon-[lucide--rotate-ccw] w-5 h-5" />
         </Button>
 
         <Button v-if="isKeyVisOpen" variant="ghost" size="icon" @click="toggleEditMode"
           :class="isEditMode ? 'bg-yellow-500 text-white hover:bg-yellow-600 hover:text-white' : 'text-muted-foreground hover:text-foreground'"
-          title="调整位置">
+          :title="t('keyboard.adjustPosition')">
           <span class="icon-[lucide--move] w-5 h-5" />
         </Button>
 
         <Button variant="ghost" size="icon" @click="toggleKeyVis"
           :class="isKeyVisOpen ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:text-foreground'"
-          :title="isKeyVisOpen ? '关闭显示' : '开启显示'">
+          :title="isKeyVisOpen ? t('keyboard.close') : t('keyboard.open')">
           <span :class="isKeyVisOpen ? 'icon-[lucide--eye]' : 'icon-[lucide--eye-off]'" class="w-5 h-5" />
         </Button>
       </div>
@@ -162,7 +164,7 @@ onUnmounted(() => emit('toggle-key-visualizer-edit', false))
         <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
           <span class="icon-[lucide--timer] w-5 h-5" />
         </div>
-        <span class="font-medium">自动清除延时</span>
+        <span class="font-medium">{{ t('keyboard.autoClearDelay') }}</span>
       </div>
       <Slider class="flex-1" :model-value="[autoClearSec]" :min="2" :max="20" :step="1"
         @update:model-value="setAutoClearSec" />
@@ -172,8 +174,8 @@ onUnmounted(() => emit('toggle-key-visualizer-edit', false))
     <div class="w-full max-w-2xl mx-auto flex-1 border border-dashed rounded-lg p-8 flex flex-col items-center justify-center space-y-4 text-muted-foreground/60">
       <span class="icon-[lucide--cat] w-12 h-12" />
       <div class="text-center space-y-1">
-        <h3 class="font-medium text-base">键盘桌宠</h3>
-        <p class="text-sm">即将来袭</p>
+        <h3 class="font-medium text-base">{{ t('keyboard.petTitle') }}</h3>
+        <p class="text-sm">{{ t('keyboard.petSoon') }}</p>
       </div>
     </div>
   </div>

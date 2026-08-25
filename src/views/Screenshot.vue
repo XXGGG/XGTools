@@ -5,6 +5,9 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
+import { useI18n } from '@/i18n'
+
+const { t } = useI18n()
 
 const store = new LazyStore('settings.json')
 const settingsLoaded = ref(false)
@@ -210,8 +213,8 @@ const bgColorPresets = [
               <span class="icon-[lucide--focus] w-5 h-5" />
             </div>
             <div>
-              <h3 class="font-medium">开启截图</h3>
-              <p class="text-xs text-muted-foreground">启用截图功能与全局快捷键</p>
+              <h3 class="font-medium">{{ t('screenshot.enable') }}</h3>
+              <p class="text-xs text-muted-foreground">{{ t('screenshot.enableHint') }}</p>
             </div>
           </div>
           <Switch :model-value="screenshotEnabled" @update:model-value="screenshotEnabled = $event" />
@@ -227,8 +230,8 @@ const bgColorPresets = [
                 <span class="icon-[lucide--keyboard] w-5 h-5" />
               </div>
               <div>
-                <h3 class="font-medium">截图快捷键</h3>
-                <p class="text-xs text-muted-foreground">快速启动截图</p>
+                <h3 class="font-medium">{{ t('screenshot.hotkey') }}</h3>
+                <p class="text-xs text-muted-foreground">{{ t('screenshot.hotkeyHint') }}</p>
               </div>
             </div>
             <Button
@@ -248,8 +251,8 @@ const bgColorPresets = [
                 <span class="icon-[lucide--image] w-5 h-5" />
               </div>
               <div>
-                <h3 class="font-medium">自动添加背景与投影</h3>
-                <p class="text-xs text-muted-foreground">截图自动加上背景色、圆角和阴影效果</p>
+                <h3 class="font-medium">{{ t('screenshot.backdrop') }}</h3>
+                <p class="text-xs text-muted-foreground">{{ t('screenshot.backdropHint') }}</p>
               </div>
             </div>
             <Switch :model-value="autoBgShadow" @update:model-value="autoBgShadow = $event" />
@@ -265,7 +268,7 @@ const bgColorPresets = [
                   <span class="icon-[lucide--palette] w-5 h-5" />
                 </div>
                 <div>
-                  <h3 class="font-medium">背景颜色</h3>
+                  <h3 class="font-medium">{{ t('screenshot.bgColor') }}</h3>
                   <p class="text-xs text-muted-foreground">{{ bgColor === 'transparent' ? '透明' : bgColor }}</p>
                 </div>
               </div>
@@ -295,7 +298,7 @@ const bgColorPresets = [
                   <span class="icon-[lucide--move] w-5 h-5" />
                 </div>
                 <div>
-                  <h3 class="font-medium">背景内边距</h3>
+                  <h3 class="font-medium">{{ t('screenshot.padding') }}</h3>
                   <p class="text-xs text-muted-foreground">{{ bgPadding }}px</p>
                 </div>
               </div>
@@ -309,7 +312,7 @@ const bgColorPresets = [
                   <span class="icon-[lucide--square] w-5 h-5" />
                 </div>
                 <div>
-                  <h3 class="font-medium">圆角</h3>
+                  <h3 class="font-medium">{{ t('screenshot.radius') }}</h3>
                   <p class="text-xs text-muted-foreground">{{ cornerRadius }}px</p>
                 </div>
               </div>
@@ -323,7 +326,7 @@ const bgColorPresets = [
                   <span class="icon-[lucide--cloud] w-5 h-5" />
                 </div>
                 <div>
-                  <h3 class="font-medium">阴影强度</h3>
+                  <h3 class="font-medium">{{ t('screenshot.shadow') }}</h3>
                   <p class="text-xs text-muted-foreground">{{ shadowBlur }}px</p>
                 </div>
               </div>
@@ -334,7 +337,7 @@ const bgColorPresets = [
 
           <!-- 预览 -->
           <div v-if="autoBgShadow" class="p-4 border rounded-lg">
-            <p class="text-xs text-muted-foreground mb-3">预览效果</p>
+            <p class="text-xs text-muted-foreground mb-3">{{ t('screenshot.preview') }}</p>
             <div class="flex items-center justify-center p-4">
               <div
                 class="rounded-lg overflow-hidden inline-block transition-all duration-200"
@@ -366,14 +369,14 @@ const bgColorPresets = [
                     }"
                     class="flex items-center justify-center text-white/80 text-sm select-none"
                   >
-                    截图内容
+                    {{ t('screenshot.content') }}
                   </div>
                 </div>
               </div>
             </div>
             <p v-if="bgPadding < shadowBlur * 0.8" class="text-xs text-amber-500 mt-2 flex items-center gap-1.5">
               <span class="icon-[lucide--alert-triangle] w-3.5 h-3.5 shrink-0" />
-              内边距较小，部分阴影会被裁切
+              {{ t('screenshot.paddingWarn') }}
             </p>
           </div>
 
@@ -390,8 +393,8 @@ const bgColorPresets = [
               <span class="icon-[lucide--languages] w-5 h-5" />
             </div>
             <div>
-              <h3 class="font-medium">开启截图翻译</h3>
-              <p class="text-xs text-muted-foreground">截图后自动 OCR 识别文字并翻译覆盖</p>
+              <h3 class="font-medium">{{ t('screenshot.enableTranslate') }}</h3>
+              <p class="text-xs text-muted-foreground">{{ t('screenshot.enableTranslateHint') }}</p>
             </div>
           </div>
           <Switch :model-value="screenshotTranslateEnabled" @update:model-value="screenshotTranslateEnabled = $event" />
@@ -407,8 +410,8 @@ const bgColorPresets = [
                 <span class="icon-[lucide--keyboard] w-5 h-5" />
               </div>
               <div>
-                <h3 class="font-medium">截图翻译快捷键</h3>
-                <p class="text-xs text-muted-foreground">快速启动截图翻译</p>
+                <h3 class="font-medium">{{ t('screenshot.translateHotkey') }}</h3>
+                <p class="text-xs text-muted-foreground">{{ t('screenshot.translateHotkeyHint') }}</p>
               </div>
             </div>
             <Button

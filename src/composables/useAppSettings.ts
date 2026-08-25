@@ -7,6 +7,8 @@
  */
 import { reactive, watch } from 'vue'
 import { LazyStore } from '@tauri-apps/plugin-store'
+import { invoke } from '@tauri-apps/api/core'
+import { detectLocale, setLocale, type Locale } from '@/i18n'
 
 // 没有 'blur':apply_blur 走的是 Win11 已废弃的 ACCENT_ENABLE_BLURBEHIND,渲染成一层压死的暗色,不可用
 export type BlurKind = 'none' | 'mica' | 'acrylic'
@@ -14,6 +16,10 @@ export type BlurKind = 'none' | 'mica' | 'acrylic'
 export type AppSettings = {
   /** 配置格式版本。语义变了(而不只是加字段)时 +1,并在 loadSettings 里做一次性迁移。 */
   v: number
+  /** 界面语言。'auto' = 跟随系统(每次启动重新检测),否则用用户选定的那个。 */
+  language: Locale | 'auto'
+  /** 主题。'auto' = 跟随系统深浅色,并在系统切换时实时跟着变。 */
+  theme: ThemeMode
   blurKind: BlurKind
   /** 亚克力/模糊的不透明度 0~100:越小越通透,越大越接近实心 */
   blurOpacity: number
@@ -27,6 +33,8 @@ const SETTINGS_VERSION = 2
 
 const DEFAULTS: AppSettings = {
   v: SETTINGS_VERSION,
+  language: 'auto',
+  theme: 'auto',
   blurKind: 'none',
   blurOpacity: 40,
   sidebarOrder: [],
@@ -68,6 +76,10 @@ export async function loadSettings() {
     settings.blurOpacity = Math.min(100, Math.max(0, settings.blurOpacity))
     // 旧存档可能选的是已移除的高斯模糊,迁到亚克力,免得停在一个界面上不存在的选项
     if ((settings.blurKind as string) === 'blur') settings.blurKind = 'acrylic'
+    // 语言:选了 auto 就每次启动重新看系统语言,否则用存档里选定的那个
+    setLocale(settings.language === 'auto' ? detectLocale() : settings.language)
+    applyTheme()
+    watchSystemTheme()
     settingsReady.value = true
     startAutoSave()
   }
@@ -100,4 +112,60 @@ const KIND_MAX: Record<BlurKind, number> = { none: 0, mica: 20, acrylic: 50 }
 export function applyVibrancyVars() {
   const alpha = (settings.blurOpacity / 100) * (KIND_MAX[settings.blurKind] ?? 0)
   document.documentElement.style.setProperty('--vibrancy-alpha', alpha.toFixed(2))
+}
+
+
+export type ThemeMode = 'auto' | 'dark' | 'light'
+
+const DARK_QUERY = '(prefers-color-scheme: dark)'
+
+/** 当前是否该用深色。auto 时读系统偏好。 */
+export function isDarkNow(): boolean {
+  if (settings.theme === 'dark') return true
+  if (settings.theme === 'light') return false
+  return window.matchMedia(DARK_QUERY).matches
+}
+
+/**
+ * 把主题落到 DOM 上,并让窗口材质跟着换深浅。
+ *
+ * 不用 VueUse 的 useDark:它自带一套 localStorage 持久化,和我们的 settings.json
+ * 就成了两个真相源,改一边另一边不知道。这里只认 settings.theme 一处。
+ */
+export function applyTheme() {
+  document.documentElement.classList.toggle('dark', isDarkNow())
+  void applyWindowEffect()   // 材质的深浅属性要跟着主题走
+}
+
+/**
+ * 应用窗口背景材质。启动恢复、设置页改动、主题切换三处都走这里 ——
+ * 散成几份迟早会不同步(深色属性就是最容易漏的那个)。
+ *
+ * 返回 null 表示成功,否则是错误消息。
+ *
+ * 注意 r/g/b/a 在 Win11 build >= 22523 上会被 DWM 忽略,仍然传是为了兼容老版本
+ * 走 SetWindowCompositionAttribute 的那条路径。
+ */
+export async function applyWindowEffect(kind: BlurKind = settings.blurKind): Promise<string | null> {
+  const dark = isDarkNow()
+  const tint = dark ? [10, 10, 12] : [246, 246, 248]
+  try {
+    await invoke('set_window_effect', {
+      kind,
+      r: tint[0], g: tint[1], b: tint[2],
+      a: Math.round((settings.blurOpacity / 100) * 255),
+      dark,
+    })
+    return null
+  } catch (e: any) {
+    // 把错误消息回传而不是吞掉:设置页要把具体原因显示给用户(比如"云母不可用")
+    return String(e?.message ?? e)
+  }
+}
+
+/** 系统深浅色变化时,只有 auto 模式需要跟着动。 */
+export function watchSystemTheme() {
+  window.matchMedia(DARK_QUERY).addEventListener('change', () => {
+    if (settings.theme === 'auto') applyTheme()
+  })
 }

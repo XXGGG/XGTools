@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { Window } from '@tauri-apps/api/window'
 import { ref, onMounted } from 'vue'
+import { useI18n } from '@/i18n'
 
 defineProps<{ active?: boolean }>()
 const emit = defineEmits<{ logo: [] }>()
 
+const { t } = useI18n()
 const appWindow = Window.getCurrent()
 const isMaximized = ref(false)
 
@@ -59,20 +61,20 @@ onMounted(async () => {
       之前是 p-0 + W=44：边到点 15、点到点 30，正好是 1:2:2:1，看着就不匀。
     -->
     <div class="float-card group rounded-full border bg-card p-[5px] flex items-center">
-      <button @click="minimize" title="最小化"
+      <button @click="minimize" :title="t('window.minimize')"
         class="size-9 rounded-full flex items-center justify-center">
         <span class="size-3.5 rounded-full bg-[#28c840] flex items-center justify-center">
         <span class="icon-[lucide--minus] w-2.5 h-2.5 text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
         </span>
       </button>
-      <button @click="toggleMaximize" :title="isMaximized ? '还原' : '最大化'"
+      <button @click="toggleMaximize" :title="isMaximized ? t('window.restore') : t('window.maximize')"
         class="size-9 rounded-full flex items-center justify-center">
         <span class="size-3.5 rounded-full bg-[#febc2e] flex items-center justify-center">
         <span :class="isMaximized ? 'icon-[lucide--chevrons-down-up]' : 'icon-[lucide--chevrons-up-down]'"
           class="w-2.5 h-2.5 text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
         </span>
       </button>
-      <button @click="close" title="关闭"
+      <button @click="close" :title="t('window.close')"
         class="size-9 rounded-full flex items-center justify-center">
         <span class="size-3.5 rounded-full bg-[#ff5f57] flex items-center justify-center">
         <span class="icon-[lucide--x] w-2.5 h-2.5 text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />

@@ -12,6 +12,9 @@ import { AnnotationManager } from './annotations'
 import { WindowSnapManager } from './windowSnap'
 import { SelectState, DrawTool, STROKE_COLORS, FILL_COLORS, STROKE_WIDTH_PRESETS, FONT_SIZE_PRESETS, TEXT_BG_COLORS, TEXT_STROKE_COLORS, FONT_FAMILIES, FONT_SIZE_LABELS, TEXT_ALIGNS, BORDER_STYLES, LINE_STYLES, ARROW_TYPES, PEN_STYLES, CORNER_STYLES } from './types'
 import type { Annotation, BorderStyle, LineStyle, ArrowType, EndpointStyle, PenStyle, CornerStyle } from './types'
+import { useI18n, applySavedLocale } from '@/i18n'
+
+const { t } = useI18n()
 
 const canvasRef = ref<HTMLCanvasElement>()
 const overlayRef = ref<HTMLCanvasElement>()
@@ -1740,6 +1743,7 @@ async function _doExecuteScreenshot() {
 let _unlistens: (() => void)[] = []
 
 onMounted(async () => {
+  applySavedLocale()   // 副窗口独立 WebView，语言要自己从 settings.json 取一次
   document.body.classList.add('screenshot-window')
   await appWindow.hide()
 
@@ -1859,7 +1863,7 @@ const tools = [
       :style="translateLoadingStyle"
     >
       <span class="icon-[lucide--loader-2] w-5 h-5 spin text-white" />
-      <span class="text-white text-sm">翻译中...</span>
+      <span class="text-white text-sm">{{ t('shot.translating') }}</span>
     </div>
 
     <!-- 工具栏 -->
@@ -1884,34 +1888,34 @@ const tools = [
       <div class="divider" />
 
       <!-- 撤销/重做 -->
-      <button class="tb" title="撤销 (Ctrl+Z)" :disabled="!annMgr.canUndo" @click="annMgr.undo(); redraw()">
+      <button class="tb" :title="t('shot.undo')" :disabled="!annMgr.canUndo" @click="annMgr.undo(); redraw()">
         <span class="icon-[lucide--undo-2] tb-icon" />
       </button>
-      <button class="tb" title="重做 (Ctrl+Y)" :disabled="!annMgr.canRedo" @click="annMgr.redo(); redraw()">
+      <button class="tb" :title="t('shot.redo')" :disabled="!annMgr.canRedo" @click="annMgr.redo(); redraw()">
         <span class="icon-[lucide--redo-2] tb-icon" />
       </button>
 
       <div class="divider" />
 
       <!-- 操作按钮 -->
-      <button class="tb" :class="{ active: ocrMode }" title="OCR 文字识别" :disabled="ocrLoading" @click="runOcr">
+      <button class="tb" :class="{ active: ocrMode }" :title="t('shot.ocr')" :disabled="ocrLoading" @click="runOcr">
         <span v-if="ocrLoading" class="icon-[lucide--loader-2] tb-icon spin" />
         <span v-else class="icon-[lucide--scan-text] tb-icon" />
       </button>
-      <button class="tb" :class="{ active: translateResults.length > 0 }" title="截图翻译" :disabled="translateLoading" @click="runScreenshotTranslate">
+      <button class="tb" :class="{ active: translateResults.length > 0 }" :title="t('shot.translate')" :disabled="translateLoading" @click="runScreenshotTranslate">
         <span v-if="translateLoading" class="icon-[lucide--loader-2] tb-icon spin" />
         <span v-else class="icon-[lucide--languages] tb-icon" />
       </button>
-      <button class="tb" title="钉到屏幕" @click="pinToScreen">
+      <button class="tb" :title="t('shot.pin')" @click="pinToScreen">
         <span class="icon-[lucide--pin] tb-icon" />
       </button>
-      <button class="tb" title="保存 (Ctrl+S)" @click="saveToFile(false)">
+      <button class="tb" :title="t('shot.save')" @click="saveToFile(false)">
         <span class="icon-[lucide--download] tb-icon" />
       </button>
-      <button class="tb action-copy" title="复制 (Ctrl+C)" @click="copyToClipboard">
+      <button class="tb action-copy" :title="t('shot.copy')" @click="copyToClipboard">
         <span class="icon-[lucide--copy] tb-icon" />
       </button>
-      <button class="tb action-close" title="关闭 (Esc)" @click="cancelCapture">
+      <button class="tb action-close" :title="t('shot.close')" @click="cancelCapture">
         <span class="icon-[lucide--x] tb-icon" />
       </button>
 
@@ -1932,7 +1936,7 @@ const tools = [
 
       <!-- ====== 描边颜色（所有工具通用） ====== -->
       <div class="panel-section">
-        <span class="panel-title">描边</span>
+        <span class="panel-title">{{ t('shot.stroke') }}</span>
         <div class="opt-row">
           <button
             v-for="c in STROKE_COLORS" :key="c"
@@ -1945,7 +1949,7 @@ const tools = [
 
       <!-- ====== 填充/背景色（几何形状 + 画笔） ====== -->
       <div v-if="isShapeTool || isPenTool" class="panel-section">
-        <span class="panel-title">背景</span>
+        <span class="panel-title">{{ t('shot.background') }}</span>
         <div class="opt-row">
           <button
             v-for="c in FILL_COLORS" :key="'fill'+c"
@@ -1958,7 +1962,7 @@ const tools = [
 
       <!-- ====== 文本背景色（仅文字工具） ====== -->
       <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
-        <span class="panel-title">背景</span>
+        <span class="panel-title">{{ t('shot.background') }}</span>
         <div class="opt-row">
           <button
             v-for="c in TEXT_BG_COLORS" :key="'bg'+c"
@@ -1971,7 +1975,7 @@ const tools = [
 
       <!-- ====== 文本描边（仅文字工具） ====== -->
       <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
-        <span class="panel-title">文本描边</span>
+        <span class="panel-title">{{ t('shot.textStroke') }}</span>
         <div class="opt-row">
           <button
             v-for="c in TEXT_STROKE_COLORS" :key="'ts'+c"
@@ -1984,7 +1988,7 @@ const tools = [
 
       <!-- ====== 文本描边宽度（仅文字工具） ====== -->
       <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
-        <span class="panel-title">文本描边宽度</span>
+        <span class="panel-title">{{ t('shot.textStrokeWidth') }}</span>
         <div class="opt-row">
           <input
             type="range" :min="0" :max="4" :step="0.5"
@@ -1997,7 +2001,7 @@ const tools = [
 
       <!-- ====== 画笔样式（仅画笔） ====== -->
       <div v-if="effectiveTool === DrawTool.Pen" class="panel-section">
-        <span class="panel-title">画笔样式</span>
+        <span class="panel-title">{{ t('shot.brushStyle') }}</span>
         <div class="opt-row">
           <button
             v-for="s in PEN_STYLES" :key="s"
@@ -2012,7 +2016,7 @@ const tools = [
 
       <!-- ====== 描边宽度（非文字/水印工具） ====== -->
       <div v-if="currentTool !== DrawTool.Text && currentTool !== DrawTool.Watermark" class="panel-section">
-        <span class="panel-title">描边宽度</span>
+        <span class="panel-title">{{ t('shot.strokeWidth') }}</span>
         <div class="opt-row">
           <button
             v-for="w in STROKE_WIDTH_PRESETS" :key="w"
@@ -2026,7 +2030,7 @@ const tools = [
 
       <!-- ====== 边框样式（几何形状 + 线条类） ====== -->
       <div v-if="isShapeTool || isLineTool" class="panel-section">
-        <span class="panel-title">边框样式</span>
+        <span class="panel-title">{{ t('shot.borderStyle') }}</span>
         <div class="opt-row">
           <button
             v-for="s in BORDER_STYLES" :key="s"
@@ -2044,7 +2048,7 @@ const tools = [
 
       <!-- ====== 线条风格（几何形状 + 线条类） ====== -->
       <div v-if="isShapeTool || isLineTool" class="panel-section">
-        <span class="panel-title">线条风格</span>
+        <span class="panel-title">{{ t('shot.lineStyle') }}</span>
         <div class="opt-row">
           <button
             v-for="s in LINE_STYLES" :key="s"
@@ -2062,7 +2066,7 @@ const tools = [
 
       <!-- ====== 箭头类型（仅箭头） ====== -->
       <div v-if="effectiveTool === DrawTool.Arrow" class="panel-section">
-        <span class="panel-title">箭头类型</span>
+        <span class="panel-title">{{ t('shot.arrowType') }}</span>
         <div class="opt-row">
           <button
             v-for="t in ARROW_TYPES" :key="t"
@@ -2081,7 +2085,7 @@ const tools = [
 
       <!-- ====== 端点样式（箭头/直线） ====== -->
       <div v-if="isLineTool" class="panel-section">
-        <span class="panel-title">端点</span>
+        <span class="panel-title">{{ t('shot.endpoint') }}</span>
         <div class="opt-row">
           <button
             class="style-btn" :class="{ active: startEndpoint === 'none' && endEndpoint === 'arrow' }"
@@ -2108,7 +2112,7 @@ const tools = [
 
       <!-- ====== 边角样式（仅矩形） ====== -->
       <div v-if="effectiveTool === DrawTool.Rect" class="panel-section">
-        <span class="panel-title">边角</span>
+        <span class="panel-title">{{ t('shot.corner') }}</span>
         <div class="opt-row">
           <button
             v-for="s in CORNER_STYLES" :key="s"
@@ -2125,7 +2129,7 @@ const tools = [
 
       <!-- ====== 字体（仅文字工具） ====== -->
       <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
-        <span class="panel-title">字体</span>
+        <span class="panel-title">{{ t('shot.font') }}</span>
         <div class="opt-row">
           <button
             v-for="f in FONT_FAMILIES" :key="f.value"
@@ -2141,7 +2145,7 @@ const tools = [
 
       <!-- ====== 字体大小（仅文字工具） ====== -->
       <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
-        <span class="panel-title">字体大小</span>
+        <span class="panel-title">{{ t('shot.fontSize') }}</span>
         <div class="opt-row">
           <button
             v-for="s in FONT_SIZE_LABELS" :key="s.label"
@@ -2153,7 +2157,7 @@ const tools = [
 
       <!-- ====== 文本对齐（仅文字工具） ====== -->
       <div v-if="effectiveTool === DrawTool.Text" class="panel-section">
-        <span class="panel-title">文本对齐</span>
+        <span class="panel-title">{{ t('shot.textAlign') }}</span>
         <div class="opt-row">
           <button
             v-for="a in TEXT_ALIGNS" :key="a"
@@ -2169,7 +2173,7 @@ const tools = [
 
       <!-- ====== 马赛克强度（矩形马赛克 + 涂抹马赛克） ====== -->
       <div v-if="effectiveTool === DrawTool.Blur || effectiveTool === DrawTool.BlurFreeDraw" class="panel-section">
-        <span class="panel-title">马赛克强度</span>
+        <span class="panel-title">{{ t('shot.mosaic') }}</span>
         <div class="opt-row">
           <input
             type="range" :min="4" :max="30" :step="1"
@@ -2183,7 +2187,7 @@ const tools = [
 
       <!-- ====== 涂抹线宽（仅涂抹马赛克） ====== -->
       <div v-if="effectiveTool === DrawTool.BlurFreeDraw" class="panel-section">
-        <span class="panel-title">涂抹线宽</span>
+        <span class="panel-title">{{ t('shot.smudgeWidth') }}</span>
         <div class="opt-row">
           <input
             type="range" :min="8" :max="60" :step="2"
@@ -2197,13 +2201,13 @@ const tools = [
 
       <!-- ====== 水印文本 ====== -->
       <div v-if="effectiveTool === DrawTool.Watermark" class="panel-section">
-        <span class="panel-title">水印文本</span>
+        <span class="panel-title">{{ t('shot.watermarkText') }}</span>
         <div class="opt-row">
           <input
             type="text"
             :value="watermarkText"
             class="wm-input"
-            placeholder="输入水印文字"
+            :placeholder="t('shot.watermarkPlaceholder')"
             @input="watermarkText = ($event.target as HTMLInputElement).value; syncToolState()"
           />
         </div>
@@ -2211,7 +2215,7 @@ const tools = [
 
       <!-- ====== 水印字号 ====== -->
       <div v-if="effectiveTool === DrawTool.Watermark" class="panel-section">
-        <span class="panel-title">字号</span>
+        <span class="panel-title">{{ t('shot.fontSizeShort') }}</span>
         <div class="opt-row">
           <input
             type="range" :min="12" :max="72" :step="2"
@@ -2225,7 +2229,7 @@ const tools = [
 
       <!-- ====== 水印字体 ====== -->
       <div v-if="effectiveTool === DrawTool.Watermark" class="panel-section">
-        <span class="panel-title">字体</span>
+        <span class="panel-title">{{ t('shot.font') }}</span>
         <div class="opt-row">
           <button
             class="font-btn" :class="{ active: watermarkFontFamily === 'sans-serif' }"
@@ -2250,7 +2254,7 @@ const tools = [
 
       <!-- ====== 水印透明度 ====== -->
       <div v-if="effectiveTool === DrawTool.Watermark" class="panel-section">
-        <span class="panel-title">透明度</span>
+        <span class="panel-title">{{ t('shot.opacity') }}</span>
         <div class="opt-row">
           <input
             type="range" :min="0.02" :max="0.5" :step="0.01"
@@ -2264,7 +2268,7 @@ const tools = [
 
       <!-- ====== 透明度（所有工具通用，水印除外） ====== -->
       <div v-if="currentTool !== DrawTool.Watermark" class="panel-section">
-        <span class="panel-title">透明度</span>
+        <span class="panel-title">{{ t('shot.opacity') }}</span>
         <div class="opt-row">
           <input
             v-if="effectiveTool === DrawTool.Text"
@@ -2285,18 +2289,18 @@ const tools = [
 
       <!-- ====== 图层操作（所有工具通用） ====== -->
       <div class="panel-section">
-        <span class="panel-title">图层</span>
+        <span class="panel-title">{{ t('shot.layers') }}</span>
         <div class="opt-row">
-          <button class="style-btn sm" title="移到最底" :disabled="annMgr.annotations.length < 2" @click="annMgr.moveLastToBottom(); redraw()">
+          <button class="style-btn sm" :title="t('shot.sendToBack')" :disabled="annMgr.annotations.length < 2" @click="annMgr.moveLastToBottom(); redraw()">
             <span class="icon-[lucide--chevrons-down] tb-icon" />
           </button>
-          <button class="style-btn sm" title="下移一层" :disabled="annMgr.annotations.length < 2" @click="annMgr.moveLastDown(); redraw()">
+          <button class="style-btn sm" :title="t('shot.sendBackward')" :disabled="annMgr.annotations.length < 2" @click="annMgr.moveLastDown(); redraw()">
             <span class="icon-[lucide--chevron-down] tb-icon" />
           </button>
-          <button class="style-btn sm" title="上移一层" :disabled="annMgr.annotations.length < 2" @click="annMgr.moveFirstUp(); redraw()">
+          <button class="style-btn sm" :title="t('shot.bringForward')" :disabled="annMgr.annotations.length < 2" @click="annMgr.moveFirstUp(); redraw()">
             <span class="icon-[lucide--chevron-up] tb-icon" />
           </button>
-          <button class="style-btn sm" title="移到最顶" :disabled="annMgr.annotations.length < 2" @click="annMgr.moveFirstToTop(); redraw()">
+          <button class="style-btn sm" :title="t('shot.bringToFront')" :disabled="annMgr.annotations.length < 2" @click="annMgr.moveFirstToTop(); redraw()">
             <span class="icon-[lucide--chevrons-up] tb-icon" />
           </button>
         </div>
@@ -2319,7 +2323,7 @@ const tools = [
         textAlign: textAlignVal,
         backgroundColor: 'transparent',
       }"
-      placeholder="输入文字..."
+      :placeholder="t('shot.textPlaceholder')"
       @keydown="onTextEditorKeyDown"
       @input="autoResizeTextEditor(); updateTextPreview()"
       @mousedown.stop

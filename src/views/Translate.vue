@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
+import { useI18n } from '@/i18n'
+
+const { t } = useI18n()
 
 const store = new LazyStore('settings.json')
 const settingsLoaded = ref(false)
@@ -323,11 +326,11 @@ watch([translateMode, freeEngine, aiEngine], () => {
       <!-- 顶部栏 -->
       <div class="flex items-center justify-between shrink-0">
         <div class="flex items-center gap-2.5">
-          <span class="text-sm text-muted-foreground">当前引擎:</span>
+          <span class="text-sm text-muted-foreground">{{ t('translate.currentEngine') }}</span>
           <span class="text-sm font-medium px-3 py-1 rounded-md bg-muted">{{ activeEngineLabel }}</span>
-          <span v-if="isUsingFallback" class="text-sm text-amber-400">(AI 不可用, 已回退)</span>
+          <span v-if="isUsingFallback" class="text-sm text-amber-400">{{ t('translate.aiFellBack') }}</span>
         </div>
-        <Button variant="ghost" size="sm" @click="showSettingsDialog = true" title="翻译设置">
+        <Button variant="ghost" size="sm" @click="showSettingsDialog = true" :title="t('translate.settings')">
           <span class="icon-[lucide--settings] w-5 h-5" />
         </Button>
       </div>
@@ -342,14 +345,14 @@ watch([translateMode, freeEngine, aiEngine], () => {
           <Textarea
             v-model="inputText"
             @input="onInputChange"
-            placeholder="输入要翻译的文本..."
+            :placeholder="t('translate.inputPlaceholder')"
             class="h-full resize-none rounded-xl pt-8 pb-3 leading-relaxed"
           />
           <div v-if="inputText" class="absolute top-3 right-3 flex items-center gap-1">
             <Button
               variant="ghost" size="icon-sm"
               @click="speakInput"
-              :title="speakingInput ? '停止朗读' : '朗读原文'"
+              :title="speakingInput ? t('translate.stopSpeaking') : t('translate.speakInput')"
               class="text-muted-foreground/40 hover:text-foreground"
             >
               <span :class="speakingInput ? 'icon-[lucide--square]' : 'icon-[lucide--volume-2]'" class="w-3.5 h-3.5" />
@@ -366,12 +369,12 @@ watch([translateMode, freeEngine, aiEngine], () => {
 
         <!-- 中间操作栏 -->
         <div class="flex items-center justify-center gap-3">
-          <Button variant="outline" size="icon-sm" @click="swapTexts" title="交换">
+          <Button variant="outline" size="icon-sm" @click="swapTexts" :title="t('translate.swap')">
             <span class="icon-[lucide--arrow-down-up] w-4 h-4" />
           </Button>
           <div v-if="loading" class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span class="icon-[lucide--loader-2] w-3.5 h-3.5 animate-spin" />
-            翻译中...
+            {{ t('translate.translating') }}
           </div>
         </div>
 
@@ -380,14 +383,14 @@ watch([translateMode, freeEngine, aiEngine], () => {
           <Textarea
             :model-value="outputText"
             readonly
-            placeholder="翻译结果..."
+            :placeholder="t('translate.resultPlaceholder')"
             class="h-full resize-none rounded-xl bg-muted/30 leading-relaxed"
           />
           <div v-if="outputText" class="absolute bottom-3 right-3 flex items-center gap-1.5">
             <Button
               variant="outline" size="icon-sm"
               @click="speakOutput"
-              :title="speaking ? '停止朗读' : '朗读译文'"
+              :title="speaking ? t('translate.stopSpeaking') : t('translate.speakResult')"
             >
               <span :class="speaking ? 'icon-[lucide--square]' : 'icon-[lucide--volume-2]'" class="w-3.5 h-3.5" />
             </Button>
@@ -415,7 +418,7 @@ watch([translateMode, freeEngine, aiEngine], () => {
       <div class="w-[480px] max-h-[80vh] rounded-xl shadow-2xl bg-popover border flex flex-col">
         <!-- 头部 -->
         <div class="flex items-center justify-between p-5 pb-0">
-          <h3 class="font-medium">翻译设置</h3>
+          <h3 class="font-medium">{{ t('translate.settings') }}</h3>
           <Button variant="ghost" size="icon-sm" @click="showSettingsDialog = false">
             <span class="icon-[lucide--x] w-4 h-4" />
           </Button>
@@ -426,7 +429,7 @@ watch([translateMode, freeEngine, aiEngine], () => {
 
           <!-- 模式选择 -->
           <div class="space-y-3">
-            <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">翻译来源</p>
+            <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.source') }}</p>
             <div class="flex gap-2">
               <Button
                 variant="outline"
@@ -435,7 +438,7 @@ watch([translateMode, freeEngine, aiEngine], () => {
                 :class="translateMode === 'free' ? 'border-primary bg-primary/10 text-foreground' : ''"
               >
                 <span class="icon-[lucide--globe] w-4 h-4" />
-                免费接口
+                {{ t('translate.freeApi') }}
               </Button>
               <Button
                 variant="outline"
@@ -444,17 +447,17 @@ watch([translateMode, freeEngine, aiEngine], () => {
                 :class="translateMode === 'ai' ? 'border-primary bg-primary/10 text-foreground' : ''"
               >
                 <span class="icon-[lucide--bot] w-4 h-4" />
-                AI 翻译
+                {{ t('translate.aiTranslate') }}
               </Button>
             </div>
           </div>
 
           <!-- 免费接口选择 -->
           <div v-if="translateMode === 'free'" class="space-y-3">
-            <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">免费接口</p>
+            <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.freeApi') }}</p>
             <Select :model-value="freeEngine" @update:model-value="(v) => freeEngine = String(v)">
               <SelectTrigger>
-                <SelectValue placeholder="选择接口" />
+                <SelectValue :placeholder="t('translate.pickApi')" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem v-for="e in freeEngines" :key="e.id" :value="e.id">{{ e.label }}</SelectItem>
@@ -466,10 +469,10 @@ watch([translateMode, freeEngine, aiEngine], () => {
           <div v-if="translateMode === 'ai'" class="space-y-4">
             <!-- AI 引擎选择 -->
             <div class="space-y-3">
-              <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">AI 引擎</p>
+              <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.aiEngine') }}</p>
               <Select :model-value="aiEngine" @update:model-value="(v) => aiEngine = String(v)">
                 <SelectTrigger>
-                  <SelectValue placeholder="选择引擎" />
+                  <SelectValue :placeholder="t('translate.pickEngine')" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem v-for="e in aiEngines" :key="e.id" :value="e.id">{{ e.label }}</SelectItem>
@@ -483,10 +486,10 @@ watch([translateMode, freeEngine, aiEngine], () => {
                 <p class="text-sm font-medium">{{ aiEngines.find(e => e.id === aiEngine)?.label }} 配置</p>
                 <!-- 验证状态标签 -->
                 <span v-if="aiValidated[aiEngine] === true" class="text-xs text-green-400 flex items-center gap-1">
-                  <span class="icon-[lucide--check-circle] w-3 h-3" /> 已验证
+                  <span class="icon-[lucide--check-circle] w-3 h-3" /> {{ t('translate.verified') }}
                 </span>
                 <span v-else-if="aiValidated[aiEngine] === false" class="text-xs text-red-400 flex items-center gap-1">
-                  <span class="icon-[lucide--x-circle] w-3 h-3" /> 验证失败
+                  <span class="icon-[lucide--x-circle] w-3 h-3" /> {{ t('translate.verifyFailed') }}
                 </span>
               </div>
 
@@ -504,13 +507,13 @@ watch([translateMode, freeEngine, aiEngine], () => {
                     v-model="aiConfigs[aiEngine].api_url"
                     @input="debounceSave(); aiValidated[aiEngine] = null"
                     type="text"
-                    placeholder="API 端点 (必填, OpenAI 兼容格式)"
+                    :placeholder="t('translate.endpoint')"
                   />
                   <Input
                     v-model="aiConfigs[aiEngine].model"
                     @input="debounceSave(); aiValidated[aiEngine] = null"
                     type="text"
-                    placeholder="模型名 (必填)"
+                    :placeholder="t('translate.modelName')"
                   />
                 </template>
 
@@ -523,7 +526,7 @@ watch([translateMode, freeEngine, aiEngine], () => {
                       class="flex-1"
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="选择模型" />
+                        <SelectValue :placeholder="t('translate.pickModel')" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem v-for="m in (fetchedModels[aiEngine] ?? engineModels[aiEngine] ?? [])" :key="m" :value="m">{{ m }}</SelectItem>
@@ -534,7 +537,7 @@ watch([translateMode, freeEngine, aiEngine], () => {
                       size="icon-sm"
                       :disabled="!aiConfigs[aiEngine]?.api_key || fetchingModels"
                       @click="fetchModels(aiEngine)"
-                      :title="fetchedModels[aiEngine] ? '刷新模型列表' : '从 API 获取可用模型'"
+                      :title="fetchedModels[aiEngine] ? t('translate.refreshModels') : t('translate.fetchModels')"
                     >
                       <span :class="fetchingModels ? 'animate-spin' : ''" class="icon-[lucide--refresh-cw] w-3.5 h-3.5" />
                     </Button>
@@ -559,7 +562,7 @@ watch([translateMode, freeEngine, aiEngine], () => {
 
               <p v-if="aiValidated[aiEngine] === false" class="text-xs text-amber-400 flex items-center gap-1.5">
                 <span class="icon-[lucide--info] w-3 h-3 shrink-0" />
-                连接失败，将自动回退到免费接口
+                {{ t('translate.aiFallback') }}
               </p>
             </div>
           </div>

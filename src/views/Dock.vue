@@ -12,6 +12,9 @@ import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
 import type { AppEntry, CustomIcon } from '../types'
+import { useI18n } from '@/i18n'
+
+const { t } = useI18n()
 
 interface StartMenuEntry {
   name: string
@@ -551,7 +554,7 @@ async function saveIconName(id: string) {
         @click="currentTab = 'general'"
       >
         <span class="icon-[lucide--settings] w-4 h-4" />
-        通用设置
+        {{ t('dock.tabGeneral') }}
       </Button>
       <Button
         :variant="currentTab === 'apps' ? 'default' : 'outline'"
@@ -559,7 +562,7 @@ async function saveIconName(id: string) {
         @click="currentTab = 'apps'"
       >
         <span class="icon-[lucide--layout-grid] w-4 h-4" />
-        应用管理
+        {{ t('dock.tabApps') }}
       </Button>
       <Button
         :variant="currentTab === 'icons' ? 'default' : 'outline'"
@@ -567,7 +570,7 @@ async function saveIconName(id: string) {
         @click="currentTab = 'icons'"
       >
         <span class="icon-[lucide--image] w-4 h-4" />
-        图标管理
+        {{ t('dock.tabIcons') }}
       </Button>
     </div>
 
@@ -581,8 +584,8 @@ async function saveIconName(id: string) {
             <span class="icon-[lucide--layout-grid] w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-medium">开启启动台</h3>
-            <p class="text-xs text-muted-foreground">启用后可通过快捷键呼出启动台</p>
+            <h3 class="font-medium">{{ t('dock.enable') }}</h3>
+            <p class="text-xs text-muted-foreground">{{ t('dock.enableHint') }}</p>
           </div>
         </div>
         <Switch :model-value="dockEnabled" @update:model-value="dockEnabled = $event" />
@@ -598,8 +601,8 @@ async function saveIconName(id: string) {
             <span class="icon-[lucide--keyboard] w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-medium">全局快捷键</h3>
-            <p class="text-xs text-muted-foreground">切换启动台</p>
+            <h3 class="font-medium">{{ t('dock.hotkey') }}</h3>
+            <p class="text-xs text-muted-foreground">{{ t('dock.hotkeyHint') }}</p>
           </div>
         </div>
         <Button
@@ -608,7 +611,7 @@ async function saveIconName(id: string) {
           class="min-w-[120px] font-mono"
           @click="isRecordingShortcut ? cancelRecording() : startRecordingShortcut()"
         >
-          {{ isRecordingShortcut ? '按下组合键...' : shortcutKey }}
+          {{ isRecordingShortcut ? t('dock.pressKeys') : shortcutKey }}
         </Button>
       </div>
 
@@ -619,8 +622,8 @@ async function saveIconName(id: string) {
             <span class="icon-[lucide--tag] w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-medium">显示名称</h3>
-            <p class="text-xs text-muted-foreground">在图标下方显示应用名称</p>
+            <h3 class="font-medium">{{ t('dock.showNames') }}</h3>
+            <p class="text-xs text-muted-foreground">{{ t('dock.showNamesHint') }}</p>
           </div>
         </div>
         <Switch :model-value="showNames" @update:model-value="showNames = $event" />
@@ -633,7 +636,7 @@ async function saveIconName(id: string) {
             <span class="icon-[lucide--maximize-2] w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-medium">图标大小</h3>
+            <h3 class="font-medium">{{ t('dock.iconSize') }}</h3>
             <p class="text-xs text-muted-foreground">{{ iconSize }}px</p>
           </div>
         </div>
@@ -647,7 +650,7 @@ async function saveIconName(id: string) {
             <span class="icon-[lucide--move-diagonal] w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-medium">悬停缩放</h3>
+            <h3 class="font-medium">{{ t('dock.hoverScale') }}</h3>
             <p class="text-xs text-muted-foreground">{{ hoverScale.toFixed(2) }}x</p>
           </div>
         </div>
@@ -661,8 +664,8 @@ async function saveIconName(id: string) {
             <span class="icon-[lucide--sparkles] w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-medium">图标光晕</h3>
-            <p class="text-xs text-muted-foreground">{{ iconGlow === 0 ? '关闭' : iconGlow + 'px' }}</p>
+            <h3 class="font-medium">{{ t('dock.iconGlow') }}</h3>
+            <p class="text-xs text-muted-foreground">{{ iconGlow === 0 ? t('dock.close') : iconGlow + 'px' }}</p>
           </div>
         </div>
         <Slider :model-value="[iconGlow]" @update:model-value="(v) => iconGlow = v![0]" :min="0" :max="20" :step="1" class="w-36" />
@@ -675,7 +678,7 @@ async function saveIconName(id: string) {
             <span class="icon-[lucide--arrow-up-from-line] w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-medium">顶部间距</h3>
+            <h3 class="font-medium">{{ t('dock.paddingTop') }}</h3>
             <p class="text-xs text-muted-foreground">{{ paddingTop }}px</p>
           </div>
         </div>
@@ -689,7 +692,7 @@ async function saveIconName(id: string) {
             <span class="icon-[lucide--arrow-left-right] w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-medium">水平间距</h3>
+            <h3 class="font-medium">{{ t('dock.paddingX') }}</h3>
             <p class="text-xs text-muted-foreground">{{ paddingHorizontal }}px</p>
           </div>
         </div>
@@ -707,18 +710,18 @@ async function saveIconName(id: string) {
       <div class="flex gap-2 mb-4">
         <Button variant="outline" class="flex-1" @click="showManualDialog = true">
           <span class="icon-[lucide--upload] w-4 h-4" />
-          手动添加
+          {{ t('dock.manualAdd') }}
         </Button>
         <Button variant="outline" class="flex-1" @click="showStartMenuDialog = true">
           <span class="icon-[lucide--layout-grid] w-4 h-4" />
-          开始菜单
+          {{ t('dock.startMenu') }}
         </Button>
       </div>
 
       <!-- Apps count + refresh -->
       <div class="flex items-center justify-between mb-3">
         <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          应用列表
+          {{ t('dock.appList') }}
           <span v-if="apps.length > 0" class="ml-1">&middot; {{ apps.length }}</span>
         </p>
         <Button
@@ -729,15 +732,15 @@ async function saveIconName(id: string) {
           @click="refreshAllIcons"
         >
           <span class="icon-[lucide--refresh-cw] w-3.5 h-3.5" :class="isRefreshingIcons ? 'animate-spin' : ''" />
-          {{ isRefreshingIcons ? '刷新中...' : '刷新图标' }}
+          {{ isRefreshingIcons ? t('dock.refreshing') : t('dock.refreshIcons') }}
         </Button>
       </div>
 
       <!-- App list (scrollable) -->
       <div class="flex-1 overflow-y-auto border rounded-xl bg-card/50">
         <div v-if="apps.length === 0" class="py-10 text-center text-muted-foreground">
-          <p class="text-sm">还没有添加应用</p>
-          <p class="text-xs mt-1">使用上面的按钮来添加</p>
+          <p class="text-sm">{{ t('dock.noApps') }}</p>
+          <p class="text-xs mt-1">{{ t('dock.addHint') }}</p>
         </div>
 
         <VueDraggable
@@ -801,12 +804,12 @@ async function saveIconName(id: string) {
       <div class="flex gap-2 mb-4">
         <Button variant="outline" class="flex-1" @click="browseIconImage" :disabled="isSavingIcon">
           <span class="icon-[lucide--upload] w-4 h-4" />
-          {{ isSavingIcon ? '保存中...' : '上传图标' }}
+          {{ isSavingIcon ? t('dock.saving') : t('dock.uploadIcon') }}
         </Button>
       </div>
 
       <p class="text-xs text-muted-foreground mb-3">
-        支持 PNG、JPG、SVG、WebP 格式，上传后可裁剪为正方形，支持透明通道。
+        {{ t('dock.uploadFormats') }}
       </p>
 
       <!-- Cropper area -->
@@ -823,13 +826,13 @@ async function saveIconName(id: string) {
           <Input
             v-model="cropIconName"
             type="text"
-            placeholder="图标名称"
+            :placeholder="t('dock.iconName')"
             class="flex-1"
           />
           <Button @click="confirmCrop" :disabled="isSavingIcon">
-            {{ isSavingIcon ? '保存中...' : '确认裁剪' }}
+            {{ isSavingIcon ? t('dock.saving') : t('dock.confirmCrop') }}
           </Button>
-          <Button variant="outline" @click="cancelCrop">取消</Button>
+          <Button variant="outline" @click="cancelCrop">{{ t('dock.cancel') }}</Button>
         </div>
       </div>
 
@@ -837,8 +840,8 @@ async function saveIconName(id: string) {
       <div class="flex-1 overflow-y-auto">
         <div v-if="customIcons.length === 0 && !isCropping" class="py-10 text-center text-muted-foreground">
           <span class="icon-[lucide--image] w-8 h-8 mx-auto mb-2 block opacity-40" />
-          <p class="text-sm">还没有自定义图标</p>
-          <p class="text-xs mt-1">上传图片来创建自定义图标</p>
+          <p class="text-sm">{{ t('dock.noIcons') }}</p>
+          <p class="text-xs mt-1">{{ t('dock.uploadIconHint') }}</p>
         </div>
 
         <div v-else class="grid grid-cols-5 gap-3 p-2">
@@ -889,7 +892,7 @@ async function saveIconName(id: string) {
       >
         <div class="w-[420px] rounded-xl p-5 shadow-2xl bg-popover border">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-medium">编辑应用</h3>
+            <h3 class="font-medium">{{ t('dock.editApp') }}</h3>
             <Button variant="ghost" size="icon-sm" @click="showEditDialog = false">
               <span class="icon-[lucide--x] w-4 h-4" />
             </Button>
@@ -905,16 +908,16 @@ async function saveIconName(id: string) {
               <Input
                 v-model="editName"
                 type="text"
-                placeholder="应用名称"
+                :placeholder="t('dock.appName')"
               />
               <div class="flex gap-1.5">
                 <Button variant="outline" size="sm" @click="showIconPicker = !showIconPicker">
                   <span class="icon-[lucide--image] w-3.5 h-3.5" />
-                  {{ showIconPicker ? '收起' : '更换图标' }}
+                  {{ showIconPicker ? t('dock.collapse') : t('dock.changeIcon') }}
                 </Button>
                 <Button variant="outline" size="sm" @click="restoreDefaultIcon">
                   <span class="icon-[lucide--rotate-ccw] w-3.5 h-3.5" />
-                  恢复默认
+                  {{ t('dock.restoreDefaults') }}
                 </Button>
               </div>
             </div>
@@ -928,7 +931,7 @@ async function saveIconName(id: string) {
           <!-- Icon picker (custom icons grid) -->
           <div v-if="showIconPicker" class="mb-4 border rounded-lg p-3 max-h-[200px] overflow-y-auto">
             <div v-if="customIcons.length === 0" class="py-4 text-center text-muted-foreground">
-              <p class="text-xs">没有自定义图标，请先在「图标管理」中上传</p>
+              <p class="text-xs">{{ t('dock.noIconsHint') }}</p>
             </div>
             <div v-else class="grid grid-cols-6 gap-2">
               <button
@@ -944,8 +947,8 @@ async function saveIconName(id: string) {
           </div>
 
           <div class="flex justify-end gap-2">
-            <Button variant="outline" @click="showEditDialog = false">取消</Button>
-            <Button :disabled="!editName.trim()" @click="saveEditedApp">保存</Button>
+            <Button variant="outline" @click="showEditDialog = false">{{ t('dock.cancel') }}</Button>
+            <Button :disabled="!editName.trim()" @click="saveEditedApp">{{ t('dock.save') }}</Button>
           </div>
         </div>
       </div>
@@ -960,7 +963,7 @@ async function saveIconName(id: string) {
       >
         <div class="w-[420px] rounded-xl p-5 shadow-2xl bg-popover border">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-medium">添加应用</h3>
+            <h3 class="font-medium">{{ t('dock.addApp') }}</h3>
             <Button variant="ghost" size="icon-sm" @click="showManualDialog = false">
               <span class="icon-[lucide--x] w-4 h-4" />
             </Button>
@@ -973,22 +976,22 @@ async function saveIconName(id: string) {
             @dragover="handleDragOver" @dragleave="handleDragLeave" @drop="handleDrop"
           >
             <span class="icon-[lucide--upload] w-5 h-5 text-muted-foreground" />
-            <p class="text-xs text-muted-foreground">拖放 .exe 或 .lnk 文件到这里</p>
+            <p class="text-xs text-muted-foreground">{{ t('dock.dropExe') }}</p>
           </div>
 
           <!-- Form -->
           <div class="flex flex-col gap-2.5">
-            <Input v-model="newName" type="text" placeholder="名称" />
+            <Input v-model="newName" type="text" :placeholder="t('dock.name')" />
             <div class="flex gap-2">
-              <Input v-model="newPath" type="text" placeholder="可执行文件路径" class="flex-1 font-mono" />
-              <Button variant="outline" size="sm" @click="handleBrowse">浏览</Button>
+              <Input v-model="newPath" type="text" :placeholder="t('dock.exePath')" class="flex-1 font-mono" />
+              <Button variant="outline" size="sm" @click="handleBrowse">{{ t('dock.browse') }}</Button>
             </div>
             <div class="flex justify-end mt-1">
               <Button
                 :disabled="!newName.trim() || !newPath.trim() || isAdding"
                 @click="handleManualAdd"
               >
-                {{ isAdding ? '添加中...' : '添加' }}
+                {{ isAdding ? t('dock.adding') : t('dock.add') }}
               </Button>
             </div>
           </div>
@@ -1006,11 +1009,11 @@ async function saveIconName(id: string) {
         <div class="w-[480px] h-[520px] rounded-xl shadow-2xl flex flex-col bg-popover border">
           <!-- Header -->
           <div class="flex items-center justify-between px-5 pt-4 pb-3 shrink-0">
-            <h3 class="font-medium">开始菜单应用</h3>
+            <h3 class="font-medium">{{ t('dock.startMenuApps') }}</h3>
             <div class="flex items-center gap-2">
               <Button variant="outline" size="sm" :disabled="isScanning" @click="scanStartMenu">
                 <span class="icon-[lucide--refresh-cw] w-3.5 h-3.5" :class="isScanning ? 'animate-spin' : ''" />
-                {{ isScanning ? '扫描中...' : startMenuApps.length > 0 ? '刷新' : '扫描' }}
+                {{ isScanning ? t('dock.scanning') : startMenuApps.length > 0 ? t('dock.refresh') : t('dock.scan') }}
               </Button>
               <Button variant="ghost" size="icon-sm" @click="showStartMenuDialog = false">
                 <span class="icon-[lucide--x] w-4 h-4" />
@@ -1029,7 +1032,7 @@ async function saveIconName(id: string) {
                   : 'text-muted-foreground hover:text-foreground'"
                 @click="startMenuFilter = tab"
               >
-                {{ tab === 'all' ? '全部' : tab === 'added' ? '已添加' : '未添加' }}
+                {{ tab === 'all' ? t('dock.all') : tab === 'added' ? t('dock.added') : t('dock.notAdded') }}
                 <span v-if="tab === 'all'" class="ml-1 opacity-60">{{ startMenuApps.length }}</span>
               </button>
             </div>
@@ -1037,7 +1040,7 @@ async function saveIconName(id: string) {
               v-if="startMenuApps.length > 0"
               v-model="scanSearch"
               type="text"
-              placeholder="搜索..."
+              :placeholder="t('dock.search')"
               class="h-8 text-xs"
             />
           </div>
@@ -1045,11 +1048,11 @@ async function saveIconName(id: string) {
           <!-- List -->
           <div class="flex-1 overflow-y-auto px-5 pb-4">
             <div v-if="startMenuApps.length === 0 && !isScanning" class="py-10 text-center text-muted-foreground">
-              <p class="text-sm">点击 "扫描" 检测已安装的应用</p>
+              <p class="text-sm">{{ t('dock.scanHint') }}</p>
             </div>
 
             <div v-else-if="filteredStartMenuApps.length === 0 && !isScanning" class="py-10 text-center text-muted-foreground">
-              <p class="text-sm">没有匹配的结果</p>
+              <p class="text-sm">{{ t('dock.noMatch') }}</p>
             </div>
 
             <div v-else class="space-y-0.5">
