@@ -9,6 +9,39 @@ import { MENU_ITEMS, reconcile, splitGroups } from './lib/sidebar-prefs'
 import { useI18n } from './i18n'
 import { autoStartDsh } from './composables/useDsh'
 
+/**
+ * 顶部那一行拖窗口。
+ *
+ * 不用 `data-tauri-drag-region`:那个属性是"整片区域只能拖不能点",
+ * 而我们顶上那一行恰恰摆着 Logo、Tabs、笔记页的工具卡和标签卡。
+ * 以前的折中是只留两小段固定宽度的拖拽带,结果就是**大部分地方拖不动**。
+ *
+ * 换个判据:**光标形状**。按下去的那个元素如果声明了任何非默认光标
+ * (手型 = 能点、文字 = 能选、col-resize = 能拉),就是它自己的地盘,不抢;
+ * 只有 default/auto 才是"这里没东西",才拖窗口。cursor 是继承属性,
+ * 所以按钮里的那个 <span> 图标也会拿到 pointer,不会误判。
+ */
+const TOP_BAND = 78   // 10 外缩 + 58 卡片 + 10 间距,和页面 pt-/pl- 同一个数
+
+function isBlankSpot(e: MouseEvent) {
+  if (e.button !== 0 || e.clientY > TOP_BAND) return false
+  const el = e.target as HTMLElement | null
+  if (!el) return false
+  const c = getComputedStyle(el).cursor
+  return c === 'default' || c === 'auto'
+}
+
+function onTopPointerDown(e: MouseEvent) {
+  if (!isBlankSpot(e)) return
+  e.preventDefault()          // 不然会拖出一片文字选区
+  getCurrentWindow().startDragging()
+}
+
+// 原生标题栏双击最大化,这里得自己补上
+function onTopDoubleClick(e: MouseEvent) {
+  if (!isBlankSpot(e)) return
+  getCurrentWindow().toggleMaximize()
+}
 
 import TitleBar from './components/TitleBar.vue'
 import HomeView from './views/Home.vue'
@@ -135,7 +168,8 @@ onMounted(async () => {
     10px 的外缩改由两个浮层各自承担(top-2.5 / left-2.5),Logo 与侧栏图标的对齐关系不变。
   -->
   <div v-else class="h-screen w-screen overflow-hidden text-foreground relative"
-    :class="settings.blurKind === 'none' ? 'bg-background' : 'bg-transparent'">
+    :class="settings.blurKind === 'none' ? 'bg-background' : 'bg-transparent'"
+    @mousedown="onTopPointerDown" @dblclick="onTopDoubleClick">
     <!-- 内容层。只负责定位上下文和底色,不再自己带 padding(见下面包裹层的说明)。 -->
     <main class="absolute inset-0"
       :class="settings.blurKind === 'none' ? 'bg-background/50' : 'bg-transparent'">
