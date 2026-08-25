@@ -50,6 +50,9 @@ trash = "5"
 # DSH 的会话事件流只走 WebSocket。用 rustls 而不是 native-tls,
 # 和 reqwest 保持同一套 TLS 后端,免得同一个二进制里塞两份。
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# 中文 Windows 的控制台代码页是 GBK,子进程输出的中文路径不是 UTF-8。
+# 只在 Windows 上用得到,但依赖树里 reqwest 本来就带着它,不额外增加体积。
+encoding_rs = "0.8"
 zip = "2"
 urlencoding = "2"
 
@@ -60,7 +63,9 @@ tauri-plugin-autostart = "2"
 winapi = { version = "0.3", features = ["shellapi", "winuser", "wingdi", "combaseapi", "objbase", "commoncontrols", "shobjidl_core", "libloaderapi", "unknwnbase", "minwinbase", "wtypesbase", "objidl"] }
 lnk = "0.5"
 window-vibrancy = "0.5"
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }
+# Win32_System_Com / _Variant / _Ole:查 Windows 索引要走 ADO 的晚绑定调用
+# (Search.CollatorDSO 这个 OLE DB 提供程序),见 file_search_commands.rs
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Ole"] }
 uiautomation = "0.24"
 clipboard-win = "5"
 
