@@ -33,7 +33,7 @@ uuid = { version = "1", features = ["v4"] }
 tauri-plugin-process = "2.3.1"
 arboard = "3.4"
 image = "0.25"
-tokio = { version = "1", features = ["rt", "macros", "process", "io-util"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "process", "io-util", "net", "sync", "time"] }
 xcap = "0.0.14"
 rtree_rs = "0.1.4"
 atree = "0.5.2"
@@ -45,6 +45,11 @@ ort = { version = "=2.0.0-rc.10", default-features = false }
 num_cpus = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 futures-util = "0.3"
+# 笔记删错了没有 Ctrl+Z,所以删除一律走系统回收站而不是 remove_file
+trash = "5"
+# DSH 的会话事件流只走 WebSocket。用 rustls 而不是 native-tls,
+# 和 reqwest 保持同一套 TLS 后端,免得同一个二进制里塞两份。
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 zip = "2"
 urlencoding = "2"
 
