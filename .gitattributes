@@ -1,0 +1,42 @@
+# 复制到项目根目录，改名为 .gitattributes
+# 作用：统一换行符，避免 Windows / Mac 之间来回改文件时整份文件变成假 diff
+
+# 所有文本文件在仓库里一律存 LF；检出到工作区时按各人系统来
+* text=auto eol=lf
+
+# 这些必须保持 CRLF，改了会执行不了
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# 这些必须保持 LF，改了会执行不了
+*.sh    text eol=lf
+
+# 二进制：别做换行符转换，别在 diff 里展开
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.gif   binary
+*.ico   binary
+*.svg   text
+*.mp4   binary
+*.mov   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.pdf   binary
+*.zip   binary
+*.tar.gz binary
+*.exe   binary
+*.dll   binary
+*.msi   binary
+*.dmg   binary
+*.safetensors binary
+*.onnx  binary
+
+# 锁文件：不算进 GitHub 的语言统计，PR diff 默认折叠
+pnpm-lock.yaml    linguist-generated=true -diff
+package-lock.json linguist-generated=true -diff
+Cargo.lock        linguist-generated=true -diff
