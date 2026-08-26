@@ -167,6 +167,47 @@ pub fn vault_rename(root: String, rel: String, new_name: String) -> Result<Strin
     Ok(target.strip_prefix(&root_real).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or(new_name))
 }
 
+/// 把 `rel` 移进 `dest_dir`(相对库根,空串就是库根)。目录栏里拖拽用。
+///
+/// 三件事必须在动盘之前挡住:
+/// 1. **把文件夹拖进它自己或自己的子孙里** —— 那会把整棵子树搬进正在移动的目录,
+///    std::fs::rename 在不同平台上的表现不一样,轻则报错重则把目录结构搞坏。
+/// 2. 拖到它本来就在的那个目录 —— 什么都不用干,直接当成功返回。
+/// 3. 目标已经有同名的 —— 报错让用户自己决定,不能默默覆盖别人的笔记。
+#[tauri::command]
+pub fn vault_move(root: String, rel: String, dest_dir: String) -> Result<String, String> {
+    let src = resolve_in_vault(&root, &rel)?;
+    let dir = resolve_in_vault(&root, &dest_dir)?;
+    if !dir.is_dir() {
+        return Err("目标不是文件夹".into());
+    }
+    let name = src
+        .file_name()
+        .ok_or("源路径没有名字")?
+        .to_string_lossy()
+        .to_string();
+    let target = dir.join(&name);
+    if target == src {
+        return Ok(rel);
+    }
+    // 拖进自己肚子里:比较真实路径的前缀,而不是比字符串 —— 符号链接和
+    // 大小写差异都能绕过字符串比较
+    if src.is_dir() && dir.starts_with(&src) {
+        return Err("不能把文件夹移到它自己里面".into());
+    }
+    if target.exists() {
+        return Err("目标位置已经有同名的文件或文件夹".into());
+    }
+    std::fs::rename(&src, &target).map_err(|e| format!("移动失败: {e}"))?;
+    let root_real = PathBuf::from(&root)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    Ok(target
+        .strip_prefix(&root_real)
+        .map(|r| r.to_string_lossy().replace('\\', "/"))
+        .unwrap_or(name))
+}
+
 /// 删除。**走回收站,不是永久删除** —— 笔记删错了没有 Ctrl+Z。
 #[tauri::command]
 pub fn vault_delete(root: String, rel: String) -> Result<(), String> {

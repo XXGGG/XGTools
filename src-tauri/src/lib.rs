@@ -150,6 +150,7 @@ pub fn run() {
             vault_commands::vault_write,
             vault_commands::vault_create,
             vault_commands::vault_rename,
+            vault_commands::vault_move,
             vault_commands::vault_delete,
             vault_commands::vault_reveal,
             vault_commands::vault_search,
