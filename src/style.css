@@ -286,3 +286,31 @@ button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]) {
   cursor: pointer;
 }
+
+/*
+  随包附带的中文手写体(SIL OFL 1.1,许可证在 src/assets/fonts/LICENSE-OFL.txt)。
+
+  为什么要自带:系统里能指望的中文手写字体只有楷体和华文楷体,那是**行楷**,
+  端正有余、手写感不足。英文这边 Caveat 已经很像手写了,中文跟不上就很割裂。
+
+  用 url() 引本地文件而不是连 Google Fonts:这是桌面应用,不能假设有网,
+  而且 Google 把中文拆成九十多个子集,离线根本没法用。
+  woff2 由官方 TTF 原样转码,字形没动过。
+*/
+@font-face {
+  font-family: 'ZCOOL KuaiLe';
+  src: url('/src/assets/fonts/ZCOOLKuaiLe.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Zhi Mang Xing';
+  src: url('/src/assets/fonts/ZhiMangXing.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Ma Shan Zheng';
+  src: url('/src/assets/fonts/MaShanZheng.woff2') format('woff2');
+  font-display: swap;
+}
