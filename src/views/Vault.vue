@@ -7,17 +7,18 @@
  *
  * 版式和智能体页一致:四边外缩一律 10px,左边给导航栏让出 4.875rem(78px)。
  */
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, useTemplateRef } from 'vue'
 import { useI18n } from '@/i18n'
 import {
   vault, hasVault, activeTab, dirtyPaths, dotColor, displayName,
   restoreVault, pickVault, toggleDir, collapseAll, expandAll, setSort,
   openFile, closeTab, saveActive, createEntry, createWithContent, clearVault,
-  renameEntry, deleteEntry, revealEntry, copyPath,
+  renameEntry, deleteEntry, moveEntry, revealEntry, copyPath,
   search, type Entry,
 } from '@/composables/useVault'
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
+  ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuPortal,
 } from '@/components/ui/context-menu'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -25,7 +26,6 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import MarkdownIt from 'markdown-it'
 
 /*
   空状态那个粒子 Logo 用的图标路径。和 assets/icons/obsidian.svg 是同一份 ——
@@ -63,7 +63,7 @@ const BASE_TEMPLATE = `views:
     name: 表格
 `
 
-import { settings } from '@/composables/useAppSettings'
+import { settings, VAULT_FONT_SIZE, VAULT_FONTS, VAULT_FONT_STACK } from '@/composables/useAppSettings'
 import ParticleLogo from '@/components/ParticleLogo.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import { invoke } from '@tauri-apps/api/core'
@@ -120,10 +120,7 @@ const rows = computed<Row[]>(() => {
   return out
 })
 
-function onRowClick(e: Entry) {
-  if (e.isDir) toggleDir(e.path)
-  else openFile(e.path)
-}
+
 
 // ── 新建 / 重命名 / 删除 ──
 
@@ -134,11 +131,102 @@ const targetDir = computed(() => {
   return cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/')) : ''
 })
 
-async function newNote() {
-  const rel = await createEntry(targetDir.value, false, t('vault.newNoteName'))
-  if (rel) await nextTick()
+/**
+ * 新建完直接进原地改名。
+ *
+ * 「未命名」这个名字对谁都没用,建完第一件事必然是改名 —— 与其让用户
+ * 再去右键一次,不如建出来就把光标放进去。Obsidian 就是这个手感。
+ */
+async function created(rel: string | void) {
+  if (!rel) return
+  /*
+    **先把它所在的那一层展开。**
+    新建的位置是「当前文件所在的文件夹」,那个文件夹很可能是收着的 ——
+    收着的话这一行根本没渲染出来,原地改名就静默失效了(建是建出来了,
+    用户只看到编辑区空白一片,不知道东西去哪了)。
+  */
+  const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+  if (dir && !vault.expanded.has(dir)) await toggleDir(dir)
+  await nextTick()
+  await startInline(rel, rel.split('/').pop() ?? rel)
 }
-const newFolder = () => createEntry(targetDir.value, true, t('vault.newFolderName'))
+
+const newNote = async () => created(await createEntry(targetDir.value, false, t('vault.newNoteName')))
+const newFolder = async () => created(await createEntry(targetDir.value, true, t('vault.newFolderName')))
+
+// ── 原地重命名 ────────────────────────────────────────
+//
+// 树里改名走这一套(新建完自动进来);右上角更多菜单里的「重命名」还是弹窗。
+
+/** 正在原地改名的那一项(相对路径),空串表示没有 */
+const inlineEdit = ref('')
+const inlineText = ref('')
+const inlineInput = useTemplateRef<HTMLInputElement[] | HTMLInputElement>('inlineInput')
+/** 防重入:回车提交之后紧接着还会来一次 blur,不挡的话会提交两遍 */
+let committing = false
+
+/*
+  菜单收起时,Radix 默认把焦点还给触发它的那个行按钮。
+  从菜单里进原地改名的话这就是灾难:焦点被抢走 → 输入框失焦 → 当场按"没改"提交,
+  用户眼睁睁看着刚弹出来的框自己关掉。等一帧也没用,它比一帧还晚。
+  所以进改名的时候直接把这次焦点归还挡掉 —— 焦点本来就该在输入框里。
+*/
+let keepFocus = false
+function onMenuClose(e: Event) {
+  if (!keepFocus) return
+  keepFocus = false
+  e.preventDefault()
+}
+
+async function startInline(path: string, name: string) {
+  keepFocus = true
+  inlineEdit.value = path
+  inlineText.value = name
+  await nextTick()
+  const el = Array.isArray(inlineInput.value) ? inlineInput.value[0] : inlineInput.value
+  if (!el) return
+  /*
+    **要等一帧再聚焦。**
+
+    从右键菜单进来时,菜单关闭的那一下 Radix 会把焦点还给触发它的那个行按钮 ——
+    那件事发生在我们之后,于是刚设好的选区被抹掉(输入框看着是亮的,
+    里面却什么都没选中,用户一打字得先自己全选)。等到下一帧,菜单已经收完了。
+  */
+  requestAnimationFrame(() => {
+    el.focus()
+    // 只选中主干,扩展名留在后面不选 —— 改名基本都是改主干,
+    // 全选中的话用户一打字就把 .md 一起覆盖掉了
+    const stem = name.replace(/\.[^.]+$/, '')
+    el.setSelectionRange(0, stem.length)
+  })
+}
+
+function onInlineKey(e: KeyboardEvent) {
+  if (e.key === 'Enter') { e.preventDefault(); void commitInline() }
+  else if (e.key === 'Escape') { e.preventDefault(); cancelInline() }
+}
+
+function cancelInline() {
+  keepFocus = false
+  committing = true
+  inlineEdit.value = ''
+  inlineText.value = ''
+  setTimeout(() => { committing = false }, 0)
+}
+
+async function commitInline() {
+  if (committing) return
+  const path = inlineEdit.value
+  const name = inlineText.value.trim()
+  if (!path) return
+  keepFocus = false
+  committing = true
+  inlineEdit.value = ''
+  const old = path.split('/').pop() ?? path
+  // 没改、或者清空了,就当没发生过,不去打扰磁盘
+  if (name && name !== old) await renameEntry(path, name)
+  committing = false
+}
 
 const renameTarget = ref<Entry | null>(null)
 const renameText = ref('')
@@ -205,51 +293,130 @@ function onGlobalKey(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onGlobalKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
 
-// ── Markdown 渲染 ──
+// ── 正文编辑 ──
 //
-// 预览态用 markdown-it 渲染,点一下进编辑,失焦回预览 —— 和 Obsidian 一个手感。
-// 不做「实时预览」(边打字边渲染同一块区域):那需要一整套 CodeMirror 装饰,
-// 是另一个量级的工程,先把「看得舒服 + 改得方便」这两件做扎实。
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+// 编辑器本体在 components/MarkdownEditor.vue(CodeMirror 6 + 实时渲染装饰)。
+// 这里只负责把它需要的东西喂进去:内容、字体字号行宽、以及下面这两个回调。
+// ── 正文右键菜单 ──────────────────────────────────────
 
-/*
-  任务列表。markdown-it **原生不支持** `- [ ]` —— 它会把方括号当普通文字,
-  渲染出来就是一行「[ ] 待办」。这里加一条规则:列表项开头是 [ ] 或 [x] 的,
-  换成真的 checkbox。
+const editor = useTemplateRef<InstanceType<typeof MarkdownEditor>>('editor')
+/** 菜单模板里到处要用,起个短名字 */
+const ed = computed(() => editor.value)
 
-  不引依赖是因为要做的事就这么点,而且 markdown-it-task-lists 没有类型声明,
-  接进来还要额外写 d.ts。
-*/
-md.core.ruler.after('inline', 'xg-task-list', (state) => {
-  const toks = state.tokens
-  for (let i = 0; i < toks.length; i++) {
-    if (toks[i].type !== 'inline') continue
-    // 必须是 段落开头 且 这个段落在列表项里,否则正文里写 [x] 也会被吃掉
-    if (i < 2 || toks[i - 1].type !== 'paragraph_open') continue
-    if (i < 3 || toks[i - 2].type !== 'list_item_open') continue
-    const m = /^\[([ xX])\]\s+/.exec(toks[i].content)
-    if (!m) continue
-    const done = m[1] !== ' '
-    toks[i].content = toks[i].content.slice(m[0].length)
-    const kids = toks[i].children
-    if (kids && kids.length && kids[0].type === 'text') {
-      kids[0].content = kids[0].content.replace(/^\[([ xX])\]\s+/, '')
-    }
-    const box = new state.Token('html_inline', '', 0)
-    box.content = `<input type="checkbox" disabled${done ? ' checked' : ''}>`
-    kids?.unshift(box)
-    // 让样式能认出这是任务项:去掉圆点、行内对齐
-    toks[i - 2].attrJoin('class', 'task-item')
+/**
+ * 右键那一刻选中的文字。
+ *
+ * 要在菜单打开的瞬间抓下来存着:菜单一旦获得焦点,编辑器的选区就不再是「当前选区」,
+ * 等用户点到菜单项时再去读已经晚了。
+ */
+const selText = ref('')
+function onCtxOpen(open: boolean) {
+  if (open) selText.value = editor.value?.selectedText() ?? ''
+}
+
+const TABLE_SNIPPET = '|  |  |\n| --- | --- |\n|  |  |'
+const CALLOUT_SNIPPET = '> [!note]\n> '
+const CODE_SNIPPET = '```\n\n```'
+const MATH_SNIPPET = '$$\n\n$$'
+
+/** 拿选中的词去搜整个库 —— 和 Obsidian 那条「查找 "xxx"」一样 */
+function searchSelection() {
+  if (selText.value) search(selText.value)
+}
+
+// ── 目录栏拖放 ────────────────────────────────────────
+//
+// **不能用 HTML5 的 draggable/dragstart。**
+//
+// Tauri 的窗口默认开着系统级拖放(dragDropEnabled),那一层会把 webview 里的
+// 拖拽事件整个吃掉 —— 页面内的 draggable 元素完全拖不动,而且不报错。
+// 关掉它就能用,但格式转换页正靠 onDragDropEvent 接收从资源管理器拖进来的文件,
+// 那个不能牺牲。
+//
+// 所以这里自己用指针事件做:按下记位置,移动超过阈值才算拖,
+// 落点用 elementFromPoint 找行 —— 逻辑全在我们自己手里,和那个开关无关。
+
+/** 正在被拖的那一项(相对路径)。空串表示没在拖 */
+const dragPath = ref('')
+/** 当前会落进去的目标目录;'__root__' 是库根 */
+const dropTarget = ref('')
+/** 拖着的那个小标签跟着光标走 */
+const ghost = ref({ x: 0, y: 0, name: '' })
+const treeBox = useTemplateRef<HTMLElement>('treeBox')
+
+/** 按下之后要移动这么多像素才当成拖拽 —— 不给阈值的话手一抖点击就变成了拖动 */
+const DRAG_THRESHOLD = 5
+
+let pending: { path: string, name: string, x: number, y: number } | null = null
+/** 这一轮真的拖过,松手时要把随后那次 click 吞掉(否则会顺手打开文件) */
+let didDrag = false
+
+function onRowDown(e: PointerEvent, entry: Entry) {
+  if (e.button !== 0) return
+  pending = { path: entry.path, name: entry.name, x: e.clientX, y: e.clientY }
+  didDrag = false
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp, { once: true })
+}
+
+/** 光标底下那一行会落进哪个目录;返回 null 表示这里不能放 */
+function dirUnder(x: number, y: number): string | null {
+  const el = document.elementFromPoint(x, y)?.closest('[data-path]') as HTMLElement | null
+  if (!el) {
+    // 不在任何一行上:落在树的空白处才算「移回库根」,落在树外面不算
+    const box = treeBox.value?.getBoundingClientRect()
+    if (!box || x < box.left || x > box.right || y < box.top || y > box.bottom) return null
+    return ''
   }
-  return true
-})
-/*
-  没有「编辑态 / 预览态」了。以前是点一下正文才切进 textarea,现在是
-  Obsidian 那种边打边渲染 —— 光标所在的那一行显示原始语法,移开就变成渲染结果,
-  底下始终是同一份 Markdown 文本。
+  const path = el.dataset.path ?? ''
+  const isDir = el.dataset.dir === '1'
+  const src = dragPath.value
+  // 放到自己身上、放进自己的子孙里都不行(后者会把整棵子树搬进正在移动的目录)
+  if (path === src || path.startsWith(src + '/')) return null
+  return isDir ? path : path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+}
 
-  md(markdown-it)还留着:智能体那一栏要把回答渲染出来,和正文编辑器是两回事。
-*/
+function onPointerMove(e: PointerEvent) {
+  if (!pending) return
+  if (!dragPath.value) {
+    if (Math.hypot(e.clientX - pending.x, e.clientY - pending.y) < DRAG_THRESHOLD) return
+    dragPath.value = pending.path
+    ghost.value.name = displayName(pending.name)
+    didDrag = true
+  }
+  ghost.value.x = e.clientX
+  ghost.value.y = e.clientY
+  const dir = dirUnder(e.clientX, e.clientY)
+  const from = dragPath.value.includes('/')
+    ? dragPath.value.slice(0, dragPath.value.lastIndexOf('/')) : ''
+  // 拖回原来那一层不给高亮 —— 松手也什么都不会发生,先别给用户错误的期待
+  dropTarget.value = dir === null || dir === from ? '' : dir === '' ? '__root__' : dir
+}
+
+async function onPointerUp(e: PointerEvent) {
+  window.removeEventListener('pointermove', onPointerMove)
+  const src = dragPath.value
+  const target = dropTarget.value
+  pending = null
+  dragPath.value = ''
+  dropTarget.value = ''
+  if (!src || !target) return
+  const dir = target === '__root__' ? '' : target
+  await moveEntry(src, dir)
+  // 放进一个关着的文件夹,展开给用户看一眼东西去哪了
+  if (dir && !vault.expanded.has(dir)) await toggleDir(dir)
+  void e
+}
+
+/** 拖完那一下的 click 要吞掉,不然松手顺手就把文件打开了 */
+function onRowClick(entry: Entry) {
+  if (didDrag) {
+    didDrag = false
+    return
+  }
+  if (entry.isDir) toggleDir(entry.path)
+  else openFile(entry.path)
+}
 
 /** [[双链]] 的候选。走 vault_search —— 它连文件名一起匹配,能搜到整个库 */
 async function wikiSuggest(q: string) {
@@ -346,9 +513,31 @@ function menu(fn: () => void) {
   fn()
 }
 
-const bodyFontClass = computed(() => ({
-  default: '', hand: 'md-font-hand', dengxian: 'md-font-dengxian',
-}[settings.vaultFont] ?? ''))
+/*
+  每篇笔记可以单独覆盖宽度,没覆盖就跟随设置页里那个全局默认。
+
+  覆盖记在我们自己的设置里(按文件相对路径),**不写进笔记的 frontmatter** ——
+  那等于改动用户的文件,和「打开不重写」这条原则冲突。
+*/
+const pageWidth = computed(() => settings.vaultPageWidth[activeTab.value?.path ?? ''] ?? null)
+
+const effectiveFullWidth = computed(() => {
+  const o = pageWidth.value
+  return o === 'wide' ? true : o === 'narrow' ? false : settings.vaultFullWidth
+})
+
+function setPageWidth(v: 'wide' | 'narrow' | null) {
+  const path = activeTab.value?.path
+  if (!path) return
+  if (v === null) delete settings.vaultPageWidth[path]
+  else settings.vaultPageWidth[path] = v
+}
+
+/** 字号步进。夹在 VAULT_FONT_SIZE 的上下限里 —— 两头都不可用 */
+function stepFont(d: number) {
+  settings.vaultFontSize = Math.min(VAULT_FONT_SIZE.max,
+    Math.max(VAULT_FONT_SIZE.min, settings.vaultFontSize + d * VAULT_FONT_SIZE.step))
+}
 
 /** 移除工作区的确认。不动磁盘上的文件,但会清掉标签,所以还是问一句 */
 const confirmClear = ref(false)
@@ -358,12 +547,17 @@ function doClearVault() {
   clearVault()
 }
 
+/** 在某个文件夹里新建。建完展开它,不然新东西藏在收起的文件夹里看不见 */
+async function newIn(dir: string, isDir: boolean) {
+  await created(await createEntry(dir, isDir, isDir ? t('vault.newFolderName') : t('vault.newNoteName')))
+}
+
 /** 空白处右键新建。都建在库根下 —— 右键的是空白,没有"当前目录"这个概念 */
-function newAt(kind: 'note' | 'folder' | 'base' | 'canvas') {
-  if (kind === 'note') return createEntry('', false, t('vault.newNoteName'))
-  if (kind === 'folder') return createEntry('', true, t('vault.newFolderName'))
-  if (kind === 'base') return createWithContent('', t('vault.newBaseName'), BASE_TEMPLATE)
-  return createWithContent('', t('vault.newCanvasName'), CANVAS_TEMPLATE)
+async function newAt(kind: 'note' | 'folder' | 'base' | 'canvas') {
+  if (kind === 'note') return created(await createEntry('', false, t('vault.newNoteName')))
+  if (kind === 'folder') return created(await createEntry('', true, t('vault.newFolderName')))
+  if (kind === 'base') return created(await createWithContent('', t('vault.newBaseName'), BASE_TEMPLATE))
+  return created(await createWithContent('', t('vault.newCanvasName'), CANVAS_TEMPLATE))
 }
 
 // ── 右侧智能体 ──
@@ -498,13 +692,26 @@ async function sendFromVault() {
         -->
         <ContextMenu v-else>
           <ContextMenuTrigger as-child>
-        <div class="flex-1 min-h-0 overflow-y-auto px-1.5 pb-2">
+        <!-- 空白处也收:松在这儿就是移回库根 -->
+        <div ref="treeBox" class="flex-1 min-h-0 overflow-y-auto px-1.5 pb-2"
+          :style="{
+            outline: dropTarget === '__root__' ? '2px solid ' + settings.vaultAccent : '',
+            outlineOffset: '-2px', borderRadius: '6px',
+          }">
           <ContextMenu v-for="r in rows" :key="r.entry.path">
             <ContextMenuTrigger as-child>
               <button @click="onRowClick(r.entry)"
-                :style="{ paddingLeft: (r.depth * 14 + 8) + 'px' }" :class="[
+                @pointerdown="onRowDown($event, r.entry)"
+                :data-path="r.entry.path" :data-dir="r.entry.isDir ? '1' : ''"
+                :style="{
+                  paddingLeft: (r.depth * 14 + 8) + 'px',
+                  outline: dropTarget === r.entry.path ? '2px solid ' + settings.vaultAccent : '',
+                  outlineOffset: '-2px',
+                }" :class="[
                   'w-full flex items-center gap-1.5 rounded-md py-1 pr-2 text-left transition-colors',
-                  vault.activeTab === r.entry.path ? 'bg-muted' : 'hover:bg-muted/50'
+                  vault.activeTab === r.entry.path ? 'bg-muted' : 'hover:bg-muted/50',
+                  dropTarget === r.entry.path ? 'bg-muted/70' : '',
+                  dragPath === r.entry.path ? 'opacity-40' : ''
                 ]">
                 <!--
                   文件夹用开合两种图标,不用三角形 —— 一个图标同时说明「这是文件夹」
@@ -515,17 +722,27 @@ async function sendFromVault() {
                 <!-- 文件用彩色圆点前缀:按扩展名分色,窄侧栏里比一堆图标干净 -->
                 <span v-else class="size-2 rounded-full shrink-0 ml-1 mr-0.5" :class="dotColor(r.entry.ext)" />
 
-                <span class="text-[15px] truncate">{{ displayName(r.entry.name) }}</span>
+                <!--
+                  重命名就在这一行原地改。新建完自动进这个状态,和 Obsidian 一样 ——
+                  弹窗那套留给右上角更多菜单里的「重命名」(那时候用户不在树上,
+                  原地改反而要先去树里把那一行找出来)。
+                -->
+                <input v-if="inlineEdit === r.entry.path" ref="inlineInput" v-model="inlineText"
+                  @click.stop @pointerdown.stop @keydown.stop="onInlineKey($event)" @blur="commitInline"
+                  :style="{ outline: '2px solid ' + settings.vaultAccent, outlineOffset: '1px' }"
+                  class="flex-1 min-w-0 bg-transparent text-[15px] rounded-[3px] px-1 -mx-1" />
+                <span v-else class="text-[15px] truncate">{{ displayName(r.entry.name) }}</span>
                 <!-- 有未保存改动的文件标一个点 -->
                 <span v-if="dirtyPaths.has(r.entry.path)" class="size-1.5 rounded-full bg-amber-500 shrink-0 ml-auto" />
               </button>
             </ContextMenuTrigger>
 
-            <ContextMenuContent class="w-48">
-              <ContextMenuItem v-if="r.entry.isDir" @select="createEntry(r.entry.path, false, t('vault.newNoteName'))">
+            <ContextMenuContent class="w-auto min-w-44 whitespace-nowrap"
+              @close-auto-focus="onMenuClose">
+              <ContextMenuItem v-if="r.entry.isDir" @select="newIn(r.entry.path, false)">
                 <span class="icon-[lucide--file-plus] w-4 h-4 mr-2" />{{ t('vault.newNote') }}
               </ContextMenuItem>
-              <ContextMenuItem v-if="r.entry.isDir" @select="createEntry(r.entry.path, true, t('vault.newFolderName'))">
+              <ContextMenuItem v-if="r.entry.isDir" @select="newIn(r.entry.path, true)">
                 <span class="icon-[lucide--folder-plus] w-4 h-4 mr-2" />{{ t('vault.newFolder') }}
               </ContextMenuItem>
               <ContextMenuSeparator v-if="r.entry.isDir" />
@@ -536,7 +753,8 @@ async function sendFromVault() {
                 <span class="icon-[lucide--external-link] w-4 h-4 mr-2" />{{ t('vault.reveal') }}
               </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuItem @select="startRename(r.entry)">
+              <!-- 树里的重命名走原地改名;弹窗那套只留给右上角更多菜单 -->
+              <ContextMenuItem @select="startInline(r.entry.path, r.entry.name)">
                 <span class="icon-[lucide--pencil] w-4 h-4 mr-2" />{{ t('vault.rename') }}
               </ContextMenuItem>
               <ContextMenuItem @select="deleteTarget = r.entry" class="text-destructive focus:text-destructive">
@@ -547,7 +765,7 @@ async function sendFromVault() {
         </div>
 
           </ContextMenuTrigger>
-          <ContextMenuContent class="w-52">
+          <ContextMenuContent class="w-auto min-w-44 whitespace-nowrap">
             <ContextMenuItem @select="newAt('note')">
               <span class="icon-[lucide--file-plus] w-4 h-4 mr-2" />{{ t('vault.newNote') }}
             </ContextMenuItem>
@@ -568,6 +786,18 @@ async function sendFromVault() {
           {{ vault.error }}
         </p>
       </aside>
+
+      <!--
+        跟着光标走的小标签。用 fixed + 坐标,不用 HTML5 那个拖影 ——
+        我们本来就没用原生拖放,拖影也就无从谈起。
+      -->
+      <Teleport to="body">
+        <div v-if="dragPath" :style="{ left: ghost.x + 12 + 'px', top: ghost.y + 12 + 'px' }"
+          class="fixed z-50 pointer-events-none rounded-md border bg-popover px-2 py-1
+                 text-[13px] shadow-lg">
+          {{ ghost.name }}
+        </div>
+      </Teleport>
       </div>
 
       <div v-if="treeOpen" @pointerdown="startDrag('tree', $event)"
@@ -629,7 +859,9 @@ async function sendFromVault() {
             智能体那个开关原来是右下角一颗浮标 —— 挪上来之后所有跟"这篇文档"有关的
             操作都在同一行,不用满屏找。
           -->
-          <div v-if="activeTab" class="h-9 shrink-0 flex items-center gap-1 px-2 border-b border-border">
+          <div v-if="activeTab"
+            class="h-9 shrink-0 mx-2 mt-2 flex items-center gap-1 px-1.5
+                   rounded-lg border border-border bg-background/40">
             <button @click="go(-1)" :disabled="!canBack" :title="t('vault.back')"
               class="tool-btn size-7 disabled:opacity-30 disabled:pointer-events-none">
               <span class="icon-[lucide--arrow-left] w-4 h-4" />
@@ -671,17 +903,40 @@ async function sendFromVault() {
 
                 <div class="h-px bg-border my-1 mx-1" />
                 <p class="px-2 py-1 text-[11px] text-muted-foreground">{{ t('vault.bodyFont') }}</p>
-                <button v-for="f in (['default', 'hand', 'dengxian'] as const)" :key="f"
-                  class="menu-row" @click="settings.vaultFont = f">
-                  <span class="icon-[lucide--check] w-4 h-4"
+                <button v-for="f in VAULT_FONTS" :key="f" class="menu-row"
+                  :style="{ fontFamily: VAULT_FONT_STACK[f] }" @click="settings.vaultFont = f">
+                  <span class="icon-[lucide--check] w-4 h-4 shrink-0"
                     :class="settings.vaultFont === f ? '' : 'opacity-0'" />
-                  {{ f === 'default' ? t('vault.fontDefault') : f === 'hand' ? t('vault.fontHand') : t('vault.fontDengxian') }}
+                  {{ t('vault.font_' + f) }}
                 </button>
 
                 <div class="h-px bg-border my-1 mx-1" />
-                <button class="menu-row" @click="settings.vaultFullWidth = !settings.vaultFullWidth">
-                  <span class="icon-[lucide--check] w-4 h-4"
-                    :class="settings.vaultFullWidth ? '' : 'opacity-0'" />{{ t('vault.fullWidth') }}
+                <div class="flex items-center gap-2 px-2 py-1">
+                  <span class="text-[11px] text-muted-foreground flex-1">{{ t('vault.fontSize') }}</span>
+                  <button class="tool-btn size-6" :disabled="settings.vaultFontSize <= VAULT_FONT_SIZE.min"
+                    @click="stepFont(-1)">
+                    <span class="icon-[lucide--minus] w-3.5 h-3.5" />
+                  </button>
+                  <span class="w-6 text-center text-[12px] tabular-nums">{{ settings.vaultFontSize }}</span>
+                  <button class="tool-btn size-6" :disabled="settings.vaultFontSize >= VAULT_FONT_SIZE.max"
+                    @click="stepFont(1)">
+                    <span class="icon-[lucide--plus] w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div class="h-px bg-border my-1 mx-1" />
+                <p class="px-2 py-1 text-[11px] text-muted-foreground">{{ t('vault.pageWidth') }}</p>
+                <button class="menu-row" @click="setPageWidth(null)">
+                  <span class="icon-[lucide--check] w-4 h-4" :class="pageWidth === null ? '' : 'opacity-0'" />
+                  {{ t('vault.widthFollow') }}
+                </button>
+                <button class="menu-row" @click="setPageWidth('wide')">
+                  <span class="icon-[lucide--check] w-4 h-4" :class="pageWidth === 'wide' ? '' : 'opacity-0'" />
+                  {{ t('vault.widthWide') }}
+                </button>
+                <button class="menu-row" @click="setPageWidth('narrow')">
+                  <span class="icon-[lucide--check] w-4 h-4" :class="pageWidth === 'narrow' ? '' : 'opacity-0'" />
+                  {{ t('vault.widthNarrow') }}
                 </button>
 
                 <div class="h-px bg-border my-1 mx-1" />
@@ -710,11 +965,146 @@ async function sendFromVault() {
           所见即所得的 Markdown 编辑器。收窄居中作用在编辑器容器上,
           Ctrl+S 挂在外层 —— CodeMirror 的按键事件会冒泡上来。
         -->
-        <div v-else-if="activeTab.kind === 'markdown'" @keydown="onEditorKey"
-          class="flex-1 min-h-0 overflow-hidden xg-doc" :class="[bodyFontClass, settings.vaultFullWidth ? '' : 'xg-doc-narrow']">
-          <MarkdownEditor v-model="activeTab.content" :on-open-link="(u: string) => { void openExternal(u) }"
-            :wiki-suggest="wikiSuggest" :on-open-wiki="openWiki" />
-        </div>
+        <!-- 字体、字号、行宽都由编辑器内部的 CSS 变量驱动,这里只负责把值传进去 -->
+        <ContextMenu v-else-if="activeTab.kind === 'markdown'" @update:open="onCtxOpen">
+          <ContextMenuTrigger as-child>
+            <div @keydown="onEditorKey" class="flex-1 min-h-0 overflow-hidden">
+              <MarkdownEditor ref="editor" v-model="activeTab.content"
+                :accent="settings.vaultAccent"
+                :font="settings.vaultFont" :font-size="settings.vaultFontSize"
+                :full-width="effectiveFullWidth"
+                :on-open-link="(u: string) => { void openExternal(u) }"
+                :wiki-suggest="wikiSuggest" :on-open-wiki="openWiki" />
+            </div>
+          </ContextMenuTrigger>
+
+          <ContextMenuContent class="w-auto min-w-52 whitespace-nowrap">
+            <ContextMenuItem @select="ed?.wrap('[[', ']]')">
+              <span class="icon-[lucide--link] w-4 h-4 mr-2" />{{ t('vault.ctxWikiLink') }}
+            </ContextMenuItem>
+            <ContextMenuItem @select="ed?.wrap('[', '](https://)')">
+              <span class="icon-[lucide--external-link] w-4 h-4 mr-2" />{{ t('vault.ctxExtLink') }}
+            </ContextMenuItem>
+            <!-- 有选中文字才给「查找」—— 没选中的话这条没有宾语 -->
+            <ContextMenuItem v-if="selText" @select="searchSelection">
+              <span class="icon-[lucide--search] w-4 h-4 mr-2" />
+              {{ t('vault.ctxFind', { q: selText.length > 12 ? selText.slice(0, 12) + '…' : selText }) }}
+            </ContextMenuItem>
+
+            <ContextMenuSeparator />
+
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <span class="icon-[lucide--type] w-4 h-4 mr-2" />{{ t('vault.ctxFormat') }}
+              </ContextMenuSubTrigger>
+              <ContextMenuPortal>
+                <ContextMenuSubContent class="w-auto min-w-36 whitespace-nowrap">
+                  <ContextMenuItem @select="ed?.wrap('**')">
+                    <span class="icon-[lucide--bold] w-4 h-4 mr-2" />{{ t('vault.fmtBold') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.wrap('*')">
+                    <span class="icon-[lucide--italic] w-4 h-4 mr-2" />{{ t('vault.fmtItalic') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.wrap('~~')">
+                    <span class="icon-[lucide--strikethrough] w-4 h-4 mr-2" />{{ t('vault.fmtStrike') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.wrap('==')">
+                    <span class="icon-[lucide--highlighter] w-4 h-4 mr-2" />{{ t('vault.fmtHighlight') }}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem @select="ed?.wrap('`')">
+                    <span class="icon-[lucide--code] w-4 h-4 mr-2" />{{ t('vault.fmtCode') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.wrap('$')">
+                    <span class="icon-[lucide--sigma] w-4 h-4 mr-2" />{{ t('vault.fmtMath') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.wrap('%%')">
+                    <span class="icon-[lucide--message-square-off] w-4 h-4 mr-2" />{{ t('vault.fmtComment') }}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem @select="ed?.clearFormat()">
+                    <span class="icon-[lucide--eraser] w-4 h-4 mr-2" />{{ t('vault.fmtClear') }}
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuPortal>
+            </ContextMenuSub>
+
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <span class="icon-[lucide--pilcrow] w-4 h-4 mr-2" />{{ t('vault.ctxBlock') }}
+              </ContextMenuSubTrigger>
+              <ContextMenuPortal>
+                <ContextMenuSubContent class="w-auto min-w-36 whitespace-nowrap">
+                  <ContextMenuItem @select="ed?.setBlock('- ')">
+                    <span class="icon-[lucide--list] w-4 h-4 mr-2" />{{ t('vault.blkBullet') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.setBlock('', true)">
+                    <span class="icon-[lucide--list-ordered] w-4 h-4 mr-2" />{{ t('vault.blkOrdered') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.setBlock('- [ ] ')">
+                    <span class="icon-[lucide--list-checks] w-4 h-4 mr-2" />{{ t('vault.blkTask') }}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem v-for="h in 6" :key="h" @select="ed?.setBlock('#'.repeat(h) + ' ')">
+                    <span class="w-4 h-4 mr-2 text-[11px] leading-4 text-center">H{{ h }}</span>
+                    {{ t('vault.blkHeading', { n: h }) }}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem @select="ed?.setBlock('')">
+                    <span class="icon-[lucide--align-left] w-4 h-4 mr-2" />{{ t('vault.blkBody') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.setBlock('> ')">
+                    <span class="icon-[lucide--quote] w-4 h-4 mr-2" />{{ t('vault.blkQuote') }}
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuPortal>
+            </ContextMenuSub>
+
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <span class="icon-[lucide--between-horizontal-start] w-4 h-4 mr-2" />{{ t('vault.ctxInsert') }}
+              </ContextMenuSubTrigger>
+              <ContextMenuPortal>
+                <ContextMenuSubContent class="w-auto min-w-36 whitespace-nowrap">
+                  <ContextMenuItem @select="ed?.insertBlock(TABLE_SNIPPET)">
+                    <span class="icon-[lucide--table] w-4 h-4 mr-2" />{{ t('vault.insTable') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.insertBlock(CALLOUT_SNIPPET)">
+                    <span class="icon-[lucide--message-square-quote] w-4 h-4 mr-2" />{{ t('vault.insCallout') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.insertBlock('---')">
+                    <span class="icon-[lucide--minus] w-4 h-4 mr-2" />{{ t('vault.insRule') }}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem @select="ed?.insertBlock(CODE_SNIPPET)">
+                    <span class="icon-[lucide--code-xml] w-4 h-4 mr-2" />{{ t('vault.insCode') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.insertBlock(MATH_SNIPPET)">
+                    <span class="icon-[lucide--sigma] w-4 h-4 mr-2" />{{ t('vault.insMath') }}
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuPortal>
+            </ContextMenuSub>
+
+            <ContextMenuSeparator />
+
+            <ContextMenuItem @select="ed?.clip(true)">
+              <span class="icon-[lucide--scissors] w-4 h-4 mr-2" />{{ t('vault.ctxCut') }}
+            </ContextMenuItem>
+            <ContextMenuItem @select="ed?.clip()">
+              <span class="icon-[lucide--copy] w-4 h-4 mr-2" />{{ t('vault.ctxCopy') }}
+            </ContextMenuItem>
+            <ContextMenuItem @select="ed?.paste()">
+              <span class="icon-[lucide--clipboard] w-4 h-4 mr-2" />{{ t('vault.ctxPaste') }}
+            </ContextMenuItem>
+            <ContextMenuItem @select="ed?.paste(true)">
+              <span class="icon-[lucide--clipboard-type] w-4 h-4 mr-2" />{{ t('vault.ctxPastePlain') }}
+            </ContextMenuItem>
+            <ContextMenuItem @select="ed?.selectAll()">
+              <span class="icon-[lucide--text-select] w-4 h-4 mr-2" />{{ t('vault.ctxSelectAll') }}
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
 
         <!-- 画布和二进制文件还没做编辑器,如实说,别装作打开了 -->
         <div v-else class="flex-1 flex items-center justify-center px-6">
@@ -861,99 +1251,6 @@ async function sendFromVault() {
 </template>
 
 <style scoped>
-
-/*
-  Markdown 排版。
-  用 :deep 是因为内容是 v-html 塞进来的,scoped 的属性选择器加不到那些元素上。
-  行宽收在 74ch:满屏宽的正文一行几百字,眼睛跳行会跳错。
-*/
-/*
-  收窄和居中作用在**内容块**上(md-narrow),不作用在滚动容器上 ——
-  给容器设 max-width 的话滚动条会跟着往里挪。
-  全宽时这个类不加,内容自然铺满。
-*/
-/* 收窄居中作用在编辑器的内容区上。给外层容器设 max-width 的话,
-   滚动条会跟着往里挪,而且点击空白处就落不到编辑器里了。 */
-.xg-doc-narrow :deep(.cm-content) { max-width: 78ch; margin: 0 auto; }
-.xg-doc :deep(.cm-scroller) { padding: 0 2rem; }
-
-/* 正文字体三选。手绘风在中文上靠楷体,英文靠 Caveat;
-   等线是 Windows 自带的 DengXian,中英都有。 */
-.md-font-hand :deep(*) { font-family: 'Caveat', 'LXGW WenKai', KaiTi, '楷体', cursive; }
-.md-font-dengxian :deep(*) { font-family: 'DengXian', '等线', 'Microsoft YaHei', sans-serif; }
-/* 代码块不跟着换 —— 等宽是代码的功能性要求,不是风格选择 */
-.md-font-hand :deep(code),
-.md-font-dengxian :deep(code) { font-family: 'JetBrains Mono', Consolas, monospace; }
-:deep(.md-body) h1,
-:deep(.md-body) h2,
-:deep(.md-body) h3 { font-weight: 600; line-height: 1.35; margin: 1.6em 0 0.6em; text-wrap: balance; }
-:deep(.md-body) h1 { font-size: 1.7em; }
-:deep(.md-body) h2 { font-size: 1.35em; }
-:deep(.md-body) h3 { font-size: 1.12em; }
-/* h4~h6 也要写。preflight 把所有标题的字号字重都清成继承值,
-   不写的话四级往下和正文一模一样,层级完全看不出来。 */
-:deep(.md-body) h4,
-:deep(.md-body) h5,
-:deep(.md-body) h6 { font-weight: 600; line-height: 1.4; margin: 1.4em 0 0.5em; }
-:deep(.md-body) h4 { font-size: 1em; }
-:deep(.md-body) h5 { font-size: 0.94em; color: var(--muted-foreground); }
-:deep(.md-body) h6 { font-size: 0.88em; color: var(--muted-foreground); }
-:deep(.md-body) > *:first-child { margin-top: 0; }
-:deep(.md-body) p { margin: 0.85em 0; line-height: 1.85; }
-/*
-  **必须显式写 list-style。** Tailwind 的 preflight 把 ul/ol 重置成
-  list-style: none —— 只设 padding-left 的话,圆点和序号一个都不会出现,
-  看起来就是「无序列表和有序列表长得一模一样」。
-*/
-:deep(.md-body) ul,
-:deep(.md-body) ol { margin: 0.85em 0; padding-left: 1.6em; }
-:deep(.md-body) ul { list-style: disc; }
-:deep(.md-body) ol { list-style: decimal; }
-:deep(.md-body) ul ul { list-style: circle; }
-:deep(.md-body) ul ul ul { list-style: square; }
-:deep(.md-body) ol ol { list-style: lower-alpha; }
-:deep(.md-body) ol ol ol { list-style: lower-roman; }
-/* 任务项不要圆点 —— 前面已经有复选框了,再来个点是两个前缀 */
-:deep(.md-body) li.task-item { list-style: none; margin-left: -1.35em; }
-:deep(.md-body) li { margin: 0.3em 0; line-height: 1.8; }
-:deep(.md-body) li > ul,
-:deep(.md-body) li > ol { margin: 0.3em 0; }
-:deep(.md-body) blockquote {
-  margin: 1em 0;
-  padding: 0.1em 0 0.1em 1em;
-  border-left: 3px solid var(--border);
-  color: var(--muted-foreground);
-}
-:deep(.md-body) code {
-  font-family: 'JetBrains Mono', Consolas, monospace;
-  font-size: 0.88em;
-  background: color-mix(in srgb, var(--foreground) 8%, transparent);
-  padding: 0.12em 0.4em;
-  border-radius: 4px;
-}
-:deep(.md-body) pre {
-  margin: 1em 0;
-  padding: 0.9em 1.1em;
-  border-radius: 0.75rem;
-  background: color-mix(in srgb, var(--foreground) 6%, transparent);
-  overflow-x: auto;   /* 长代码横向滚动,不撑破版心 */
-}
-:deep(.md-body) pre code { background: none; padding: 0; font-size: 0.85em; line-height: 1.7; }
-:deep(.md-body) a { color: var(--primary); text-underline-offset: 2px; }
-:deep(.md-body) hr { margin: 2em 0; border: 0; border-top: 1px solid var(--border); }
-/* 表格自己横向滚动 —— 宽表格不能把整页推出横向滚动条 */
-:deep(.md-body) table { display: block; overflow-x: auto; border-collapse: collapse; margin: 1em 0; max-width: 100%; }
-:deep(.md-body) th,
-:deep(.md-body) td { border: 1px solid var(--border); padding: 0.45em 0.8em; text-align: left; }
-:deep(.md-body) th { background: color-mix(in srgb, var(--foreground) 5%, transparent); font-weight: 600; }
-:deep(.md-body) img { max-width: 100%; border-radius: 0.5rem; }
-:deep(.md-body) input[type="checkbox"] {
-  margin-right: 0.5em;
-  width: 1em;
-  height: 1em;
-  vertical-align: -0.1em;
-  accent-color: var(--primary);
-}
 
 .menu-row {
   display: flex;

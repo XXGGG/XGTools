@@ -8,6 +8,7 @@
  */
 import { reactive, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { settings } from '@/composables/useAppSettings'
 
 export type Entry = {
   path: string
@@ -244,16 +245,25 @@ async function restoreTabs() {
     const raw = localStorage.getItem(TABS_KEY)
     if (!raw) return
     const { active, paths } = JSON.parse(raw) as { active: string; paths: string[] }
-    for (const p of paths ?? []) await openFile(p, false)
-    if (active) vault.activeTab = active
+    /*
+      **开不了的存档标签直接跳过,不报错。**
+      两次会话之间用户在 Obsidian 那边删了/改名了文件是常事,那不是故障,
+      没必要一开应用就甩一条红字。openFile 的 quiet 就是为这个。
+    */
+    for (const p of paths ?? []) await openFile(p, false, true)
+    // active 指向的那个也可能没开出来 —— 不查一下就会激活一个不存在的标签,
+    // 表现是标签栏有东西、内容区却是空态。
+    if (active && vault.tabs.some((t) => t.path === active)) vault.activeTab = active
+    else vault.activeTab = vault.tabs[0]?.path ?? ''
   } catch { /* 存档坏了就当没有,不值得为它报错 */ }
 }
 
-export async function openFile(rel: string, activate = true) {
+/** @param quiet 读不出来时不摆错误横幅(恢复存档标签用)。返回是否真的开出来了。 */
+export async function openFile(rel: string, activate = true, quiet = false): Promise<boolean> {
   const exists = vault.tabs.find((t) => t.path === rel)
   if (exists) {
     if (activate) vault.activeTab = rel
-    return
+    return true
   }
   const name = rel.split('/').pop() ?? rel
   const kind = kindOf(name)
@@ -262,19 +272,27 @@ export async function openFile(rel: string, activate = true) {
     try {
       content = await invoke<string>('vault_read', { root: vault.root, rel })
     } catch (e) {
-      vault.error = String(e)
-      return
+      if (!quiet) {
+        vault.error = String(e)
+        // 同上:多半是文件已经没了,刷一下让那一行消失
+        void refreshDir(rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '')
+      }
+      return false
     }
   }
+  // 开成功了就把上一次的错误收掉 —— 否则那条红字会一直挂着,
+  // 明明后来一切正常,看着像还在坏
+  vault.error = ''
   // 读盘期间可能有别的调用把同一个文件开出来了 —— 上面那次检查是在 await 之前做的,
   // 挡不住并发。这里再查一遍,否则同一个文件会出现两个标签。
   if (vault.tabs.some((t) => t.path === rel)) {
     if (activate) vault.activeTab = rel
-    return
+    return true
   }
   vault.tabs.push({ path: rel, name, content, saved: content, kind })
   if (activate) vault.activeTab = rel
   persistTabs()
+  return true
 }
 
 export function closeTab(rel: string) {
@@ -375,6 +393,54 @@ export async function renameEntry(rel: string, newName: string) {
     }
   } catch (e) {
     vault.error = String(e)
+  }
+}
+
+/**
+ * 把 `rel` 移进 `destDir`(空串 = 库根)。目录栏拖拽用。
+ *
+ * 移完要收拾三样东西,少收拾哪样都会留下一个指向旧路径的引用:
+ * 打开着的标签(**连同被移动文件夹里面那些**)、两头的目录缓存、按路径存的单页宽度。
+ */
+export async function moveEntry(rel: string, destDir: string) {
+  const from = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+  if (from === destDir) return          // 拖回原地,不值得跑一趟
+  try {
+    const next = await invoke<string>('vault_move', { root: vault.root, rel, destDir })
+    await refreshDir(from)
+    if (destDir !== from) await refreshDir(destDir)
+
+    // 旧路径 → 新路径。移动的是文件夹时,它下面每一层都要跟着换前缀
+    const remap = (path: string) =>
+      path === rel ? next : path.startsWith(rel + '/') ? next + path.slice(rel.length) : path
+
+    let touched = false
+    for (const t of vault.tabs) {
+      const np = remap(t.path)
+      if (np === t.path) continue
+      t.path = np
+      t.name = np.split('/').pop() ?? np
+      touched = true
+    }
+    vault.activeTab = remap(vault.activeTab)
+    if (touched) persistTabs()
+
+    for (const [k, v] of Object.entries(settings.vaultPageWidth)) {
+      const nk = remap(k)
+      if (nk === k) continue
+      delete settings.vaultPageWidth[k]
+      settings.vaultPageWidth[nk] = v
+    }
+  } catch (e) {
+    vault.error = String(e)
+    /*
+      **失败之后一定要刷一遍那一层。**
+
+      最常见的失败就是「源文件已经不在了」—— 在 Obsidian 那边删了或者改了名,
+      我们这边的目录缓存还留着那一行。不刷的话那个幽灵行会一直挂在树上,
+      用户每拖一次就报一次同样的错,看着像功能坏了。刷完它自己就消失。
+    */
+    await refreshDir(from)
   }
 }
 
