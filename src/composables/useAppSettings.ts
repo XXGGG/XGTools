@@ -41,15 +41,76 @@ export type AppSettings = {
   vaultTreeWidth: number
   vaultChatWidth: number
   /** 右边那栏收起来的状态。没配 DSH 的人不该被一个用不了的面板占掉屏幕。 */
-  /** 正文字体:默认 / 手绘风 / 等线 */
-  vaultFont: 'default' | 'hand' | 'dengxian'
-  /** 正文是否铺满整栏。关掉时像 Obsidian 那样收窄并居中 */
+  /** 正文字体。档位见 VAULT_FONTS */
+  vaultFont: VaultFont
+  /**
+   * 笔记的主题色(十六进制)。复选框、选中文字的高亮、链接都吃这个色。
+   *
+   * 单独一个色,不跟应用的 --primary 走:应用主色是中性的界面色(深色下接近白),
+   * 拿它当正文强调色会糊成一片;Obsidian 也是把这个当独立设置的。
+   */
+  vaultAccent: string
+  /** 正文字号(px)。范围见 VAULT_FONT_SIZE —— 太小看不清、太大一行放不下几个字 */
+  vaultFontSize: number
+  /** 正文是否铺满整栏(全局默认)。关掉时像 Obsidian 那样收窄并居中 */
   vaultFullWidth: boolean
+  /**
+   * 单篇笔记的宽度覆盖。键是文件相对路径,没有这一项就跟随上面那个全局默认。
+   *
+   * 存在我们自己的设置里,**不写进笔记的 frontmatter** —— 那会改动用户的文件,
+   * 和「打开不重写」这条原则冲突。
+   */
+  vaultPageWidth: Record<string, 'wide' | 'narrow'>
   vaultTreeOpen: boolean
   vaultChatOpen: boolean
 }
 
 /** 会话侧栏可拖的范围。maxRatio 是「最多占窗口宽的几成」—— 光设 max 挡不住小窗口下把聊天区挤没。 */
+/** 正文字号的可调范围。给上下限是因为两头都不可用:再小看不清,再大一行放不下几个字 */
+export const VAULT_FONT_SIZE = { min: 13, max: 22, step: 1, def: 16 } as const
+
+/**
+ * 正文字体的档位。
+ *
+ * 后三档的中文字体是随包附带的(src/assets/fonts,SIL OFL 1.1),因为系统里
+ * 唯一能指望的中文手写体就是楷体 —— 那是行楷,端正但没有手写感。
+ * 每一档都配了英文和中文两边:只挑中文的话英文会掉进默认无衬线,一句话里
+ * 两种气质,比不换还难看。
+ */
+export const VAULT_FONTS = [
+  'default', 'dengxian', 'hand', 'kuaile', 'zhimang', 'mashan',
+] as const
+
+export type VaultFont = typeof VAULT_FONTS[number]
+
+/**
+ * 各档位的字体栈。**编辑器和设置页的预览必须是同一份** ——
+ * 两边各写一份的话,预览里看着是一种字,点进笔记又是另一种。
+ *
+ * 每档都写死了英文和中文两边:只换中文的话英文会掉进默认无衬线,
+ * 一句话里两种气质,比不换还难看。后三档的中文是随包附带的
+ * (见 style.css 里的 @font-face),不看系统装了什么。
+ */
+export const VAULT_FONT_STACK: Record<VaultFont, string> = {
+  default: "'Inter', 'Microsoft YaHei', system-ui, sans-serif",
+  dengxian: "'DengXian', '等线', 'Microsoft YaHei', sans-serif",
+  // 只靠系统的那档:英文手写感够了,中文只能落到楷体
+  hand: "'Caveat', KaiTi, '楷体', cursive",
+  kuaile: "'Caveat', 'ZCOOL KuaiLe', 'Microsoft YaHei', cursive",
+  zhimang: "'Caveat', 'Zhi Mang Xing', KaiTi, cursive",
+  mashan: "'Caveat', 'Ma Shan Zheng', KaiTi, cursive",
+}
+
+/**
+ * 笔记主题色的备选。第一个是默认 —— Obsidian 自己那个紫(hsl 254 80% 68%)。
+ *
+ * 给一组固定色而不是取色器:系统取色器是原生控件,和界面对不上,而且真让人
+ * 随便选,选出低对比度的颜色时勾和高亮就看不清了。这几个都验证过深浅色都能看。
+ */
+export const VAULT_ACCENTS = [
+  '#8b6cef', '#4f8ff7', '#2fb8a8', '#4caf50', '#e8913a', '#e05780',
+] as const
+
 export const AGENT_SIDEBAR = { min: 200, max: 420, minChat: 460 } as const
 
 export type ChatSurface = 'card' | 'flat'
@@ -70,8 +131,11 @@ const DEFAULTS: AppSettings = {
   agentChatSurface: 'card',
   vaultTreeWidth: 260,
   vaultChatWidth: 320,
-  vaultFont: 'default',
+  vaultFont: 'default' as VaultFont,
+  vaultAccent: VAULT_ACCENTS[0],
+  vaultFontSize: 16,
   vaultFullWidth: false,
+  vaultPageWidth: {},
   vaultTreeOpen: true,
   vaultChatOpen: true,
 }
@@ -121,6 +185,11 @@ export async function loadSettings() {
       settings.v = SETTINGS_VERSION
     }
     settings.blurOpacity = Math.min(100, Math.max(0, settings.blurOpacity))
+    if (!/^#[0-9a-fA-F]{6}$/.test(settings.vaultAccent)) settings.vaultAccent = DEFAULTS.vaultAccent
+    // 旧存档里可能是已经不存在的档位,落回默认,免得正文字体变成一串空引号
+    if (!VAULT_FONTS.includes(settings.vaultFont)) settings.vaultFont = DEFAULTS.vaultFont
+    settings.vaultFontSize = Math.min(VAULT_FONT_SIZE.max,
+      Math.max(VAULT_FONT_SIZE.min, Math.round(settings.vaultFontSize || VAULT_FONT_SIZE.def)))
     settings.agentSidebarWidth = Math.min(AGENT_SIDEBAR.max,
       Math.max(AGENT_SIDEBAR.min, Math.round(settings.agentSidebarWidth)))
     // 旧存档可能选的是已移除的高斯模糊,迁到亚克力,免得停在一个界面上不存在的选项

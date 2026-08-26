@@ -24,7 +24,7 @@ import {
 } from '@/composables/useDshChat'
 import { watch } from 'vue'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { settings, applyWindowEffect, applyTheme, AGENT_SIDEBAR,
+import { VAULT_FONT_SIZE, VAULT_ACCENTS, VAULT_FONTS, VAULT_FONT_STACK, settings, applyWindowEffect, applyTheme, AGENT_SIDEBAR,
   type BlurKind, type ThemeMode, type ChatSurface } from '@/composables/useAppSettings'
 import { useI18n, detectLocale, type Locale } from '@/i18n'
 import { MENU_ITEMS, orderedAll, type MenuItem } from '@/lib/sidebar-prefs'
@@ -228,6 +228,9 @@ function toggleItem(id: string) {
     ? settings.sidebarHidden.filter((x) => x !== id)
     : [...settings.sidebarHidden, id]
 }
+
+/** 有多少篇笔记单独设过宽度 —— 为 0 时那张「清除」卡整块不显示 */
+const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).length)
 </script>
 
 <template>
@@ -237,6 +240,7 @@ function toggleItem(id: string) {
         <TitleBarTabs>
           <TabsTrigger value="general" class="h-11 px-4 rounded-xl">{{ t('settings.general') }}</TabsTrigger>
           <TabsTrigger value="sidebar" class="h-11 px-4 rounded-xl">{{ t('settings.nav') }}</TabsTrigger>
+          <TabsTrigger value="vault" class="h-11 px-4 rounded-xl">{{ t('settings.vault') }}</TabsTrigger>
           <TabsTrigger value="dsh" class="h-11 px-4 rounded-xl">{{ t('settings.dsh') }}</TabsTrigger>
         </TitleBarTabs>
 
@@ -392,6 +396,93 @@ function toggleItem(id: string) {
         </TabsContent>
 
         <!-- ═══════ DSH ═══════ -->
+
+        <!-- ================= 笔记 ================= -->
+        <TabsContent value="vault" class="space-y-6">
+          <p class="text-xs text-muted-foreground">{{ t('settings.vaultHint') }}</p>
+
+          <div class="rounded-xl border divide-y">
+            <div class="px-4 py-3.5 space-y-3">
+              <div class="flex items-center gap-4">
+                <span class="icon-[lucide--type] w-5 h-5 shrink-0 text-muted-foreground" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm">{{ t('settings.vaultFont') }}</div>
+                  <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultFontDesc') }}</div>
+                </div>
+              </div>
+              <!--
+                每一档用它自己的字体写自己的名字 —— 字体这种东西说再多也不如看一眼,
+                尤其后三档中文差别很大,光看「快乐体 / 智芒星 / 马善政」根本分不出来。
+              -->
+              <div class="grid grid-cols-3 gap-2 pl-9">
+                <button v-for="f in VAULT_FONTS" :key="f" @click="settings.vaultFont = f"
+                  :style="{ fontFamily: VAULT_FONT_STACK[f] }" :class="[
+                    'rounded-lg border px-3 py-2.5 text-[15px] transition-colors',
+                    settings.vaultFont === f ? 'border-foreground/60 bg-muted/60' : 'hover:bg-muted/40'
+                  ]">{{ t('vault.font_' + f) }}</button>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--palette] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultAccent') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultAccentDesc') }}</div>
+              </div>
+              <!-- 给一组定好的色而不是取色器:原生取色器和界面对不上,而且随便选容易选出看不清的 -->
+              <div class="flex items-center gap-1.5 shrink-0">
+                <button v-for="c in VAULT_ACCENTS" :key="c" @click="settings.vaultAccent = c"
+                  :style="{ background: c }" :title="c"
+                  class="size-6 rounded-full transition-transform hover:scale-110"
+                  :class="settings.vaultAccent === c ? 'ring-2 ring-offset-2 ring-offset-background ring-foreground/60' : ''" />
+              </div>
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--a-large-small] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultFontSize') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">
+                  {{ t('settings.vaultFontSizeDesc', { min: VAULT_FONT_SIZE.min, max: VAULT_FONT_SIZE.max }) }}
+                </div>
+              </div>
+              <!-- 滑块行程就是允许的范围本身,超出的值根本选不到 -->
+              <div class="flex items-center gap-3 shrink-0">
+                <Slider :model-value="[settings.vaultFontSize]" :min="VAULT_FONT_SIZE.min"
+                  :max="VAULT_FONT_SIZE.max" :step="VAULT_FONT_SIZE.step" class="w-40"
+                  @update:model-value="(v: number[] | undefined) => { if (v) settings.vaultFontSize = v[0] }" />
+                <span class="w-10 text-right text-sm tabular-nums text-muted-foreground">
+                  {{ settings.vaultFontSize }}px
+                </span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--between-horizontal-start] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultFullWidth') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultFullWidthDesc') }}</div>
+              </div>
+              <Switch v-model="settings.vaultFullWidth" />
+            </div>
+          </div>
+
+          <!-- 单页覆盖攒在设置里,时间长了会积一堆指向已删除笔记的条目,给个出口清掉 -->
+          <div v-if="pageWidthCount > 0" class="rounded-xl border px-4 py-3.5 flex items-center gap-4">
+            <span class="icon-[lucide--brush-cleaning] w-5 h-5 shrink-0 text-muted-foreground" />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm">{{ t('settings.vaultResetPages') }}</div>
+              <div class="text-xs text-muted-foreground mt-0.5">
+                {{ t('settings.vaultResetPagesDesc', { n: pageWidthCount }) }}
+              </div>
+            </div>
+            <button @click="settings.vaultPageWidth = {}"
+              class="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted">
+              {{ t('settings.vaultResetPagesBtn') }}
+            </button>
+          </div>
+        </TabsContent>
+
         <TabsContent value="dsh" class="space-y-6">
 
           <section class="space-y-3">

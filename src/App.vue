@@ -306,11 +306,13 @@ onMounted(async () => {
       -->
       <aside class="absolute left-2.5 top-[4.875rem] bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto">
         <nav v-if="tools.length" class="float-card rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1">
+          <!-- 笔记页选中时图标染成笔记主题色,其他页还是白的 —— 一眼看出现在在哪 -->
           <button v-for="item in tools" :key="item.id" @click="currentView = item.id" :title="t(item.labelKey)" :class="[
             'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
             currentView === item.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           ]">
-            <span :class="item.icon" class="w-6 h-6" />
+            <span :class="item.icon" class="w-6 h-6"
+              :style="item.id === 'Vault' && currentView === 'Vault' ? { color: settings.vaultAccent } : undefined" />
           </button>
         </nav>
 
