@@ -5,15 +5,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
-  font-family: 'Caveat';
-  src: url('/fonts/Caveat[wght].ttf') format('truetype');
-  font-weight: 400 700;
-  font-display: swap;
-}
+/*
+  手写体现在统一走 Excalifont + 小赖(见 public/fonts/handwriting.css,由
+  scripts/gen-hand-font-css.mjs 生成)。原来这儿有一条 Caveat 的 @font-face,
+  指向的 `Caveat[wght].ttf` 根本不在仓库里 —— 一直是悄悄掉到系统 cursive,
+  所以那三款中文手写体怎么配都不对味。连同没人用的 --font-caveat 一起删了。
+*/
 
 @theme inline {
-  --font-caveat: 'Caveat', cursive;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -162,7 +161,15 @@
   color-scheme: dark;
 }
 
-/* 隐藏所有滚动条 */
+/*
+  默认藏起所有滚动条 —— 这个应用四处都是浮空卡片,一条系统灰滚动条杵在里面
+  很扎眼。**但要留出口**:笔记正文那种长内容没有滚动条是不行的,
+  滚到哪儿、还剩多少全靠猜。
+
+  **要放出某一处的滚动条,必须连 `display` 一起覆盖回来**,只写 width 和颜色
+  是不够的 —— 这条 `display: none` 还在生效,滑块再好看也不会画出来。
+  笔记正文那条就踩过这个坑,见 MarkdownEditor.vue。
+*/
 ::-webkit-scrollbar {
   display: none;
 }
@@ -285,32 +292,4 @@ body.vibrancy .shadow-lg {
 button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]) {
   cursor: pointer;
-}
-
-/*
-  随包附带的中文手写体(SIL OFL 1.1,许可证在 src/assets/fonts/LICENSE-OFL.txt)。
-
-  为什么要自带:系统里能指望的中文手写字体只有楷体和华文楷体,那是**行楷**,
-  端正有余、手写感不足。英文这边 Caveat 已经很像手写了,中文跟不上就很割裂。
-
-  用 url() 引本地文件而不是连 Google Fonts:这是桌面应用,不能假设有网,
-  而且 Google 把中文拆成九十多个子集,离线根本没法用。
-  woff2 由官方 TTF 原样转码,字形没动过。
-*/
-@font-face {
-  font-family: 'ZCOOL KuaiLe';
-  src: url('/src/assets/fonts/ZCOOLKuaiLe.woff2') format('woff2');
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Zhi Mang Xing';
-  src: url('/src/assets/fonts/ZhiMangXing.woff2') format('woff2');
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Ma Shan Zheng';
-  src: url('/src/assets/fonts/MaShanZheng.woff2') format('woff2');
-  font-display: swap;
 }

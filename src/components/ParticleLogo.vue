@@ -6,8 +6,8 @@
  * 它是 iconify 用 CSS mask 画的，既拿不到位图也读不到路径。所以这里内联同一个 lucide 图标的
  * 路径数据，先离屏描一遍、读像素、再把有墨迹的位置采成粒子。文字同理，用 canvas 描一遍再采样。
  *
- * 字体栈刻意和页面保持一致（'Caveat', cursive）：项目里那个 @font-face 指向的文件其实不存在，
- * 页面上看到的手写体是系统 cursive 兜底。这里用同一个栈，粒子字才和页面其他地方长得一样。
+ * 字体栈刻意和笔记页的「手绘风」保持一致（Excalifont）：粒子字和正文里的手写体
+ * 出自同一支笔，整个应用的手写感才是一套的。字体是随包带的，不吃系统兜底。
  *
  * 性能上和常见实现的三点差别（参考实现卡顿基本都出在这些地方）：
  *   ① 位置/速度用定长 Float32Array，整个动画循环零分配、不产生 GC 抖动；
@@ -58,7 +58,7 @@ const ICON_PATHS = [
   'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z',
   'm3.3 7l8.7 5l8.7-5M12 22V12',
 ]
-const FONT_STACK = "'Caveat', cursive"
+const FONT_STACK = "'Excalifont', cursive"
 
 let raf = 0
 let running = false

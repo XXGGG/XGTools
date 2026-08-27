@@ -3,6 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <!--
+      手写体的分片声明（自动生成，见 scripts/gen-hand-font-css.mjs）。
+
+      单独一个 <link> 而不是 @import 进 style.css：这里面是 221 条 @font-face，
+      混进主样式表会让每次改一行 CSS 都要重新处理这一大坨。
+      字体文件本身是懒加载的 —— 没选手写体就一个 woff2 都不会下。
+    -->
+    <link rel="stylesheet" href="/fonts/handwriting.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>XGTools</title>
   </head>

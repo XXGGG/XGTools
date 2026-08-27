@@ -20,6 +20,11 @@ src-tauri/bin/screenshot/target/
 src-tauri/resources/ffmpeg/
 src-tauri/resources/ocr/
 
+# Excalidraw 的手写字体(14MB)。它是 node_modules 的副本,由
+# scripts/gen-hand-font-css.mjs 在 dev/build 前自动生成,不进仓库。
+public/excalidraw/
+public/fonts/handwriting.css
+
 # Build output
 release/
 
