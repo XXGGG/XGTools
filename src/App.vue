@@ -44,6 +44,8 @@ function onTopDoubleClick(e: MouseEvent) {
 }
 
 import TitleBar from './components/TitleBar.vue'
+import { zen } from './composables/useZen'
+import { bindBrowserKeys } from './composables/useBrowserKeys'
 import HomeView from './views/Home.vue'
 import AgentView from './views/Agent.vue'
 const VaultView = defineAsyncComponent(() => import('./views/Vault.vue'))
@@ -103,6 +105,9 @@ const shortcutNameMap: Record<string, string> = {
   screenshot_translate: 'nav.screenshot',
   palette: 'dock.tabPalette',
 }
+
+// 把浏览器自带的快捷键收掉(Ctrl+P/R/F5/缩放…),见 useBrowserKeys
+bindBrowserKeys()
 
 onMounted(async () => {
   const win = getCurrentWindow()
@@ -245,7 +250,9 @@ onMounted(async () => {
           enter-from-class="opacity-0 scale-95" enter-to-class="opacity-100 scale-100"
           leave-active-class="hidden"
           :duration="{ enter: 300, leave: 0 }">
-          <div :key="currentView" class="absolute inset-0 overflow-auto pt-[4.875rem] pl-[4.875rem]">
+          <!-- 那两截内边距是给顶栏和侧栏让的位;它们藏起来了就不该还留着 -->
+          <div :key="currentView" class="absolute inset-0 overflow-auto"
+            :class="zen.on ? 'pt-2.5 pl-2.5' : 'pt-[4.875rem] pl-[4.875rem]'">
             <HomeView v-if="currentView === 'Home'" />
             <AgentView v-else-if="currentView === 'Agent'" />
             <VaultView v-else-if="currentView === 'Vault'" />
@@ -260,7 +267,8 @@ onMounted(async () => {
         </Transition>
     </main>
 
-    <TitleBar class="absolute top-2.5 left-2.5 right-2.5 z-50"
+    <!-- 禅模式:整条顶栏(含右上角三颗控制点)让开 -->
+    <TitleBar v-if="!zen.on" class="absolute top-2.5 left-2.5 right-2.5 z-50"
       :active="currentView === 'Home'" @logo="currentView = 'Home'" />
 
     <!--
@@ -304,7 +312,8 @@ onMounted(async () => {
         这个 4.875rem(78px) 也是 main 的 pt-/pl-,还有各页面的 pl- ——
         58 是全局模数,改它要连着 TitleBar 的 h-/w- 一起改。
       -->
-      <aside class="absolute left-2.5 top-[4.875rem] bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto">
+      <aside v-if="!zen.on"
+        class="absolute left-2.5 top-[4.875rem] bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto">
         <nav v-if="tools.length" class="float-card rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1">
           <!-- 笔记页选中时图标染成笔记主题色,其他页还是白的 —— 一眼看出现在在哪 -->
           <button v-for="item in tools" :key="item.id" @click="currentView = item.id" :title="t(item.labelKey)" :class="[

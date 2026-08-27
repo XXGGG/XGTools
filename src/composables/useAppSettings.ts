@@ -40,7 +40,34 @@ export type AppSettings = {
   // ── 笔记页 ──
   vaultTreeWidth: number
   vaultChatWidth: number
-  /** 右边那栏收起来的状态。没配 DSH 的人不该被一个用不了的面板占掉屏幕。 */
+  /**
+   * 图片存哪儿。三种,对齐 Obsidian:
+   *
+   * - `subfolder` 笔记同级的子文件夹(默认,目录名见 vaultAttachDir)
+   * - `note`     直接和笔记并排
+   * - `fixed`    固定的一个文件夹(相对库根,路径见 vaultAttachDir)
+   *
+   * 默认走子文件夹:图跟着笔记走,搬一篇笔记时图就在旁边,不会搬完变成一堆红叉。
+   */
+  vaultAttachMode: 'subfolder' | 'note' | 'fixed'
+  /** 附件目录名。`note` 模式下用不上 */
+  vaultAttachDir: string
+  /**
+   * 附件目录在文件树里藏起来(默认藏)。
+   *
+   * 那里面全是机器生成的文件名,摊在树上只会挤掉真正的笔记 ——
+   * Obsidian 用户装 Iconize 之类的插件也多半是为了让它不碍眼。
+   * 想翻的话关掉这个开关就行,东西一直都在磁盘上。
+   */
+  vaultHideAttachDir: boolean
+  /**
+   * 删除笔记时送去哪个回收站。
+   *
+   * 默认库内(`<库根>/.trash/`):**只有库内那份我们才列得出来、还原得回原位**,
+   * 系统回收站是操作系统的东西,里面混着全机器的删除记录,跟「这个库删了什么」
+   * 对不上。库内回收站还跟着库一起同步,换台机器打开同一个库,删掉的还在。
+   */
+  vaultTrashToSystem: boolean
   /** 正文字体。档位见 VAULT_FONTS */
   vaultFont: VaultFont
   /**
@@ -61,8 +88,28 @@ export type AppSettings = {
    * 和「打开不重写」这条原则冲突。
    */
   vaultPageWidth: Record<string, 'wide' | 'narrow'>
+  /** 右边那一栏开着没有。现在只有智能体会占它,大纲改成贴右缘的悬浮层了 */
+  vaultSidePanel: 'none' | 'chat'
+  /**
+   * 标题、引用这些块要不要上色。
+   *
+   * 关掉就全是正文色,只靠字号和粗细区分层级 —— 有人就喜欢这种「一片白」的干净,
+   * 也有人觉得那样长文里根本找不到分节在哪。所以给开关,不替谁做决定。
+   * 上色用的是笔记主题色的深浅变体,不是另起一套彩虹,免得整页花掉。
+   */
+  vaultColorHeadings: boolean
+  /** 正文底下那条状态栏(字数/字符/行数)。不想要就关掉 */
+  vaultStatusBar: boolean
+  /** 拼写检查。默认关 —— 中文笔记里满屏红波浪线比不检查还烦 */
+  vaultSpellcheck: boolean
+  /**
+   * 贴进来的图自动转 WebP。
+   *
+   * 手机截图动辄 3~5MB PNG,转完常常小十倍而肉眼看不出差别。
+   * 动图和 SVG 不碰,转完反而更大的也会留原图。
+   */
+  vaultWebp: boolean
   vaultTreeOpen: boolean
-  vaultChatOpen: boolean
 }
 
 /** 会话侧栏可拖的范围。maxRatio 是「最多占窗口宽的几成」—— 光设 max 挡不住小窗口下把聊天区挤没。 */
@@ -72,14 +119,10 @@ export const VAULT_FONT_SIZE = { min: 13, max: 22, step: 1, def: 16 } as const
 /**
  * 正文字体的档位。
  *
- * 后三档的中文字体是随包附带的(src/assets/fonts,SIL OFL 1.1),因为系统里
- * 唯一能指望的中文手写体就是楷体 —— 那是行楷,端正但没有手写感。
- * 每一档都配了英文和中文两边:只挑中文的话英文会掉进默认无衬线,一句话里
- * 两种气质,比不换还难看。
+ * 每一档都配了英文和中文两边:只挑中文的话英文会掉进默认无衬线,
+ * 一句话里两种气质,比不换还难看。
  */
-export const VAULT_FONTS = [
-  'default', 'dengxian', 'hand', 'kuaile', 'zhimang', 'mashan',
-] as const
+export const VAULT_FONTS = ['default', 'dengxian', 'hand', 'comic', 'round'] as const
 
 export type VaultFont = typeof VAULT_FONTS[number]
 
@@ -91,14 +134,26 @@ export type VaultFont = typeof VAULT_FONTS[number]
  * 一句话里两种气质,比不换还难看。后三档的中文是随包附带的
  * (见 style.css 里的 @font-face),不看系统装了什么。
  */
+/*
+  后三档都是「英文一款 + 中文一款」配对着来的。
+
+  中文一律配小赖字体(Xiaolai) —— 它和这三款英文体是 Excalidraw 官方搭在一起用的,
+  字形粗细、圆角、倾斜都对得上。以前那版英文用 Caveat、中文掉到系统楷体,
+  一行字里两种笔迹,怎么调都别扭,所以撤掉过一次。
+
+  字体文件和画布共用 public/excalidraw/fonts/ 那一份,分片信息在
+  public/fonts/handwriting.css(由 scripts/gen-hand-font-css.mjs 生成)。
+  中文按 Unicode 区间切了 205 片,只有真正用到的那几片会下载。
+
+  授权:Excalifont / Nunito / 小赖 都是 SIL OFL 1.1,Comic Shanns 是 MIT,
+  四款都允许随软件打包分发。
+*/
 export const VAULT_FONT_STACK: Record<VaultFont, string> = {
   default: "'Inter', 'Microsoft YaHei', system-ui, sans-serif",
   dengxian: "'DengXian', '等线', 'Microsoft YaHei', sans-serif",
-  // 只靠系统的那档:英文手写感够了,中文只能落到楷体
-  hand: "'Caveat', KaiTi, '楷体', cursive",
-  kuaile: "'Caveat', 'ZCOOL KuaiLe', 'Microsoft YaHei', cursive",
-  zhimang: "'Caveat', 'Zhi Mang Xing', KaiTi, cursive",
-  mashan: "'Caveat', 'Ma Shan Zheng', KaiTi, cursive",
+  hand: "'Excalifont', 'Xiaolai', cursive",
+  comic: "'ComicShanns', 'Xiaolai', cursive",
+  round: "'Nunito', 'Xiaolai', sans-serif",
 }
 
 /**
@@ -133,11 +188,19 @@ const DEFAULTS: AppSettings = {
   vaultChatWidth: 320,
   vaultFont: 'default' as VaultFont,
   vaultAccent: VAULT_ACCENTS[0],
+  vaultTrashToSystem: false,
+  vaultAttachMode: 'subfolder' as 'subfolder' | 'note' | 'fixed',
+  vaultAttachDir: 'attachments',
+  vaultHideAttachDir: true,
   vaultFontSize: 16,
   vaultFullWidth: false,
   vaultPageWidth: {},
+  vaultSidePanel: 'chat' as 'none' | 'chat',
+  vaultColorHeadings: true,
+  vaultStatusBar: true,
+  vaultSpellcheck: false,
+  vaultWebp: true,
   vaultTreeOpen: true,
-  vaultChatOpen: true,
 }
 
 export const settings = reactive<AppSettings>({ ...DEFAULTS })

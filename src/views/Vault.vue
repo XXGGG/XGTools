@@ -7,19 +7,25 @@
  *
  * 版式和智能体页一致:四边外缩一律 10px,左边给导航栏让出 4.875rem(78px)。
  */
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, useTemplateRef } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, useTemplateRef, defineAsyncComponent } from 'vue'
 import { useI18n } from '@/i18n'
 import {
-  vault, hasVault, activeTab, dirtyPaths, dotColor, displayName,
-  restoreVault, pickVault, toggleDir, collapseAll, expandAll, setSort,
+  vault, hasVault, activeTab, dirtyPaths, fileBadge, displayName,
+  restoreVault, bindVaultEvents, pickVault, toggleDir, collapseAll, expandAll, setSort,
   openFile, closeTab, saveActive, createEntry, createWithContent, clearVault,
-  renameEntry, deleteEntry, moveEntry, revealEntry, copyPath,
-  search, type Entry,
+  renameEntry, deleteEntry, moveEntry, revealEntry, copyPath, markEdited,
+  trashList, trashRestore, trashPurge, type TrashItem,
+  snapshot, historyList, historyRead, historyClear, type Snapshot,
+  attachBytes, attachFile, isHiddenEntry, findOrphanImages, type OrphanImage,
+  search, type Entry, type Hit,
 } from '@/composables/useVault'
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
   ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuPortal,
 } from '@/components/ui/context-menu'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -51,6 +57,7 @@ tags: [excalidraw]
 # Excalidraw Data
 
 ## Text Elements
+
 %%
 ## Drawing
 \`\`\`json
@@ -63,16 +70,37 @@ const BASE_TEMPLATE = `views:
     name: 表格
 `
 
-import { settings, VAULT_FONT_SIZE, VAULT_FONTS, VAULT_FONT_STACK } from '@/composables/useAppSettings'
+import { settings, isDarkNow, VAULT_FONT_SIZE, VAULT_FONTS, VAULT_FONT_STACK } from '@/composables/useAppSettings'
+import { zen, toggleZen } from '@/composables/useZen'
 import ParticleLogo from '@/components/ParticleLogo.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
-import { invoke } from '@tauri-apps/api/core'
+/*
+  画布走异步:它背后是 React + Excalidraw,一兆多。
+  不画画的人不该为它买单,所以只在真的打开一张画布时才下载。
+*/
+const ExcalidrawCanvas = defineAsyncComponent(() => import('@/components/ExcalidrawCanvas.vue'))
+import { parseCanvas, updateCanvas, isCanvasContent } from '@/composables/useExcalidraw'
+import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { open as openExternal } from '@tauri-apps/plugin-shell'
 import { chat, chatReady, sendPrompt, respondPending } from '@/composables/useDshChat'
 
 const { t } = useI18n()
 
-onMounted(restoreVault)
+onMounted(() => {
+  void bindVaultEvents()
+  void restoreVault()
+  void bindSystemDrop()
+})
+
+/** 系统拖放的监听。只在笔记页挂着,离开页面要摘掉,否则在别的页面拖文件也会往笔记里塞图 */
+let unlistenDrop: (() => void) | null = null
+async function bindSystemDrop() {
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+  unlistenDrop = await getCurrentWebview().onDragDropEvent((e) => {
+    if (e.payload.type === 'drop') void onSystemDrop(e.payload.paths)
+  })
+}
+onBeforeUnmount(() => { unlistenDrop?.(); unlistenDrop = null })
 
 // ── 三栏宽度 ──
 const rootEl = ref<HTMLElement | null>(null)
@@ -110,6 +138,8 @@ function startDrag(which: 'tree' | 'chat', e: PointerEvent) {
 type Row = { entry: Entry; depth: number }
 function flatten(dir: string, depth: number, out: Row[]) {
   for (const e of vault.children[dir] ?? []) {
+    // 附件目录默认不进树:里面全是机器生成的文件名,摊开只会挤掉真正的笔记
+    if (isHiddenEntry(e)) continue
     out.push({ entry: e, depth })
     if (e.isDir && vault.expanded.has(e.path)) flatten(e.path, depth + 1, out)
   }
@@ -125,10 +155,23 @@ const rows = computed<Row[]>(() => {
 // ── 新建 / 重命名 / 删除 ──
 
 /** 新建的落点:选中的是目录就放它里面,是文件就放它旁边 */
+/**
+ * 树里当前选中的那一项(相对路径)。空串 = 选中的是库根。
+ *
+ * **新建的落点由它决定,不再跟着「当前打开的文件」走。**
+ * 原来那样一旦打开过某个文件夹里的笔记,之后新建就永远落在那个文件夹里,
+ * 想建到库根只能先去打开一篇库根下的笔记 —— 这不是选择,是被绑架。
+ * 现在和 VSCode 一个规矩:点谁就往谁那儿建,点空白处就回库根。
+ */
+const selected = ref('')
+
+/** 新建落在哪个目录:选中文件夹就是它自己,选中文件就是它所在那层 */
 const targetDir = computed(() => {
-  const cur = vault.activeTab
-  if (!cur) return ''
-  return cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/')) : ''
+  const sel = selected.value
+  if (!sel) return ''
+  const isDir = rows.value.find((r) => r.entry.path === sel)?.entry.isDir
+  if (isDir) return sel
+  return sel.includes('/') ? sel.slice(0, sel.lastIndexOf('/')) : ''
 })
 
 /**
@@ -228,21 +271,74 @@ async function commitInline() {
   committing = false
 }
 
+/*
+  弹窗改名只给主干,后缀不进输入框。
+
+  后缀是**类型**不是名字:`.md` 改成 `.txt` 之后这篇笔记就打不开了,而那多半
+  是手滑,不是本意。树里的原地改名让后缀留在框里但不选中(那儿改起来更随手,
+  真想改也拦不住),弹窗这边更正式,干脆不让碰。
+*/
 const renameTarget = ref<Entry | null>(null)
 const renameText = ref('')
-function startRename(e: Entry) { renameTarget.value = e; renameText.value = e.name }
-async function doRename() {
-  const e = renameTarget.value
-  if (!e || !renameText.value.trim()) return
-  renameTarget.value = null
-  await renameEntry(e.path, renameText.value.trim())
+/** 见上面 askDelete 那段:弹窗关闭比按钮的 click 早,不能等到那会儿再读 ref */
+let pendingRename: Entry | null = null
+/** 被摘出去的后缀(含点)。文件夹和没有后缀的文件是空串 */
+const renameExt = computed(() => {
+  const name = renameTarget.value?.name ?? ''
+  if (renameTarget.value?.isDir) return ''
+  const i = name.lastIndexOf('.')
+  return i > 0 ? name.slice(i) : ''
+})
+
+function startRename(e: Entry) {
+  pendingRename = e
+  renameTarget.value = e
+  const i = e.isDir ? -1 : e.name.lastIndexOf('.')
+  renameText.value = i > 0 ? e.name.slice(0, i) : e.name
 }
 
+async function doRename() {
+  const e = pendingRename
+  pendingRename = null
+  const stem = renameText.value.trim()
+  if (!e || !stem) return
+  // **后缀要从快照里现算,不能读 renameExt** —— 那个 computed 是跟着
+  // renameTarget 走的,而弹窗关闭已经把它清成 null 了,这会儿取到的是空串,
+  // 结果就是改完名字后缀整个没了(zz-dialog-ok 而不是 zz-dialog-ok.md)。
+  // renameExt 只负责弹窗开着时把后缀显示出来。
+  const i = e.isDir ? -1 : e.name.lastIndexOf('.')
+  const ext = i > 0 ? e.name.slice(i) : ''
+  renameTarget.value = null
+  if (stem + ext !== e.name) await renameEntry(e.path, stem + ext)
+}
+
+/*
+  **确认框里要动的对象必须自己留一份快照,不能等到点确认时再去读 ref。**
+
+  弹窗是靠 `:open="!!deleteTarget"` 驱动的,而 AlertDialogAction 被点中时
+  会先把弹窗关掉 —— 关闭触发 @update:open,那个回调把 deleteTarget 清成 null,
+  **这件事发生在按钮自己的 @click 之前**。于是 doDelete 拿到 null,
+  一句 `if (!e) return` 就悄悄结束了:弹窗正常关闭、没有任何报错、文件纹丝不动。
+  用户看到的就是「点了删除什么都没发生」,而后端连调都没被调到。
+
+  重命名那个弹窗是同一套结构,同一个毛病,所以也用同样的办法。
+*/
 const deleteTarget = ref<Entry | null>(null)
+let pendingDelete: Entry | null = null
+
+function askDelete(e: Entry | null) {
+  pendingDelete = e
+  deleteTarget.value = e
+}
+// 注意:关闭弹窗时**只清 ref、不清快照**。点确认的时候关闭比 click 先跑,
+// 那会儿把快照也清了就等于没修。快照由确认动作自己收尾,
+// 「取消」留下的那一份会在下次打开时被覆盖,不会误删。
+
 async function doDelete() {
-  const e = deleteTarget.value
-  if (!e) return
+  const e = pendingDelete
+  pendingDelete = null
   deleteTarget.value = null
+  if (!e) return
   await deleteEntry(e.path)
 }
 
@@ -297,7 +393,446 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
 //
 // 编辑器本体在 components/MarkdownEditor.vue(CodeMirror 6 + 实时渲染装饰)。
 // 这里只负责把它需要的东西喂进去:内容、字体字号行宽、以及下面这两个回调。
+/**
+ * 笔记里的相对路径 → webview 能加载的地址。
+ *
+ * 三种写法都要认:`attachments/a.png`(相对当前笔记)、`/attachments/a.png`
+ * (相对库根,Obsidian 里也这么写)、以及 `../` 往上走。统一拼成绝对路径
+ * 再交给 convertFileSrc —— 那才是 asset:// 协议认的形式。
+ */
+function resolveAsset(src: string) {
+  if (!vault.root) return src
+  let rel = decodeURI(src)
+  if (rel.startsWith('/')) {
+    rel = rel.slice(1)
+  } else {
+    const cur = activeTab.value?.path ?? ''
+    const dir = cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/')) : ''
+    rel = dir ? `${dir}/${rel}` : rel
+  }
+  // 手动收掉 ./ 和 ../,不然拼出来的路径里带着它们,asset 协议不认
+  const parts: string[] = []
+  for (const seg of rel.split('/')) {
+    if (!seg || seg === '.') continue
+    if (seg === '..') parts.pop()
+    else parts.push(seg)
+  }
+  return convertFileSrc(`${vault.root}/${parts.join('/')}`)
+}
+
+// ── 大纲 ────────────────────────────────────────────
+
+type Heading = { level: number, text: string, line: number }
+
+/**
+ * 从正文抽标题。
+ *
+ * 自己扫行而不是走 CM6 的语法树:大纲要的是「第几行、几级、写了什么」,
+ * 一次正则就够;拿语法树反而要处理它的分块加载(视口外的节点根本没解析)。
+ *
+ * **代码块里的 `#` 不是标题** —— Python 注释、shell 命令全长这样,
+ * 不跳过的话一篇带代码的笔记大纲里能冒出几十条垃圾。
+ */
+const outline = computed<Heading[]>(() => {
+  const raw = activeTab.value?.kind === 'markdown' ? activeTab.value.content : ''
+  if (!raw) return []
+  const out: Heading[] = []
+  let inFence = false
+  raw.split('\n').forEach((line, i) => {
+    if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; return }
+    if (inFence) return
+    const m = /^(#{1,6})\s+(.*)$/.exec(line)
+    if (!m) return
+    const text = m[2]
+      .replace(/[*_`~]/g, '')                       // 标题里的行内格式不进大纲
+      .replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1')  // [[双链]] 只留显示名
+      .trim()
+    if (text) out.push({ level: m[1].length, text, line: i })
+  })
+  return out
+})
+
+/*
+  源码模式和禅模式都是**当次会话的临时状态**,不进设置。
+
+  它们是「我现在要干这件事」而不是「我一直喜欢这样」—— 存下来的话,
+  用户某次调完格式关掉应用,下次打开发现笔记全是灰的,得先想半天这是怎么了。
+*/
+const sourceMode = ref(false)
+
+/*
+  禅模式 = 只剩「一篇笔记」。
+
+  让开的是:左边的功能侧栏、右上角窗口控制点、目录栏、标签条、右侧栏。
+  **留下文档顶栏和底部状态栏** —— 顶栏上有返回和 ⋯ 菜单,那是退出禅模式的入口;
+  状态栏是只读的一条细线,不抢注意力,反而写长文时想知道写了多少。
+
+  状态在 useZen 里而不是这儿:要让开的东西有一半画在 App.vue,笔记页够不着。
+*/
+const zenMode = computed(() => zen.on)
+
+function onZenEsc(e: KeyboardEvent) {
+  if (e.key === 'Escape' && zen.on) {
+    e.preventDefault()
+    void toggleZen(false)
+  }
+}
+onMounted(() => window.addEventListener('keydown', onZenEsc))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onZenEsc)
+  // 离开笔记页时别把窗口留在全屏里 —— 那会变成「整个应用卡在全屏」
+  if (zen.on) void toggleZen(false)
+})
+
+/** 大纲里最浅的那一级。整篇都是 ## 开头时,不该让它们全部缩进一格 */
+const outlineBase = computed(() =>
+  outline.value.length ? Math.min(...outline.value.map((h) => h.level)) : 1)
+
+/** 点大纲跳到那一行 */
+function gotoHeading(h: Heading) {
+  editor.value?.gotoLine(h.line)
+}
+
+// ── 底部状态栏 ──────────────────────────────────────
+
+/**
+ * 正文统计。
+ *
+ * 中文按**字**数，英文按**词**数 —— 拿空格切词在中文上会把整段算成一个词，
+ * 而按字符算英文又会把 "hello" 算成 5。所以两边分开数再相加，
+ * 这也是 Obsidian 和 Typora 的做法。
+ *
+ * 数之前先把不算正文的东西剥掉：代码块、frontmatter、图片链接的 URL。
+ * 「这篇写了多少字」问的是内容量，不该把一段 base64 也算进去。
+ */
+const docStats = computed(() => {
+  const raw = activeTab.value?.kind === 'markdown' ? activeTab.value.content : ''
+  if (!raw) return { chars: 0, words: 0, lines: 0 }
+  const body = raw
+    .replace(/^---\n[\s\S]*?\n---\n/, '')       // frontmatter
+    .replace(/```[\s\S]*?```/g, '')               // 代码块
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')          // 图片(连 URL 一起)
+  const cjk = body.match(/[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/g)?.length ?? 0
+  const latin = body
+    .replace(/[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/g, ' ')
+    .match(/[A-Za-z0-9_'-]+/g)?.length ?? 0
+  return {
+    chars: body.replace(/\s/g, '').length,
+    words: cjk + latin,
+    lines: raw.split('\n').length,
+  }
+})
+
+// ── 导出 / 打印 ─────────────────────────────────────
+
+/**
+ * 导出。四种格式共用一份「markdown → 完整 HTML」,见 useExport。
+ *
+ * 保存路径走系统对话框:导出是要发给别人的,存哪儿只有用户自己知道,
+ * 替他挑一个目录多半还得再另存一次。
+ */
+async function exportAs(kind: 'html' | 'pdf' | 'word' | 'image') {
+  const t = activeTab.value
+  if (!t || t.kind !== 'markdown') return
+  const title = displayName(t.name)
+
+  const {
+    renderStandalone, noteToPng, noteToDoc, printNote,
+  } = await import('@/composables/useExport')
+
+  // PDF 走系统打印对话框里的「另存为 PDF」—— 浏览器那套分页引擎
+  // 比塞一个 pdf 库进来靠谱得多,中文也不用另配字体
+  if (kind === 'pdf') {
+    await printNote(title, t.content, resolveAsset)
+    return
+  }
+
+  const spec = {
+    html: { ext: 'html', name: 'HTML', b64: false },
+    word: { ext: 'doc', name: 'Word', b64: false },
+    image: { ext: 'png', name: 'PNG', b64: true },
+  }[kind]
+
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const path = await save({
+      defaultPath: `${title}.${spec.ext}`,
+      filters: [{ name: spec.name, extensions: [spec.ext] }],
+    })
+    if (!path) return
+
+    let content: string
+    if (kind === 'image') {
+      // dataURL 前面那段 `data:image/png;base64,` 要去掉,后端只认纯 base64
+      content = (await noteToPng(title, t.content, resolveAsset)).split(',')[1] ?? ''
+    } else if (kind === 'word') {
+      content = await noteToDoc(title, t.content, resolveAsset)
+    } else {
+      content = await renderStandalone(title, t.content, resolveAsset)
+    }
+    await invoke('save_export', { path, content, base64: spec.b64 })
+  } catch (e) {
+    vault.error = String(e)
+  }
+}
+
+async function doPrint() {
+  const t = activeTab.value
+  if (!t || t.kind !== 'markdown') return
+  const { printNote } = await import('@/composables/useExport')
+  await printNote(displayName(t.name), t.content, resolveAsset)
+}
+
+// ── 文件恢复(历史版本) ──────────────────────────────
+
+/**
+ * 每隔多久存一次快照。
+ *
+ * 两分钟:再短一点,一段话还没写完就存了好几份,翻历史时全是半句话;
+ * 再长一点,一次误删和上一份之间可能隔着十几分钟的活儿。
+ * 后端会按内容去重,没改动的那些周期不产生任何文件。
+ */
+const SNAP_EVERY = 2 * 60 * 1000
+let snapTimer: number | undefined
+
+const historyOpen = ref(false)
+const snapList = ref<Snapshot[]>([])
+const historyPick = ref<Snapshot | null>(null)
+const historyText = ref('')
+const historyBusy = ref(false)
+
+async function openHistory(path?: string) {
+  const rel = path ?? activeTab.value?.path
+  if (!rel) return
+  historyOpen.value = true
+  historyBusy.value = true
+  historyPick.value = null
+  historyText.value = ''
+  /*
+    打开之前先存一份当前的 —— 不然「现在这一版」不在列表里,没法对照。
+    只有开着的那一篇才存得了:别的文件我们手上没有它的最新内容,
+    拿磁盘上的再存一遍是白占一个版本位。
+  */
+  const tab = vault.tabs.find((x) => x.path === rel)
+  if (tab) await snapshot(rel, tab.content)
+  snapList.value = await historyList(rel)
+  historyBusy.value = false
+}
+
+async function pickSnapshot(sn: Snapshot) {
+  const rel = activeTab.value?.path
+  if (!rel) return
+  historyPick.value = sn
+  historyText.value = await historyRead(rel, sn.id)
+}
+
+/**
+ * 用这一版覆盖当前内容。
+ *
+ * **只写进编辑器,不直接落盘** —— 恢复完还能 Ctrl+Z 撤回去,
+ * 也能看一眼不对再选别的版本。真正存盘还是走平时那条路。
+ */
+function restoreSnapshot() {
+  const t = activeTab.value
+  if (!t || !historyPick.value) return
+  t.content = historyText.value
+  markEdited(t.path)
+  historyOpen.value = false
+}
+
+async function clearHistory() {
+  const rel = activeTab.value?.path
+  if (!rel) return
+  await historyClear(rel)
+  snapList.value = []
+  historyPick.value = null
+  historyText.value = ''
+}
+
+onMounted(() => {
+  snapTimer = window.setInterval(() => {
+    const t = activeTab.value
+    if (t?.kind === 'markdown' && t.content) void snapshot(t.path, t.content)
+  }, SNAP_EVERY)
+})
+onBeforeUnmount(() => window.clearInterval(snapTimer))
+
+// ── 文件属性 ────────────────────────────────────────
+
+type FileInfo = {
+  rel: string
+  size: number
+  created: number
+  modified: number
+}
+
+const infoOpen = ref(false)
+const info = ref<FileInfo | null>(null)
+
+async function openInfo(path?: string) {
+  const rel = path ?? activeTab.value?.path
+  if (!rel) return
+  infoOpen.value = true
+  info.value = null
+  try {
+    info.value = await invoke<FileInfo>('vault_file_info', { root: vault.root, rel })
+  } catch (e) {
+    vault.error = String(e)
+    infoOpen.value = false
+  }
+}
+
+/** 「2026-08-27 11:42」。属性面板里精确到秒没意义,到分钟就够回忆「什么时候写的」 */
+function fmtTime(ms: number) {
+  if (!ms) return '—'
+  const d = new Date(ms)
+  const p = (x: number) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// ── 往笔记里塞图片 ──────────────────────────────────
+
+/** 图片存好之后要插进正文的那段。相对路径按当前笔记算,和 Obsidian 一样 */
+function imageMarkdown(rel: string) {
+  const cur = activeTab.value?.path ?? ''
+  const dir = cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/')) : ''
+  // 存到笔记同级时写成相对路径,笔记跟图一起搬走也不会断
+  const shown = dir && rel.startsWith(dir + '/') ? rel.slice(dir.length + 1) : '/' + rel
+  return `![](${encodeURI(shown)})`
+}
+
+async function onPasteImage(file: File) {
+  const note = activeTab.value?.path
+  if (!note) return ''
+  const b64 = await fileToBase64(file)
+  const ext = (file.type.split('/')[1] ?? 'png').replace('jpeg', 'jpg')
+  const rel = await attachBytes(note, ext, b64)
+  return rel ? imageMarkdown(rel) : ''
+}
+
+/** File → base64。走 FileReader 而不是自己拼字节:大图上手写循环会卡住 UI */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).split(',')[1] ?? '')
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(file)
+  })
+}
+
+/*
+  从资源管理器拖图片进来。
+
+  **不能用 HTML5 的 drop 事件** —— 和目录栏拖拽同一个坑:Tauri 的窗口开着
+  系统级拖放,那一层把 webview 里的 drop 全吃了。好在这次它吃掉之后
+  会转成 Tauri 自己的事件,而且给的是**文件路径**,比 File 对象还好用:
+  直接让后端复制,不用把几 MB 的图编码一遍再传过去。
+*/
+const IMG_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i
+
+async function onSystemDrop(paths: string[]) {
+  const note = activeTab.value?.path
+  if (!note || activeTab.value?.kind !== 'markdown') return
+  const imgs = paths.filter((p) => IMG_EXT.test(p))
+  if (!imgs.length) return
+  const md: string[] = []
+  for (const p of imgs) {
+    const rel = await attachFile(note, p)
+    if (rel) md.push(imageMarkdown(rel))
+  }
+  if (md.length) editor.value?.insertAtCursor(md.join('\n\n'))
+}
+
 // ── 正文右键菜单 ──────────────────────────────────────
+
+// ── 画布 ────────────────────────────────────────────
+
+/*
+  当前这张画布的场景。
+
+  从文件正文里现挖 —— 画布文件本身就是一篇 markdown,场景压在末尾的
+  注释块里。用 computed 而不是存一份状态:切标签、外部改动同步进来,
+  都自动跟着变,不用另外记得同步。
+*/
+/** 画布跟着应用的深浅色走。isDarkNow 认的是 settings.theme 那一处真相 */
+const isDark = computed(() => isDarkNow())
+
+/** 当前这一篇是不是画布。顶栏、底栏、⋯ 菜单都要按它分叉 */
+const isCanvas = computed(() => activeTab.value?.kind === 'canvas')
+
+const canvas = computed(() => {
+  const t = activeTab.value
+  /*
+    只认 Excalidraw 那种画布,而且**按内容认**。
+
+    - Obsidian 自己那套 `.canvas`(JSON Canvas)是完全不同的格式,虽然也归在
+      kind='canvas' 底下 —— 拿 Excalidraw 去开只会开出一张空白画,一改还会
+      把人家的文件写坏。
+    - 反过来,名字里没有 `.excalidraw` 的画布(用户改过名)也得认出来,
+      不然会被当成「打不开的格式」。
+
+    所以判据是文件开头那句 `excalidraw-plugin:` —— 和 Obsidian 插件同一个判据。
+  */
+  if (!t || t.kind !== 'canvas' || !isCanvasContent(t.content)) return null
+  return parseCanvas(t.content)
+})
+
+/**
+ * 画布改了 —— 写回文件正文,剩下的交给平时那套自动保存。
+ *
+ * 写不回去(文件结构不认识)时只报错不硬写:宁可这一次没存上,
+ * 也不能把一份看不懂的文件覆盖成我们以为的样子。
+ */
+function onCanvasChange(scene: Parameters<typeof updateCanvas>[1]) {
+  // 变量别叫 t —— 这个文件里 t 是 i18n 的翻译函数
+  const tab = activeTab.value
+  if (!tab || tab.kind !== 'canvas') return
+  const next = updateCanvas(tab.content, scene, canvas.value?.compressed ?? true)
+  if (next === null) {
+    vault.error = t('vault.canvasBroken')
+    return
+  }
+  if (next === tab.content) return
+  tab.content = next
+  markEdited(tab.path)
+}
+
+// ── 反向链接 ─────────────────────────────────────────
+
+/*
+  谁链到了这一篇。
+
+  走后端专门的 vault_backlinks,不是全文搜索 —— 搜索只认「文本里出现了
+  这个名字」,而正文里顺口提一句标题不算链接;搜索还规定一个文件只报一处,
+  而一篇文章链同一个地方三次,那三处都该看得见。
+*/
+const backOpen = ref(false)
+const backBusy = ref(false)
+const backlinks = ref<Hit[]>([])
+
+async function openBacklinks(path?: string) {
+  const rel = path ?? activeTab.value?.path
+  if (!rel) return
+  backOpen.value = true
+  backBusy.value = true
+  backlinks.value = []
+  try {
+    const hits = await invoke<Hit[]>('vault_backlinks', {
+      root: vault.root,
+      target: displayName(rel.split('/').pop() ?? rel),
+    })
+    // 自己链自己不算 —— 一篇笔记里写 [[自己]] 多半是笔误,列出来只是噪音
+    backlinks.value = hits.filter((h) => h.path !== rel)
+  } catch (e) {
+    vault.error = String(e)
+  }
+  backBusy.value = false
+}
+
+async function gotoBacklink(h: Hit) {
+  backOpen.value = false
+  await openFile(h.path)
+}
 
 const editor = useTemplateRef<InstanceType<typeof MarkdownEditor>>('editor')
 /** 菜单模板里到处要用,起个短名字 */
@@ -322,6 +857,107 @@ const MATH_SNIPPET = '$$\n\n$$'
 /** 拿选中的词去搜整个库 —— 和 Obsidian 那条「查找 "xxx"」一样 */
 function searchSelection() {
   if (selText.value) search(selText.value)
+}
+
+// ── 回收站 ──────────────────────────────────────────
+
+const trashOpen = ref(false)
+const trash = ref<TrashItem[]>([])
+const trashBusy = ref(false)
+const trashTab = ref<'deleted' | 'orphan'>('deleted')
+/** null = 还没扫过。空数组和「没扫」要分开,否则一打开就显示「一张没有」 */
+const orphans = ref<OrphanImage[] | null>(null)
+const confirmSweep = ref(false)
+const orphanTotal = computed(() => (orphans.value ?? []).reduce((a, o) => a + o.size, 0))
+
+function switchTrashTab(tab: 'deleted' | 'orphan') {
+  trashTab.value = tab
+}
+
+async function scanOrphans() {
+  trashBusy.value = true
+  orphans.value = await findOrphanImages()
+  trashBusy.value = false
+}
+
+/**
+ * 把扫出来的图**送进回收站,不是直接抹掉**。
+ *
+ * 扫描是按「文件名有没有在任何笔记里出现过」判断的,一定有漏网的情况。
+ * 走一趟回收站,发现清错了还能捞回来 —— 这点代价换的是「不会因为一次扫描
+ * 就丢掉在用的图」。
+ */
+async function doSweep() {
+  const list = orphans.value ?? []
+  confirmSweep.value = false
+  if (!list.length) return
+  trashBusy.value = true
+  for (const o of list) await deleteEntry(o.rel)
+  orphans.value = await findOrphanImages()
+  trash.value = await trashList()
+  trashBusy.value = false
+}
+/** 要彻底删的那一条;'*' 表示清空整个回收站 */
+const purgeTarget = ref<string>('')
+let pendingPurge = ''      // 同 askDelete:弹窗关闭比按钮的 click 早
+
+/*
+  回收站开一个独立窗口,不占目录栏。
+
+  原来是盖在树上面的,结果是「翻一眼回收站」要先挤掉文件树、看完还得再点回来 ——
+  而回收站是偶尔进来一次的地方,不该让常驻的树给它让位。
+*/
+async function openTrash() {
+  trashOpen.value = true
+  trashBusy.value = true
+  trash.value = await trashList()
+  trashBusy.value = false
+}
+
+async function reloadTrash() {
+  trashBusy.value = true
+  trash.value = await trashList()
+  trashBusy.value = false
+}
+
+async function doRestore(item: TrashItem) {
+  const rel = await trashRestore(item.id)
+  await reloadTrash()
+  // 还原完顺手打开,省得用户再去树里找 —— 但别把回收站关掉,
+  // 常见动作是一次还原好几样
+  if (rel) await openFile(rel)
+}
+
+function askPurge(id: string) {
+  pendingPurge = id
+  purgeTarget.value = id
+}
+
+async function doPurge() {
+  const id = pendingPurge
+  pendingPurge = ''
+  purgeTarget.value = ''
+  if (!id) return
+  await trashPurge(id === '*' ? undefined : id)
+  await reloadTrash()
+}
+
+/** 「3 天前」这种。回收站里精确到秒没意义,只想知道大概多久了 */
+function ago(ms: number) {
+  if (!ms) return ''
+  const d = Date.now() - ms
+  const min = Math.floor(d / 60000)
+  if (min < 1) return t('vault.justNow')
+  if (min < 60) return t('vault.minAgo', { n: min })
+  const h = Math.floor(min / 60)
+  if (h < 24) return t('vault.hourAgo', { n: h })
+  return t('vault.dayAgo', { n: Math.floor(h / 24) })
+}
+
+function humanSize(b: number) {
+  if (b < 1024) return `${b} B`
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
+  return `${(b / 1048576).toFixed(1)} MB`
 }
 
 // ── 目录栏拖放 ────────────────────────────────────────
@@ -409,13 +1045,24 @@ async function onPointerUp(e: PointerEvent) {
 }
 
 /** 拖完那一下的 click 要吞掉,不然松手顺手就把文件打开了 */
+/*
+  单击 = 预览打开(标签斜体,再点别的会顶掉它);双击 = 常驻。
+
+  学 VSCode。之前每点一个文件就攒一个标签,而其中绝大多数只是「看一眼」,
+  点十下就要手动关九个。
+*/
 function onRowClick(entry: Entry) {
   if (didDrag) {
     didDrag = false
     return
   }
+  selected.value = entry.path
   if (entry.isDir) toggleDir(entry.path)
-  else openFile(entry.path)
+  else openFile(entry.path, true, false, true)
+}
+
+function onRowDblClick(entry: Entry) {
+  if (!entry.isDir) void openFile(entry.path, true, false, false)
 }
 
 /** [[双链]] 的候选。走 vault_search —— 它连文件名一起匹配,能搜到整个库 */
@@ -444,10 +1091,85 @@ async function openWiki(target: string) {
   } catch { /* 找不到就当没点 */ }
 }
 
-const chatOpen = computed({
-  get: () => settings.vaultChatOpen,
-  set: (v: boolean) => { settings.vaultChatOpen = v },
+const sidePanel = computed({
+  get: () => settings.vaultSidePanel,
+  set: (v: 'none' | 'chat') => { settings.vaultSidePanel = v },
 })
+
+/** 点已经开着的那个就收起来,和侧栏图标的通用手感一致 */
+function toggleSide(which: 'chat') {
+  sidePanel.value = sidePanel.value === which ? 'none' : which
+}
+
+const chatOpen = computed({
+  get: () => sidePanel.value === 'chat',
+  set: (v: boolean) => { sidePanel.value = v ? 'chat' : 'none' },
+})
+
+// ── 搜索(按需展开) ──────────────────────────────────
+
+const searchOpen = ref(false)
+const searchInput = useTemplateRef<HTMLInputElement>('searchInput')
+
+async function openSearch() {
+  searchOpen.value = true
+  await nextTick()
+  searchInput.value?.focus()
+}
+
+function closeSearch() {
+  searchOpen.value = false
+  if (vault.query) search('')
+}
+
+/** 失焦就收起来 —— 但输入框里还有字的话不收,那说明用户正在看结果 */
+function onSearchBlur() {
+  if (!vault.query.trim()) searchOpen.value = false
+}
+
+/** 鼠标在悬浮大纲上。线段和面板靠它 */
+const outlineHover = ref(false)
+
+/**
+ * 视口中间那一节是大纲里的第几条。
+ *
+ * 取「行号不超过视口中线的最后一个标题」——「正在看哪一节」问的是
+ * 我现在处于谁的管辖范围,不是屏幕上离中线最近的那个标题
+ * (后者在长段落里会一路空着,滚半天没有任何一条亮起来)。
+ */
+const activeHeading = ref(-1)
+
+function syncActiveHeading() {
+  const list = outline.value
+  if (!list.length) { activeHeading.value = -1; return }
+  const line = editor.value?.centerLine() ?? 0
+  let idx = -1
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].line <= line) idx = i
+    else break
+  }
+  activeHeading.value = idx
+}
+
+/*
+  滚动时重算「正在看哪一节」。
+
+  监听放在根节点上、用捕获阶段 —— 滚动事件不冒泡,挂在外层的普通监听收不到,
+  而编辑器那个 .cm-scroller 是 CM6 自己建的,我们拿不到稳定的引用去逐个挂。
+*/
+onMounted(() => rootEl.value?.addEventListener('scroll', syncActiveHeading, true))
+onBeforeUnmount(() => rootEl.value?.removeEventListener('scroll', syncActiveHeading, true))
+watch(() => activeTab.value?.path, () => {
+  // 换了篇笔记先清掉,等它渲染完再算 —— 否则算的是上一篇的行号
+  activeHeading.value = -1
+  void nextTick(syncActiveHeading)
+})
+
+// 鼠标刚移进来那一下也要算一次:在此之前可能一次都没滚过,
+// 高亮会停在 -1,看着像这个功能没做
+watch(outlineHover, (v) => { if (v) syncActiveHeading() })
+/** 右栏开着。布局要靠它决定正文那一列留不留窗口控制点的位置 */
+const sideOpen = computed(() => sidePanel.value !== 'none')
 
 const treeOpen = computed({
   get: () => settings.vaultTreeOpen,
@@ -461,27 +1183,28 @@ const treeOpen = computed({
   「后退」意思是「回到刚才看的那篇」。所以从历史里跳转时不能再往历史里追加,
   否则一来一回就把自己锁死在两条记录之间。navigating 就是干这个的。
 */
-const history = ref<string[]>([])
+/** 前进后退的浏览记录(打开过哪几篇),和「文件恢复」那套快照没关系 */
+const visited = ref<string[]>([])
 const histAt = ref(-1)
 let navigating = false
 
 watch(activeTab, (t) => {
   if (!t || navigating) return
-  if (history.value[histAt.value] === t.path) return
-  history.value = history.value.slice(0, histAt.value + 1)
-  history.value.push(t.path)
-  histAt.value = history.value.length - 1
+  if (visited.value[histAt.value] === t.path) return
+  visited.value = visited.value.slice(0, histAt.value + 1)
+  visited.value.push(t.path)
+  histAt.value = visited.value.length - 1
 })
 
 const canBack = computed(() => histAt.value > 0)
-const canForward = computed(() => histAt.value < history.value.length - 1)
+const canForward = computed(() => histAt.value < visited.value.length - 1)
 
 async function go(step: number) {
   const i = histAt.value + step
-  if (i < 0 || i >= history.value.length) return
+  if (i < 0 || i >= visited.value.length) return
   histAt.value = i
   navigating = true
-  await openFile(history.value[i])
+  await openFile(visited.value[i])
   navigating = false
 }
 
@@ -504,6 +1227,7 @@ const tabEntry = computed(() => {
   return {
     path: t.path, name: t.name, isDir: false,
     ext: dot > 0 ? t.name.slice(dot + 1) : '', size: 0, modified: 0,
+    isCanvas: t.kind === 'canvas',
   }
 })
 
@@ -549,6 +1273,7 @@ function doClearVault() {
 
 /** 在某个文件夹里新建。建完展开它,不然新东西藏在收起的文件夹里看不见 */
 async function newIn(dir: string, isDir: boolean) {
+  selected.value = dir
   await created(await createEntry(dir, isDir, isDir ? t('vault.newFolderName') : t('vault.newNoteName')))
 }
 
@@ -610,8 +1335,8 @@ async function sendFromVault() {
     以前列宽是 72、卡片 58 居中,左右各留 7px,于是左边/上边实际留白 17
     而右边/下边只有 10,四边不等。那 7px 已经去掉,别再加回来。
   -->
-  <div ref="rootEl" class="absolute inset-0 pt-2.5 pl-[4.875rem] pr-2.5 pb-2.5 flex"
-    :class="dragging ? 'select-none' : ''">
+  <div ref="rootEl" class="absolute inset-0 pt-2.5 pr-2.5 pb-2.5 flex"
+    :class="[dragging ? 'select-none' : '', zenMode ? 'pl-2.5' : 'pl-[4.875rem]']">
 
     <!-- ═══════ 没选工作区 ═══════ -->
     <div v-if="!hasVault" class="flex-1 float-card rounded-[14px] border bg-card flex items-center justify-center">
@@ -628,7 +1353,7 @@ async function sendFromVault() {
 
     <template v-else>
       <!-- ═══════ 文件树 ═══════ -->
-      <div v-if="treeOpen" class="shrink-0 flex flex-col gap-2.5" :style="{ width: settings.vaultTreeWidth + 'px' }">
+      <div v-if="treeOpen && !zenMode" class="shrink-0 flex flex-col gap-2.5" :style="{ width: settings.vaultTreeWidth + 'px' }">
 
         <!-- 卡片直接贴在 y=10,不再套一层更高的行 -->
         <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3">
@@ -639,36 +1364,73 @@ async function sendFromVault() {
           <button @click="confirmClear = true" :title="t('vault.removeVault')" class="tool-btn">
             <span class="icon-[lucide--folder-x] w-4 h-4" />
           </button>
-          <div class="w-px h-4 bg-border mx-1 shrink-0" />
-          <button @click="newNote" :title="t('vault.newNote')" class="tool-btn">
-            <span class="icon-[lucide--file-plus] w-4 h-4" />
+          <!-- 回收站也是「这个库整体」的事,跟工作区那两个放一组,不和新建混在一起 -->
+          <button @click="openTrash" :title="t('vault.trash')" class="tool-btn">
+            <span class="icon-[lucide--trash-2] w-4 h-4" />
           </button>
-          <button @click="newFolder" :title="t('vault.newFolder')" class="tool-btn">
-            <span class="icon-[lucide--folder-plus] w-4 h-4" />
-          </button>
-          <button @click="setSort(vault.sortKey === 'name' ? 'modified' : 'name')"
-            :title="vault.sortKey === 'name' ? t('vault.sortByName') : t('vault.sortByTime')" class="tool-btn">
-            <span class="icon-[lucide--arrow-down-up] w-4 h-4" />
-          </button>
-          <!-- 展开和折叠合成一个开关:两个按钮长得像又互斥,分开只会让人犹豫点哪个 -->
-          <button @click="toggleAll" :title="anyExpanded ? t('vault.collapseAll') : t('vault.expandAll')" class="tool-btn">
-            <span class="w-4 h-4"
-              :class="anyExpanded ? 'icon-[lucide--chevrons-down-up]' : 'icon-[lucide--chevrons-up-down]'" />
-          </button>
+
+          <!--
+            收起目录栏。ml-auto 顶到最右 —— 它不是「对这个库做什么」,
+            是「这一栏要不要占地方」,和左边那三个不是一类,拉开距离才不会误点。
+          -->
           <button @click="treeOpen = false" :title="t('vault.hideTree')" class="tool-btn ml-auto">
             <span class="icon-[lucide--panel-left-close] w-4 h-4" />
           </button>
         </div>
 
       <aside class="float-card flex-1 min-h-0 rounded-[14px] border bg-card flex flex-col overflow-hidden">
-        <!-- 搜索 -->
-        <div class="px-2 py-2">
-          <div class="relative">
-            <span class="icon-[lucide--search] w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input :value="vault.query" @input="search(($event.target as HTMLInputElement).value)"
+        <!--
+          这一行平时是「搜索图标 + 四个常用操作」,点搜索才把输入框铺开盖住那四个。
+
+          搜索框原来常驻一整行,可它绝大多数时候是空的 —— 一个空输入框霸占
+          目录栏最显眼的位置,而真正天天点的新建/排序反而被挤到上面那张卡里。
+          现在换过来:常用的常驻,搜索按需展开。
+        -->
+        <div class="relative px-2 py-2 h-[52px] shrink-0">
+          <div class="flex items-center gap-1 h-9">
+            <button @click="openSearch" :title="t('vault.search')" class="tool-btn">
+              <span class="icon-[lucide--search] w-4 h-4" />
+            </button>
+            <div class="flex-1" />
+            <button @click="newNote" class="tool-btn"
+              :title="targetDir ? t('vault.newNoteIn', { dir: targetDir }) : t('vault.newNoteAtRoot')">
+              <span class="icon-[lucide--file-plus] w-4 h-4" />
+            </button>
+            <button @click="newFolder" class="tool-btn"
+              :title="targetDir ? t('vault.newFolderIn', { dir: targetDir }) : t('vault.newFolderAtRoot')">
+              <span class="icon-[lucide--folder-plus] w-4 h-4" />
+            </button>
+            <button @click="setSort(vault.sortKey === 'name' ? 'modified' : 'name')"
+              :title="vault.sortKey === 'name' ? t('vault.sortByName') : t('vault.sortByTime')" class="tool-btn">
+              <span class="icon-[lucide--arrow-down-up] w-4 h-4" />
+            </button>
+            <!-- 展开和折叠合成一个开关:两个按钮长得像又互斥,分开只会让人犹豫点哪个 -->
+            <button @click="toggleAll" :title="anyExpanded ? t('vault.collapseAll') : t('vault.expandAll')" class="tool-btn">
+              <span class="w-4 h-4"
+                :class="anyExpanded ? 'icon-[lucide--chevrons-down-up]' : 'icon-[lucide--chevrons-up-down]'" />
+            </button>
+          </div>
+
+          <!-- 展开态整个盖上去,不是把按钮挤走 —— 挤走会让这一行的宽度跳一下 -->
+          <!--
+            这一层得有实底。它是**盖在工具条上面**的,底下就是新建/排序那几个按钮;
+            以前输入框用的是半透明底,结果按钮的图标从搜索框里透出来,
+            像是框里印了几个鬼影。圆角外面那点缝隙也要盖住,所以底垫在外层。
+          -->
+          <div v-if="searchOpen" class="absolute inset-x-2 top-2 h-9 rounded-lg bg-card">
+            <!-- z-10:输入框现在是实底的,不抬一层这个放大镜会被它盖住 -->
+            <span class="icon-[lucide--search] w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 z-10
+                         text-muted-foreground pointer-events-none" />
+            <input ref="searchInput" :value="vault.query"
+              @input="search(($event.target as HTMLInputElement).value)"
+              @keydown.escape="closeSearch" @blur="onSearchBlur"
               :placeholder="t('vault.search')"
-              class="w-full h-9 pl-9 pr-2 rounded-lg bg-background/40 border border-border text-[15px]
+              class="w-full h-9 pl-9 pr-8 rounded-lg bg-background border border-border text-[15px]
                      placeholder:text-muted-foreground/60 focus:outline-none focus:border-foreground/25" />
+            <button @click="closeSearch" :title="t('common.cancel')"
+              class="absolute right-1.5 top-1/2 -translate-y-1/2 tool-btn size-6">
+              <span class="icon-[lucide--x] w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
@@ -693,14 +1455,19 @@ async function sendFromVault() {
         <ContextMenu v-else>
           <ContextMenuTrigger as-child>
         <!-- 空白处也收:松在这儿就是移回库根 -->
-        <div ref="treeBox" class="flex-1 min-h-0 overflow-y-auto px-1.5 pb-2"
+        <!--
+          .self 不能少:行的点击会冒泡到这里,不加的话选中刚设好就被这一句清掉,
+          表现是「点了文件夹,新建还是建到库根」——和没做这个功能一模一样。
+        -->
+        <div ref="treeBox" @click.self="selected = ''"
+          class="flex-1 min-h-0 overflow-y-auto px-1.5 pb-2"
           :style="{
             outline: dropTarget === '__root__' ? '2px solid ' + settings.vaultAccent : '',
             outlineOffset: '-2px', borderRadius: '6px',
           }">
           <ContextMenu v-for="r in rows" :key="r.entry.path">
             <ContextMenuTrigger as-child>
-              <button @click="onRowClick(r.entry)"
+              <button @click="onRowClick(r.entry)" @dblclick="onRowDblClick(r.entry)"
                 @pointerdown="onRowDown($event, r.entry)"
                 :data-path="r.entry.path" :data-dir="r.entry.isDir ? '1' : ''"
                 :style="{
@@ -709,7 +1476,14 @@ async function sendFromVault() {
                   outlineOffset: '-2px',
                 }" :class="[
                   'w-full flex items-center gap-1.5 rounded-md py-1 pr-2 text-left transition-colors',
-                  vault.activeTab === r.entry.path ? 'bg-muted' : 'hover:bg-muted/50',
+                  /*
+                    只有**文件**才有常驻底色(当前这篇、或者选中的那篇)。
+                    文件夹点一下只是展开,不该留下一块和「当前打开的文件」一模一样的底 ——
+                    那样树上会同时亮着两行,看着像开了两个东西。
+                    文件夹保留鼠标经过和按下的反馈,够用了。
+                  */
+                  !r.entry.isDir && (vault.activeTab === r.entry.path || selected === r.entry.path)
+                    ? 'bg-muted' : 'hover:bg-muted/50 active:bg-muted',
                   dropTarget === r.entry.path ? 'bg-muted/70' : '',
                   dragPath === r.entry.path ? 'opacity-40' : ''
                 ]">
@@ -719,8 +1493,13 @@ async function sendFromVault() {
                 -->
                 <span v-if="r.entry.isDir" class="w-4 h-4 shrink-0 text-muted-foreground"
                   :class="vault.expanded.has(r.entry.path) ? 'icon-[lucide--folder-open]' : 'icon-[lucide--folder]'" />
-                <!-- 文件用彩色圆点前缀:按扩展名分色,窄侧栏里比一堆图标干净 -->
-                <span v-else class="size-2 rounded-full shrink-0 ml-1 mr-0.5" :class="dotColor(r.entry.ext)" />
+                <!--
+                  文件用彩色小图标前缀。笔记跟着主题色走,所以它的颜色是内联的,
+                  其余按类型给固定色(见 useVault 的 fileBadge)。
+                -->
+                <span v-else class="w-4 h-4 shrink-0"
+                  :class="[fileBadge(r.entry.name, r.entry.isCanvas).icon, fileBadge(r.entry.name, r.entry.isCanvas).cls]"
+                  :style="fileBadge(r.entry.name, r.entry.isCanvas).accent ? { color: settings.vaultAccent } : undefined" />
 
                 <!--
                   重命名就在这一行原地改。新建完自动进这个状态,和 Obsidian 一样 ——
@@ -752,12 +1531,29 @@ async function sendFromVault() {
               <ContextMenuItem @select="revealEntry(r.entry.path)">
                 <span class="icon-[lucide--external-link] w-4 h-4 mr-2" />{{ t('vault.reveal') }}
               </ContextMenuItem>
+              <!--
+                这三个是「针对某个文件」的操作,以前只在右上角 ⋯ 菜单里。
+                画布页没有顶栏(整张画要铺满),那边就够不着了 ——
+                何况它们本来就该在文件身上,右键点谁就是谁的。
+              -->
+              <template v-if="!r.entry.isDir">
+                <ContextMenuSeparator />
+                <ContextMenuItem @select="openBacklinks(r.entry.path)">
+                  <span class="icon-[lucide--link] w-4 h-4 mr-2" />{{ t('vault.backlinks') }}
+                </ContextMenuItem>
+                <ContextMenuItem @select="openHistory(r.entry.path)">
+                  <span class="icon-[lucide--history] w-4 h-4 mr-2" />{{ t('vault.history') }}
+                </ContextMenuItem>
+                <ContextMenuItem @select="openInfo(r.entry.path)">
+                  <span class="icon-[lucide--info] w-4 h-4 mr-2" />{{ t('vault.fileInfo') }}
+                </ContextMenuItem>
+              </template>
               <ContextMenuSeparator />
               <!-- 树里的重命名走原地改名;弹窗那套只留给右上角更多菜单 -->
               <ContextMenuItem @select="startInline(r.entry.path, r.entry.name)">
                 <span class="icon-[lucide--pencil] w-4 h-4 mr-2" />{{ t('vault.rename') }}
               </ContextMenuItem>
-              <ContextMenuItem @select="deleteTarget = r.entry" class="text-destructive focus:text-destructive">
+              <ContextMenuItem @select="askDelete(r.entry)" class="text-destructive focus:text-destructive">
                 <span class="icon-[lucide--trash-2] w-4 h-4 mr-2" />{{ t('vault.delete') }}
               </ContextMenuItem>
             </ContextMenuContent>
@@ -777,7 +1573,7 @@ async function sendFromVault() {
               <span class="icon-[lucide--table] w-4 h-4 mr-2" />{{ t('vault.newBase') }}
             </ContextMenuItem>
             <ContextMenuItem @select="newAt('canvas')">
-              <span class="icon-[lucide--pen-tool] w-4 h-4 mr-2" />{{ t('vault.newCanvas') }}
+              <span class="icon-[lucide--shapes] w-4 h-4 mr-2" />{{ t('vault.newCanvas') }}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -800,7 +1596,8 @@ async function sendFromVault() {
       </Teleport>
       </div>
 
-      <div v-if="treeOpen" @pointerdown="startDrag('tree', $event)"
+      <!-- 禅模式下目录栏藏了,这根推拉杠也得跟着走 —— 留着就是一条谁都拖不动的竖线 -->
+      <div v-if="treeOpen && !zenMode" @pointerdown="startDrag('tree', $event)"
         class="w-2.5 shrink-0 cursor-col-resize flex items-center justify-center group">
         <!-- 常显,不是悬停才出现 —— 不然没人知道这两栏之间能拖 -->
         <div class="w-0.5 h-10 rounded-full bg-border transition-colors group-hover:bg-foreground/40"
@@ -811,23 +1608,39 @@ async function sendFromVault() {
       <div class="flex-1 min-w-0 flex flex-col gap-2.5">
 
         <!--
-          标签卡:和工具卡同高(58),同一条基线。
-          右边留出 pr-36 是给右上角那三颗窗口控制点让位 —— 它们浮在最上层,
-          标签滚到那儿会被压住。
+          目录栏收起来之后,展开按钮变成标签条前面一张 58×58 的方卡片。
+
+          尺寸和标签卡同高、正方形,看着就是「目录栏缩成了一个格子」——
+          比原来那颗浮在左下角的按钮好找:展开的入口应该在目录栏原来的位置,
+          而不是跑到屏幕另一头。
         -->
         <!--
+          标签这一行 = [展开按钮] + [标签卡]。
+
           右边留出窗口控制点的位置:它们浮在最上层,标签滚到那儿会被压住。
           用外边距而不是内边距 —— 内边距只是把内容推开,卡片本身还是顶到最右,
           看着像"标签栏一直延伸到控件底下"。130 = 控件卡片宽 120 + 间隔 10。
           智能体栏开着的时候编辑器列本来就够不到右上角,那时候不用留。
         -->
-        <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-2 overflow-x-auto"
-          :class="chatOpen ? '' : 'mr-[130px]'">
-          <!-- 目录栏收起来之后,展开的入口挪到这里 —— 原来那个按钮跟着一起藏了 -->
+        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5"
+          :class="sideOpen ? '' : 'mr-[130px]'">
+
+          <!--
+            目录栏收起来之后,展开按钮变成标签条前面一张 58×58 的方卡片。
+
+            和标签卡同高、正方形,看着就是「目录栏缩成了一个格子」——
+            展开的入口留在目录栏原来的位置,比原先那颗浮在左下角的按钮好找。
+          -->
           <button v-if="!treeOpen" @click="treeOpen = true" :title="t('vault.showTree')"
-            class="tool-btn shrink-0 mr-1">
-            <span class="icon-[lucide--panel-left-open] w-4 h-4" />
+            class="float-card size-[58px] shrink-0 rounded-[14px] border bg-card
+                   flex items-center justify-center text-muted-foreground
+                   transition-colors hover:text-foreground">
+            <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
           </button>
+
+          <!-- 标签卡:和工具卡同高(58),同一条基线 -->
+          <div
+            class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-1 px-2 overflow-x-auto">
           <!--
             关闭做成**独立的 button**,不是 button 里套 span:
             嵌在按钮里的元素,点击区会被父按钮吃掉 —— 表现就是「点 × 只切换了标签页」。
@@ -838,10 +1651,17 @@ async function sendFromVault() {
             vault.activeTab === tb.path ? 'bg-muted' : 'hover:bg-muted/50'
           ]">
             <button @click="vault.activeTab = tb.path"
+              @dblclick="tb.preview = false"
               class="h-full pl-2.5 pr-1 flex items-center gap-1.5 text-[13px]"
               :class="vault.activeTab === tb.path ? '' : 'text-muted-foreground'">
-              <span class="size-1.5 rounded-full shrink-0" :class="dotColor(tb.name.split('.').pop() ?? '')" />
-              <span class="max-w-40 truncate">{{ displayName(tb.name) }}</span>
+              <!-- 标签这边没有 Entry,拿 tab 自己的 kind 当画布判据 —— 它是读完内容定的 -->
+              <span class="w-3.5 h-3.5 shrink-0"
+                :class="[fileBadge(tb.name, tb.kind === 'canvas').icon, fileBadge(tb.name, tb.kind === 'canvas').cls]"
+                :style="fileBadge(tb.name, tb.kind === 'canvas').accent ? { color: settings.vaultAccent } : undefined" />
+              <!-- 预览标签用斜体,和 VSCode 一个约定:一眼看出它随时会被顶掉 -->
+              <span class="max-w-40 truncate" :class="tb.preview ? 'italic' : ''">
+                {{ displayName(tb.name) }}
+              </span>
             </button>
             <button @click="closeTab(tb.path)" :title="t('vault.closeTab')"
               class="h-full pr-2 pl-0.5 flex items-center">
@@ -851,17 +1671,30 @@ async function sendFromVault() {
                 :class="tb.content !== tb.saved ? 'hidden group-hover:inline-block' : ''" />
             </button>
           </div>
+          </div>
         </div>
 
-        <section class="float-card flex-1 min-h-0 rounded-[14px] border bg-card flex flex-col overflow-hidden">
+        <!-- relative:悬浮大纲要贴着这张卡片的右缘定位 -->
+        <section class="float-card relative flex-1 min-h-0 rounded-[14px] border bg-card flex flex-col overflow-hidden">
           <!--
             正文上面这一小行:左边前进后退,中间当前文件的路径,右边是智能体开关和更多。
             智能体那个开关原来是右下角一颗浮标 —— 挪上来之后所有跟"这篇文档"有关的
             操作都在同一行,不用满屏找。
           -->
-          <div v-if="activeTab"
-            class="h-9 shrink-0 mx-2 mt-2 flex items-center gap-1 px-1.5
-                   rounded-lg border border-border bg-background/40">
+          <!--
+            和底部那两块一样浮在正文上、一样磨砂 —— 三块用同一套质感,
+            正文才像是「铺在底下的一整页」,而不是被几条实心杠切成三段。
+          -->
+          <!--
+            画布页整条顶栏都不要。
+
+            那一行里对画布还有意义的只剩重命名/属性这几样,而它们在目录栏右键
+            里都有;剩下的字体、字号、页宽、导出、源码模式对一张画全无意义。
+            为了几个用不上的按钮压掉一条画布,不值 —— 无限画布的价值就在于铺满。
+          -->
+          <div v-if="activeTab && !isCanvas"
+            class="absolute left-2 right-2 top-2 z-10 h-9 flex items-center gap-1 px-1.5
+                   rounded-lg border border-border/40 bg-card/55 backdrop-blur-xl">
             <button @click="go(-1)" :disabled="!canBack" :title="t('vault.back')"
               class="tool-btn size-7 disabled:opacity-30 disabled:pointer-events-none">
               <span class="icon-[lucide--arrow-left] w-4 h-4" />
@@ -878,7 +1711,7 @@ async function sendFromVault() {
               </template>
             </div>
 
-            <button @click="chatOpen = !chatOpen"
+            <button @click="toggleSide('chat')"
               :title="chatOpen ? t('vault.hideAssistant') : t('vault.showAssistant')"
               class="tool-btn size-7" :class="chatOpen ? 'text-foreground' : ''">
               <span class="icon-[ri--deepseek-line] w-4 h-4" />
@@ -890,7 +1723,12 @@ async function sendFromVault() {
                   <span class="icon-[lucide--more-horizontal] w-4 h-4" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" class="w-52 p-1.5">
+              <!--
+                这张面板攒到十几项之后已经比窗口还高,不给它上限的话最下面的
+                「删除」直接被窗口底边切掉、也滚不到 —— 等于点不着。
+                12rem 是顶栏 + 上下留白的份。
+              -->
+              <PopoverContent align="end" class="w-52 p-1.5 max-h-[calc(100vh-12rem)] overflow-y-auto">
                 <button class="menu-row" @click="menu(() => startRename(tabEntry!))">
                   <span class="icon-[lucide--pencil] w-4 h-4" />{{ t('vault.rename') }}
                 </button>
@@ -899,6 +1737,21 @@ async function sendFromVault() {
                 </button>
                 <button class="menu-row" @click="menu(() => revealEntry(activeTab!.path))">
                   <span class="icon-[lucide--external-link] w-4 h-4" />{{ t('vault.reveal') }}
+                </button>
+
+                <div class="h-px bg-border my-1 mx-1" />
+                <button class="menu-row" @click="sourceMode = !sourceMode">
+                  <span class="icon-[lucide--check] w-4 h-4" :class="sourceMode ? '' : 'opacity-0'" />
+                  {{ t('vault.sourceMode') }}
+                </button>
+                <button class="menu-row" @click="settings.vaultStatusBar = !settings.vaultStatusBar">
+                  <span class="icon-[lucide--check] w-4 h-4"
+                    :class="settings.vaultStatusBar ? '' : 'opacity-0'" />
+                  {{ t('vault.statusBar') }}
+                </button>
+                <button class="menu-row" @click="toggleZen()">
+                  <span class="icon-[lucide--check] w-4 h-4" :class="zenMode ? '' : 'opacity-0'" />
+                  {{ t('vault.zenMode') }}
                 </button>
 
                 <div class="h-px bg-border my-1 mx-1" />
@@ -939,8 +1792,54 @@ async function sendFromVault() {
                   {{ t('vault.widthNarrow') }}
                 </button>
 
+                <!--
+                  导出摊平成一节,不做二级弹出菜单。
+
+                  这张 ⋯ 面板是个 Popover,里面全是普通 button —— reka 的
+                  ContextMenuSub 要 MenuRoot 提供上下文,塞进来只会在 setup 里抛
+                  「Injection Symbol(MenuContext) not found」,整块静默消失。
+                  何况上面「正文字体」「本页宽度」也都是摊平的小节,飞出菜单
+                  反而跟这张面板的其余部分对不上。
+                -->
                 <div class="h-px bg-border my-1 mx-1" />
-                <button class="menu-row text-destructive" @click="menu(() => { deleteTarget = tabEntry })">
+                <p class="px-2 py-1 text-[11px] text-muted-foreground">{{ t('vault.export') }}</p>
+                <button class="menu-row" @click="menu(() => exportAs('pdf'))">
+                  <span class="icon-[lucide--file-text] w-4 h-4" />PDF
+                </button>
+                <button class="menu-row" @click="menu(() => exportAs('html'))">
+                  <span class="icon-[lucide--code-xml] w-4 h-4" />HTML
+                </button>
+                <button class="menu-row" @click="menu(() => exportAs('word'))">
+                  <span class="icon-[lucide--file-type] w-4 h-4" />Word
+                </button>
+                <!--
+                  「长图」先藏起来,不是删了。
+
+                  导出成长图这条路有已知缺陷(见 useExport 里 noteToPng 上面那段),
+                  暂时不修 —— 但它和另外三种共用同一条渲染管线,把代码删掉
+                  等于把那条管线也拆了。所以只摘掉入口,函数原样留着。
+                  修好了把这三行放回来就行。
+                <button class="menu-row" @click="menu(() => exportAs('image'))">
+                  <span class="icon-[lucide--image] w-4 h-4" />{{ t('vault.exportImage') }}
+                </button>
+                -->
+                <button class="menu-row" @click="menu(doPrint)">
+                  <span class="icon-[lucide--printer] w-4 h-4" />{{ t('vault.print') }}
+                </button>
+
+                <div class="h-px bg-border my-1 mx-1" />
+                <button class="menu-row" @click="menu(openBacklinks)">
+                  <span class="icon-[lucide--link] w-4 h-4" />{{ t('vault.backlinks') }}
+                </button>
+                <button class="menu-row" @click="menu(openHistory)">
+                  <span class="icon-[lucide--history] w-4 h-4" />{{ t('vault.history') }}
+                </button>
+                <button class="menu-row" @click="menu(openInfo)">
+                  <span class="icon-[lucide--info] w-4 h-4" />{{ t('vault.fileInfo') }}
+                </button>
+
+                <div class="h-px bg-border my-1 mx-1" />
+                <button class="menu-row text-destructive" @click="menu(() => { askDelete(tabEntry ?? null) })">
                   <span class="icon-[lucide--trash-2] w-4 h-4" />{{ t('vault.delete') }}
                 </button>
               </PopoverContent>
@@ -970,9 +1869,14 @@ async function sendFromVault() {
           <ContextMenuTrigger as-child>
             <div @keydown="onEditorKey" class="flex-1 min-h-0 overflow-hidden">
               <MarkdownEditor ref="editor" v-model="activeTab.content"
-                :accent="settings.vaultAccent"
+                @update:model-value="activeTab && markEdited(activeTab.path)"
+                :accent="settings.vaultAccent" :resolve-asset="resolveAsset"
+                :on-paste-image="onPasteImage"
                 :font="settings.vaultFont" :font-size="settings.vaultFontSize"
                 :full-width="effectiveFullWidth"
+                :color-headings="settings.vaultColorHeadings"
+                :source-mode="sourceMode" :typewriter="zenMode"
+                :status-bar="settings.vaultStatusBar"
                 :on-open-link="(u: string) => { void openExternal(u) }"
                 :wiki-suggest="wikiSuggest" :on-open-wiki="openWiki" />
             </div>
@@ -1106,7 +2010,18 @@ async function sendFromVault() {
           </ContextMenuContent>
         </ContextMenu>
 
-        <!-- 画布和二进制文件还没做编辑器,如实说,别装作打开了 -->
+        <!--
+          无限画布。key 挂当前文件 —— 换一张画就整个重建。
+          Excalidraw 的场景是在挂载时一次性喂进去的,不重建的话切了标签
+          还是上一张图。
+        -->
+        <!-- 顶栏底栏在画布页都不出现,这里不用给它们让位,直接铺满 -->
+        <div v-else-if="activeTab.kind === 'canvas' && canvas" class="flex-1 min-h-0">
+          <ExcalidrawCanvas :key="activeTab.path" :scene="canvas.scene"
+            :dark="isDark" @change="onCanvasChange" />
+        </div>
+
+        <!-- 二进制文件还没做查看器,如实说,别装作打开了 -->
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="text-center">
             <span class="icon-[lucide--file-question] w-8 h-8 mx-auto block text-muted-foreground/50" />
@@ -1116,11 +2031,107 @@ async function sendFromVault() {
             </button>
           </div>
         </div>
+        <!--
+          底部状态栏。和顶上那条文档小行同一个模子(圆角矩形、h-9、同样的底色),
+          一上一下把正文夹住 —— 不然底下空着一截,整块卡片看着是"没写完"。
+
+          只放**只读信息**:字数、行数、光标位置、存没存下去。
+          可点的东西一律不进来 —— 状态栏一旦能点,用户就得逐个去认那些图标是什么,
+          而它本来的价值是"扫一眼就知道",不是又一个工具条。
+        -->
+        <!--
+          悬浮大纲(学 Notion)。
+
+          平时只是右缘一列短横线,一行一个标题,长度按层级递减 —— 不占版面,
+          又能一眼看出这篇有多长、结构多深。鼠标移过去才浮出真正的面板。
+
+          **整块 pointer-events-none,只有里面两块打开** —— 不然那条透明的
+          定位层会盖住正文右侧,用户点不到那半边的字。
+        -->
+        <div v-if="activeTab?.kind === 'markdown' && outline.length && !zenMode"
+          class="absolute right-5 top-1/2 -translate-y-1/2 z-20 flex items-center pointer-events-none"
+          @pointerenter="outlineHover = true" @pointerleave="outlineHover = false">
+
+          <!-- 浮出来的面板在左边,线段在右边:面板往正文上盖,不往窗口外跑 -->
+          <Transition
+            enter-active-class="transition-[opacity,translate] duration-150 ease-out"
+            enter-from-class="opacity-0 translate-x-2"
+            leave-active-class="transition-[opacity,translate] duration-100 ease-in"
+            leave-to-class="opacity-0 translate-x-2">
+            <!--
+              面板**自己也贴着内容页右边 20px**,不是贴着线段左边 ——
+              外层容器已经在 right-5 上,所以这里 right-0 就正好对齐。
+              它会盖住线段,那是有意的:面板出来之后线段没有存在的必要了。
+            -->
+            <div v-if="outlineHover"
+              class="pointer-events-auto absolute right-0 top-1/2 -translate-y-1/2
+                     max-h-[60vh] w-56 overflow-y-auto rounded-xl
+                     border bg-popover shadow-lg py-2 px-1.5">
+              <button v-for="(h, i) in outline" :key="i" @click="gotoHeading(h)"
+                :style="{ paddingLeft: ((h.level - outlineBase) * 12 + 10) + 'px' }"
+                class="w-full text-left rounded-md py-1 pr-2 truncate transition-colors hover:bg-muted/60"
+                :class="h.level - outlineBase === 0
+                  ? 'text-[13px] font-medium' : 'text-[12px] text-muted-foreground'">
+                {{ h.text }}
+              </button>
+            </div>
+          </Transition>
+
+          <!--
+            线段那一列。宽度按层级递减(20 / 18 / 16 / 14 …),和 Notion 一样。
+          -->
+          <!--
+            右边留 10px 给滚动条:两者贴在一起时,鼠标一进来滚动条浮出来
+            正好压在最短的那几条线段上,看着像线段被啃掉一截。
+          -->
+          <div class="pointer-events-auto flex flex-col items-end gap-[10px] py-2 pl-3"
+            :class="outlineHover ? '' : 'opacity-60'">
+            <span v-for="(h, i) in outline" :key="i"
+              :style="{
+                width: Math.max(20 - (h.level - outlineBase) * 2, 8) + 'px',
+                background: i === activeHeading ? settings.vaultAccent : undefined,
+              }"
+              class="h-[2px] rounded-full bg-foreground/45 transition-colors" />
+          </div>
+
+        </div>
+
+        <!--
+          统计靠右。左半边**暂时空着**是有意的:那儿留给以后要放的东西
+          (光标位置、选中字数),现在硬塞一个「已保存」只是为了填满,
+          而它绝大多数时候都是同一句话,看久了等于没有。
+          真正要提醒的是「没存下去」,那个已经在标签上有小圆点了。
+        -->
+        <!--
+          **浮在正文上,不占布局。**
+
+          原来是塞在正文下面的一块,背后就是卡片的纯色底 —— backdrop-blur
+          糊的是一块纯色,当然看不出磨砂。改成绝对定位压在正文上之后,
+          它背后是滚动的文字,磨砂才有东西可糊。
+          正文底部相应留出一截空白(见 .xg-doc-pad),免得最后一行被压住。
+        -->
+        <!--
+          底部拆成左右两块独立的小卡片,不做成一整条。
+
+          一整条横跨全宽,中间那大片空白什么都不承载,却把正文和卡片底边
+          硬生生隔开一道线。拆成两块之后,底部看着是「两个浮在角上的小控件」,
+          正文一直铺到底。
+        -->
+        <div v-if="activeTab?.kind === 'markdown' && settings.vaultStatusBar"
+          class="absolute right-2 bottom-2 z-10 h-9 flex items-center gap-3 px-3
+                 rounded-lg border border-border/40 bg-card/55 backdrop-blur-xl
+                 text-[11px] text-muted-foreground/70 tabular-nums select-none pointer-events-none">
+          <span>{{ t('vault.statWords', { n: docStats.words }) }}</span>
+          <span class="opacity-40">·</span>
+          <span>{{ t('vault.statChars', { n: docStats.chars }) }}</span>
+          <span class="opacity-40">·</span>
+          <span>{{ t('vault.statLines', { n: docStats.lines }) }}</span>
+        </div>
         </section>
       </div>
 
       <!-- ═══════ 智能体栏 ═══════ -->
-      <template v-if="chatOpen">
+      <template v-if="chatOpen && !zenMode">
         <div @pointerdown="startDrag('chat', $event)"
           class="w-2.5 shrink-0 cursor-col-resize flex items-center justify-center group">
           <div class="w-0.5 h-10 rounded-full bg-border transition-colors group-hover:bg-foreground/40"
@@ -1211,13 +2222,258 @@ async function sendFromVault() {
     <AlertDialog :open="!!renameTarget" @update:open="(v: boolean) => { if (!v) renameTarget = null }">
       <AlertDialogContent>
         <AlertDialogHeader><AlertDialogTitle>{{ t('vault.rename') }}</AlertDialogTitle></AlertDialogHeader>
-        <Input v-model="renameText" autofocus @keydown.enter="doRename" />
+        <!-- 后缀摆在框外面看得见,但改不了 —— 它是类型不是名字 -->
+        <div class="flex items-center gap-2">
+          <Input v-model="renameText" autofocus @keydown.enter="doRename" class="flex-1" />
+          <span v-if="renameExt" class="text-sm text-muted-foreground shrink-0">{{ renameExt }}</span>
+        </div>
         <AlertDialogFooter>
           <AlertDialogCancel>{{ t('convert.cancel') }}</AlertDialogCancel>
           <AlertDialogAction @click="doRename">{{ t('vault.rename') }}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+
+    <!--
+      回收站单开一个窗口,不占目录栏。
+
+      它是偶尔进来一次的地方,原来那样盖在树上面,等于「翻一眼」要先挤掉
+      常驻的文件树、看完还得点回来。清理未引用图片也放在这儿 ——
+      两件事都是「这个库的存储在占多少地方」,凑一块用户才想得起来用。
+    -->
+    <Dialog :open="trashOpen" @update:open="(v: boolean) => { trashOpen = v; if (!v) orphans = null }">
+      <DialogContent class="sm:max-w-2xl p-0 gap-0 overflow-hidden">
+        <DialogHeader class="px-5 pt-5 pb-3">
+          <DialogTitle>{{ t('vault.trash') }}</DialogTitle>
+          <DialogDescription>{{ t('vault.trashHint') }}</DialogDescription>
+        </DialogHeader>
+
+        <!-- 两个页签:删掉的笔记 / 没人用的图。都是「占着地方的东西」 -->
+        <div class="px-5 flex items-center gap-1 border-b">
+          <button v-for="tab in (['deleted', 'orphan'] as const)" :key="tab"
+            @click="switchTrashTab(tab)" :class="[
+              'px-3 py-2 text-sm border-b-2 -mb-px transition-colors',
+              trashTab === tab ? 'border-foreground text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            ]">
+            {{ tab === 'deleted' ? t('vault.trashDeleted') : t('vault.trashOrphan') }}
+          </button>
+        </div>
+
+        <div class="min-h-[18rem] max-h-[24rem] overflow-y-auto px-3 py-2">
+          <p v-if="trashBusy" class="py-10 text-center text-sm text-muted-foreground">…</p>
+
+          <!-- 删掉的笔记 -->
+          <template v-else-if="trashTab === 'deleted'">
+            <p v-if="!trash.length" class="py-10 text-center text-sm text-muted-foreground">
+              {{ t('vault.trashEmpty') }}
+            </p>
+            <div v-for="it in trash" :key="it.id"
+              class="group flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
+              <span class="w-4 h-4 shrink-0 text-muted-foreground"
+                :class="it.isDir ? 'icon-[lucide--folder]' : 'icon-[lucide--file-text]'" />
+              <div class="flex-1 min-w-0">
+                <div class="text-[13px] truncate">{{ displayName(it.id) }}</div>
+                <!-- 原路径要显示:回收站是扁平的,光看文件名不知道它原来在哪一层 -->
+                <div class="text-[11px] text-muted-foreground truncate">{{ it.orig }}</div>
+              </div>
+              <span class="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+                {{ ago(it.deletedAt) }}
+              </span>
+              <button @click="doRestore(it)" class="tool-btn size-7 opacity-0 group-hover:opacity-100"
+                :title="t('vault.trashRestore')">
+                <span class="icon-[lucide--undo-2] w-4 h-4" />
+              </button>
+              <button @click="askPurge(it.id)" :title="t('vault.trashPurge')"
+                class="tool-btn size-7 opacity-0 group-hover:opacity-100 text-destructive">
+                <span class="icon-[lucide--x] w-4 h-4" />
+              </button>
+            </div>
+          </template>
+
+          <!-- 没人引用的图 -->
+          <template v-else>
+            <p v-if="orphans === null" class="py-10 text-center text-sm text-muted-foreground">
+              {{ t('vault.orphanIdle') }}
+            </p>
+            <p v-else-if="!orphans.length" class="py-10 text-center text-sm text-muted-foreground">
+              {{ t('vault.orphanNone') }}
+            </p>
+            <div v-for="o in orphans ?? []" :key="o.rel"
+              class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50">
+              <span class="icon-[lucide--image] w-4 h-4 shrink-0 text-muted-foreground" />
+              <span class="text-[13px] truncate flex-1">{{ o.rel }}</span>
+              <span class="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+                {{ humanSize(o.size) }}
+              </span>
+            </div>
+          </template>
+        </div>
+
+        <DialogFooter class="px-5 py-3 border-t sm:justify-between">
+          <span class="text-xs text-muted-foreground self-center">
+            {{ trashTab === 'deleted'
+              ? t('vault.trashCount', { n: trash.length })
+              : orphans === null ? '' : t('vault.orphanCount', { n: orphans.length, size: humanSize(orphanTotal) }) }}
+          </span>
+          <div class="flex items-center gap-2">
+            <button v-if="trashTab === 'deleted' && trash.length" @click="askPurge('*')"
+              class="h-8 px-3 rounded-lg border text-xs text-destructive transition-colors hover:bg-destructive/10">
+              {{ t('vault.trashPurgeAll') }}
+            </button>
+            <button v-if="trashTab === 'orphan'" @click="scanOrphans"
+              class="h-8 px-3 rounded-lg border text-xs text-muted-foreground transition-colors hover:bg-muted">
+              {{ t('vault.orphanScan') }}
+            </button>
+            <button v-if="trashTab === 'orphan' && orphans?.length" @click="confirmSweep = true"
+              class="h-8 px-3 rounded-lg border text-xs text-destructive transition-colors hover:bg-destructive/10">
+              {{ t('vault.orphanSweep') }}
+            </button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- 清理未引用图片的确认。它们**进回收站,不是抹掉** —— 扫描一定有漏网,留条后路 -->
+    <AlertDialog :open="confirmSweep" @update:open="(v: boolean) => { confirmSweep = v }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ t('vault.orphanSweepTitle', { n: orphans?.length ?? 0 }) }}</AlertDialogTitle>
+          <AlertDialogDescription>{{ t('vault.orphanSweepBody') }}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ t('common.cancel') }}</AlertDialogCancel>
+          <AlertDialogAction @click="doSweep">{{ t('vault.orphanSweep') }}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <AlertDialog :open="!!purgeTarget" @update:open="(v: boolean) => { if (!v) purgeTarget = '' }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {{ purgeTarget === '*' ? t('vault.trashPurgeAllTitle') : t('vault.trashPurgeTitle') }}
+          </AlertDialogTitle>
+          <AlertDialogDescription>{{ t('vault.trashPurgeBody') }}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ t('common.cancel') }}</AlertDialogCancel>
+          <AlertDialogAction @click="doPurge"
+            class="bg-destructive text-white hover:bg-destructive/90">
+            {{ t('vault.trashPurge') }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <!-- 反向链接。一行一处,点了跳过去 -->
+    <Dialog :open="backOpen" @update:open="(v: boolean) => { backOpen = v }">
+      <DialogContent class="sm:max-w-2xl p-0 gap-0 overflow-hidden">
+        <DialogHeader class="px-5 pt-5 pb-3">
+          <DialogTitle>{{ t('vault.backlinks') }}</DialogTitle>
+          <DialogDescription>{{ t('vault.backlinksHint') }}</DialogDescription>
+        </DialogHeader>
+        <div class="border-t min-h-[16rem] max-h-[24rem] overflow-y-auto p-2">
+          <p v-if="backBusy" class="py-12 text-center text-xs text-muted-foreground">…</p>
+          <p v-else-if="!backlinks.length" class="py-12 text-center text-xs text-muted-foreground">
+            {{ t('vault.backlinksEmpty') }}
+          </p>
+          <button v-for="(h, i) in backlinks" :key="h.path + h.line + i" @click="gotoBacklink(h)"
+            class="w-full text-left rounded-lg px-3 py-2 transition-colors hover:bg-muted/60">
+            <div class="text-[13px] truncate">{{ displayName(h.name) }}</div>
+            <div class="text-[11px] text-muted-foreground truncate">{{ h.snippet }}</div>
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    <!--
+      文件恢复。左边列版本、右边预览那一版的正文 —— 光有时间戳选不出来,
+      必须能看见内容才知道要哪一份。
+    -->
+    <Dialog :open="historyOpen" @update:open="(v: boolean) => { historyOpen = v }">
+      <DialogContent class="sm:max-w-3xl p-0 gap-0 overflow-hidden">
+        <DialogHeader class="px-5 pt-5 pb-3">
+          <DialogTitle>{{ t('vault.history') }}</DialogTitle>
+          <DialogDescription>{{ t('vault.historyHint') }}</DialogDescription>
+        </DialogHeader>
+
+        <div class="flex border-t min-h-[22rem] max-h-[26rem]">
+          <div class="w-52 shrink-0 border-r overflow-y-auto py-2 px-1.5">
+            <p v-if="historyBusy" class="py-8 text-center text-xs text-muted-foreground">…</p>
+            <p v-else-if="!snapList.length" class="py-8 px-3 text-center text-xs text-muted-foreground leading-relaxed">
+              {{ t('vault.historyEmpty') }}
+            </p>
+            <button v-for="sn in snapList" :key="sn.id" @click="pickSnapshot(sn)" :class="[
+              'w-full text-left rounded-md px-2 py-1.5 transition-colors',
+              historyPick?.id === sn.id ? 'bg-muted' : 'hover:bg-muted/50'
+            ]">
+              <div class="text-[12px] tabular-nums">{{ fmtTime(sn.at) }}</div>
+              <div class="text-[11px] text-muted-foreground">{{ humanSize(sn.size) }}</div>
+            </button>
+          </div>
+
+          <div class="flex-1 min-w-0 overflow-auto p-4">
+            <pre v-if="historyPick" class="text-[12px] leading-relaxed whitespace-pre-wrap wrap-break-word
+                 font-mono text-muted-foreground">{{ historyText }}</pre>
+            <p v-else class="h-full flex items-center justify-center text-sm text-muted-foreground">
+              {{ t('vault.historyPick') }}
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter class="px-5 py-3 border-t sm:justify-between">
+          <button v-if="snapList.length" @click="clearHistory"
+            class="h-8 px-3 rounded-lg border text-xs text-destructive transition-colors hover:bg-destructive/10">
+            {{ t('vault.historyClear') }}
+          </button>
+          <span v-else />
+          <button :disabled="!historyPick" @click="restoreSnapshot"
+            class="h-8 px-3 rounded-lg border text-xs transition-colors hover:bg-muted
+                   disabled:opacity-40 disabled:pointer-events-none">
+            {{ t('vault.historyRestore') }}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog :open="infoOpen" @update:open="(v: boolean) => { infoOpen = v }">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{{ t('vault.fileInfo') }}</DialogTitle>
+        </DialogHeader>
+        <dl v-if="info" class="text-[13px] space-y-2.5">
+          <div class="flex gap-3">
+            <dt class="w-20 shrink-0 text-muted-foreground">{{ t('vault.infoName') }}</dt>
+            <dd class="min-w-0 wrap-break-word">{{ info.rel.split('/').pop() }}</dd>
+          </div>
+          <div class="flex gap-3">
+            <dt class="w-20 shrink-0 text-muted-foreground">{{ t('vault.infoPath') }}</dt>
+            <dd class="min-w-0 wrap-break-word">{{ info.rel }}</dd>
+          </div>
+          <div class="flex gap-3">
+            <dt class="w-20 shrink-0 text-muted-foreground">{{ t('vault.infoWords') }}</dt>
+            <dd>{{ t('vault.statWords', { n: docStats.words }) }} ·
+              {{ t('vault.statChars', { n: docStats.chars }) }} ·
+              {{ t('vault.statLines', { n: docStats.lines }) }}</dd>
+          </div>
+          <div class="flex gap-3">
+            <dt class="w-20 shrink-0 text-muted-foreground">{{ t('vault.infoSize') }}</dt>
+            <dd>{{ humanSize(info.size) }}</dd>
+          </div>
+          <div class="flex gap-3">
+            <dt class="w-20 shrink-0 text-muted-foreground">{{ t('vault.infoCreated') }}</dt>
+            <dd>{{ fmtTime(info.created) }}</dd>
+          </div>
+          <div class="flex gap-3">
+            <dt class="w-20 shrink-0 text-muted-foreground">{{ t('vault.infoModified') }}</dt>
+            <dd>{{ fmtTime(info.modified) }}</dd>
+          </div>
+        </dl>
+        <p v-else class="py-6 text-center text-sm text-muted-foreground">…</p>
+      </DialogContent>
+    </Dialog>
 
     <!-- 删除 -->
     <AlertDialog :open="confirmClear" @update:open="(v: boolean) => { confirmClear = v }">

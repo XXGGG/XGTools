@@ -230,6 +230,12 @@ function toggleItem(id: string) {
 }
 
 /** 有多少篇笔记单独设过宽度 —— 为 0 时那张「清除」卡整块不显示 */
+const ATTACH_MODES = [
+  { key: 'subfolder', labelKey: 'settings.vaultAttachSub' },
+  { key: 'note', labelKey: 'settings.vaultAttachNote' },
+  { key: 'fixed', labelKey: 'settings.vaultAttachFixed' },
+] as const
+
 const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).length)
 </script>
 
@@ -439,6 +445,42 @@ const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).lengt
             </div>
 
             <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--file-image] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultWebp') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultWebpDesc') }}</div>
+              </div>
+              <Switch v-model="settings.vaultWebp" />
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--spell-check] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultSpellcheck') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultSpellcheckDesc') }}</div>
+              </div>
+              <Switch v-model="settings.vaultSpellcheck" />
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--panel-bottom] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultStatusBar') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultStatusBarDesc') }}</div>
+              </div>
+              <Switch v-model="settings.vaultStatusBar" />
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--paintbrush] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultColorHeadings') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultColorHeadingsDesc') }}</div>
+              </div>
+              <Switch v-model="settings.vaultColorHeadings" />
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
               <span class="icon-[lucide--a-large-small] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.vaultFontSize') }}</div>
@@ -454,6 +496,50 @@ const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).lengt
                 <span class="w-10 text-right text-sm tabular-nums text-muted-foreground">
                   {{ settings.vaultFontSize }}px
                 </span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--image] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultAttach') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultAttachDesc') }}</div>
+              </div>
+              <!-- 「和笔记并排」不需要目录名,那个框跟着隐藏,免得填了没用还让人以为坏了 -->
+              <Input v-if="settings.vaultAttachMode !== 'note'" v-model="settings.vaultAttachDir"
+                class="w-40 h-9 shrink-0" :placeholder="t('settings.vaultAttachPlaceholder')" />
+            </div>
+
+            <div class="px-4 pb-3.5 -mt-1 pl-13">
+              <div class="grid grid-cols-3 gap-2">
+                <button v-for="m in ATTACH_MODES" :key="m.key" @click="settings.vaultAttachMode = m.key" :class="[
+                  'rounded-lg border px-3 py-2 text-sm transition-colors',
+                  settings.vaultAttachMode === m.key ? 'border-foreground/60 bg-muted/60' : 'hover:bg-muted/40'
+                ]">{{ t(m.labelKey) }}</button>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--eye-off] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultHideAttach') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultHideAttachDesc') }}</div>
+              </div>
+              <Switch v-model="settings.vaultHideAttachDir"
+                :disabled="settings.vaultAttachMode === 'note'" />
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--trash-2] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultTrash') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultTrashDesc') }}</div>
+              </div>
+              <div class="flex items-center gap-1 rounded-lg border p-1 shrink-0">
+                <button v-for="o in [false, true]" :key="String(o)" @click="settings.vaultTrashToSystem = o" :class="[
+                  'px-3 py-1 rounded-md text-sm transition-colors',
+                  settings.vaultTrashToSystem === o ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
+                ]">{{ o ? t('settings.vaultTrashSystem') : t('settings.vaultTrashVault') }}</button>
               </div>
             </div>
 
