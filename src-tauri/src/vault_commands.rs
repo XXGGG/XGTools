@@ -24,6 +24,43 @@ pub struct Entry {
     pub size: u64,
     /// 修改时间(毫秒)。排序用。
     pub modified: u64,
+    /// 这是不是一张 Excalidraw 画布。见 `looks_like_canvas`。
+    pub is_canvas: bool,
+}
+
+/// 一张画布的开头长什么样。Obsidian 的 Excalidraw 插件就是靠这个认的。
+const CANVAS_MARK: &str = "excalidraw-plugin:";
+
+/// 前多少字节里找标记。frontmatter 一定在文件最前面,读多了纯属浪费
+const CANVAS_PEEK: usize = 512;
+
+/**
+ * 这个文件是不是一张画布。
+ *
+ * # 为什么不看文件名
+ *
+ * 画布的标准名字是 `xxx.excalidraw.md`,但那只是插件的默认命名 ——
+ * 用户随手把 `.excalidraw` 那一截改掉,文件照样是画布,Obsidian 那边也照样
+ * 当画布打开(它认的是 frontmatter 里的 `excalidraw-plugin`)。
+ * 只看名字的话,改过名的画布在树上会显示成普通笔记,点开是满屏 base64。
+ *
+ * # 为什么只读开头
+ *
+ * 列目录时每个 md 都要过一遍。frontmatter 必定在最前面,读 512 字节就够,
+ * 整份读进来的话一个塞了大图的画布(好几 MB)会把列目录拖慢。
+ */
+fn looks_like_canvas(p: &Path, name: &str) -> bool {
+    let n = name.to_lowercase();
+    if n.ends_with(".excalidraw") || n.ends_with(".canvas") {
+        return true;
+    }
+    if !n.ends_with(".md") {
+        return false;
+    }
+    let Ok(mut f) = std::fs::File::open(p) else { return false };
+    let mut buf = [0u8; CANVAS_PEEK];
+    let n = std::io::Read::read(&mut f, &mut buf).unwrap_or(0);
+    String::from_utf8_lossy(&buf[..n]).contains(CANVAS_MARK)
 }
 
 /// 不该出现在笔记树里的东西。Obsidian 自己也隐藏 `.obsidian`。
@@ -95,6 +132,7 @@ fn to_entry(root_real: &Path, p: &Path) -> Option<Entry> {
         },
         size: if meta.is_dir() { 0 } else { meta.len() },
         modified,
+        is_canvas: !meta.is_dir() && looks_like_canvas(p, &name),
     })
 }
 
@@ -208,11 +246,86 @@ pub fn vault_move(root: String, rel: String, dest_dir: String) -> Result<String,
         .unwrap_or(name))
 }
 
-/// 删除。**走回收站,不是永久删除** —— 笔记删错了没有 Ctrl+Z。
+/// 删除。**永远是可找回的,不做永久删除** —— 笔记删错了没有 Ctrl+Z。
+///
+/// `to_system` 为真走系统回收站,否则进库内 `.trash/`。默认是后者:
+/// 只有库内的那份我们才列得出来、还原得回原位,回收站面板才有意义。
+///
+/// 走系统回收站那条路也可能落回库内 —— **很多库根本不在本地盘上**:
+/// Google Drive、OneDrive 这类虚拟盘要么直接失败,要么更坏,
+/// 返回成功但文件原封不动。两种都接不住的话就退到库内回收站。
 #[tauri::command]
-pub fn vault_delete(root: String, rel: String) -> Result<(), String> {
+pub fn vault_delete(app: tauri::AppHandle, root: String, rel: String, to_system: bool) -> Result<(), String> {
     let p = resolve_in_vault(&root, &rel)?;
-    trash::delete(&p).map_err(|e| format!("移入回收站失败: {e}"))
+    let root_real = PathBuf::from(&root).canonicalize().map_err(|e| e.to_string())?;
+    if !to_system {
+        return crate::vault_trash::move_in(&app, &root_real, &p, &rel);
+    }
+    /*
+      **不能只看 trash::delete 的返回值。**
+
+      在 Google Drive 这种虚拟盘上,它会返回 Ok 但文件原封不动 ——
+      删除请求交给了 Drive 的 shell 扩展,那边直接吞了。
+      用户看到的就是「点了删除,什么都没发生,也没报错」,最难查的那种。
+      所以删完必须回头确认一眼文件是不是真没了。
+    */
+    let sys_err = match trash::delete(&p) {
+        Ok(()) if !p.exists() => return Ok(()),
+        Ok(()) => "系统回收站接受了请求,但文件还在".to_string(),
+        Err(e) => e.to_string(),
+    };
+    // 两条路都断了才报错,并且把系统回收站那边的原因一起带上,否则只看到
+    // 「移入库内回收站失败」会以为是我们自己的目录有问题
+    crate::vault_trash::move_in(&app, &root_real, &p, &rel)
+        .map_err(|e| format!("{e}(系统回收站也用不了: {sys_err})"))
+}
+
+/// 一个文件的属性。时间是 Unix 毫秒,前端自己格式化。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileInfo {
+    pub rel: String,
+    pub size: u64,
+    /// 创建时间。**有些文件系统压根不记这个**(比如某些网络盘),拿不到就给 0,
+    /// 前端显示成「—」,不要编一个假的出来
+    pub created: u64,
+    pub modified: u64,
+}
+
+fn ms_of(t: std::io::Result<std::time::SystemTime>) -> u64 {
+    t.ok()
+        .and_then(|x| x.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[tauri::command]
+pub fn vault_file_info(root: String, rel: String) -> Result<FileInfo, String> {
+    let p = resolve_in_vault(&root, &rel)?;
+    let m = std::fs::metadata(&p).map_err(|e| format!("读文件属性失败: {e}"))?;
+    Ok(FileInfo {
+        rel,
+        size: m.len(),
+        created: ms_of(m.created()),
+        modified: ms_of(m.modified()),
+    })
+}
+
+/// 把导出的内容写到任意路径(保存对话框选的那个)。
+///
+/// **不经过 resolve_in_vault** —— 导出本来就是往库外面写,
+/// 路径来自系统保存对话框,已经是用户亲手选的。
+#[tauri::command]
+pub fn save_export(path: String, content: String, base64: bool) -> Result<(), String> {
+    if base64 {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(content.as_bytes())
+            .map_err(|e| format!("数据解不开: {e}"))?;
+        std::fs::write(&path, bytes).map_err(|e| format!("保存失败: {e}"))
+    } else {
+        std::fs::write(&path, content).map_err(|e| format!("保存失败: {e}"))
+    }
 }
 
 /// 在系统文件管理器里定位。
@@ -258,6 +371,88 @@ pub fn vault_search(root: String, query: String, limit: usize) -> Result<Vec<Hit
     let mut hits = Vec::new();
     walk_search(&root_real, &root_real, &q, limit.max(1).min(300), &mut hits);
     Ok(hits)
+}
+
+/// 谁链到了这篇。
+///
+/// # 为什么不复用 vault_search
+///
+/// 那个是给「找东西」用的:一个文件只报第一处命中,而且只认纯文本包含。
+/// 反向链接要的正相反 —— 必须确认命中的是一条 `[[链接]]`(正文里提到名字
+/// 不算),而且一个文件里链了三次就该看见三条。
+///
+/// # 匹配到什么程度
+///
+/// `[[笔记]]`、`[[笔记|别名]]`、`[[笔记#小节]]`、`[[目录/笔记]]` 都算,
+/// 因为它们指向的是同一篇。大小写不敏感 —— Windows 的文件名本来就不区分。
+#[tauri::command]
+pub fn vault_backlinks(root: String, target: String) -> Result<Vec<Hit>, String> {
+    let want = target.trim().to_lowercase();
+    if want.is_empty() {
+        return Ok(Vec::new());
+    }
+    let root_real = PathBuf::from(&root).canonicalize().map_err(|e| format!("工作区不可用: {e}"))?;
+    let mut hits = Vec::new();
+    walk_backlinks(&root_real, &root_real, &want, 200, &mut hits);
+    Ok(hits)
+}
+
+/// `[[目录/笔记#小节|别名]]` → `笔记`
+fn link_target(inner: &str) -> String {
+    let head = inner.split('|').next().unwrap_or("");
+    let head = head.split('#').next().unwrap_or("");
+    let last = head.rsplit('/').next().unwrap_or(head);
+    // 链接里可以带扩展名,也可以不带,统一去掉再比
+    let last = last.strip_suffix(".md").unwrap_or(last);
+    last.trim().to_lowercase()
+}
+
+fn walk_backlinks(root: &Path, dir: &Path, want: &str, limit: usize, out: &mut Vec<Hit>) {
+    if out.len() >= limit {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        if out.len() >= limit {
+            return;
+        }
+        let name = e.file_name().to_string_lossy().into_owned();
+        if is_hidden(&name) {
+            continue;
+        }
+        let p = e.path();
+        if p.is_dir() {
+            walk_backlinks(root, &p, want, limit, out);
+            continue;
+        }
+        if p.extension().map(|x| x.to_string_lossy().to_lowercase()) != Some("md".into()) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&p) else { continue };
+        let rel = p.strip_prefix(root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+
+        for (i, line) in text.lines().enumerate() {
+            if out.len() >= limit {
+                return;
+            }
+            // 一行里可能链了好几篇,逐个拆出来看
+            let mut rest = line;
+            while let Some(open) = rest.find("[[") {
+                let after = &rest[open + 2..];
+                let Some(close) = after.find("]]") else { break };
+                if link_target(&after[..close]) == want {
+                    out.push(Hit {
+                        path: rel.clone(),
+                        name: name.clone(),
+                        snippet: line.trim().chars().take(160).collect(),
+                        line: (i + 1) as u32,
+                    });
+                    break;   // 同一行链两次没必要报两条
+                }
+                rest = &after[close + 2..];
+            }
+        }
+    }
 }
 
 fn walk_search(root: &Path, dir: &Path, q: &str, limit: usize, out: &mut Vec<Hit>) {

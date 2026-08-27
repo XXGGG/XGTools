@@ -23,7 +23,7 @@
  * 语法解析要先于装饰、装饰要在主题之后、更新监听要在装饰之后。
  */
 import { shallowRef, onMounted, onBeforeUnmount, watch, computed } from 'vue'
-import { EditorState, Compartment } from '@codemirror/state'
+import { EditorState, Compartment, Annotation } from '@codemirror/state'
 import {
   EditorView, keymap, drawSelection, dropCursor, rectangularSelection,
   highlightActiveLine, highlightSpecialChars,
@@ -33,6 +33,7 @@ import { search, searchKeymap } from '@codemirror/search'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import {
   indentOnInput, foldService, foldEffect, unfoldEffect, foldedRanges, codeFolding,
+  syntaxTree,
 } from '@codemirror/language'
 import { Decoration, WidgetType, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
@@ -47,32 +48,71 @@ import {
 import { ATOMIC_CODE_LANGUAGES } from '@atomic-editor/editor/code-languages'
 import '@atomic-editor/editor/styles.css'
 import type { WikiLinkSuggestion } from '@atomic-editor/editor'
-import { isDarkNow, VAULT_FONT_STACK, type VaultFont } from '@/composables/useAppSettings'
+import { isDarkNow, settings, VAULT_FONT_STACK, type VaultFont } from '@/composables/useAppSettings'
+import { mathAndDiagrams, resetMermaidTheme } from './editor/mathBlocks'
+import { tableAffordances } from './editor/tableTools'
 
 const props = withDefaults(defineProps<{
   modelValue: string
   readOnly?: boolean
   /** 笔记主题色(十六进制)。复选框、选区高亮、链接都用它 */
   accent?: string
+  /**
+   * 把笔记里的相对路径解析成 webview 能加载的 URL。
+   *
+   * 图片写在笔记里是 `![](attachments/a.png)` 这种相对路径,webview 拿它
+   * 当成相对于自己那个 http 源去请求,当然什么都拿不到。这个回调由外面
+   * (它知道库根在哪)负责翻译成 asset:// 地址。
+   */
+  resolveAsset?: (src: string) => string
   /** 正文字体档位 */
   font?: VaultFont
   /** 正文字号(px) */
   fontSize?: number
   /** 铺满整栏。关掉时收窄居中 —— 靠 --atomic-editor-measure 那个变量控制 */
   fullWidth?: boolean
+  /** 标题和引用要不要上色。关掉就全是正文色,只靠字号粗细分层 */
+  colorHeadings?: boolean
+  /** 源码模式:关掉所有实时渲染装饰,看纯 Markdown 原文 */
+  sourceMode?: boolean
+  /** 打字机滚动:光标行始终保持在视口中间。禅模式下打开 */
+  typewriter?: boolean
+  /** 底部有没有浮着状态栏。有的话正文要多留一截,不然最后一行被压住 */
+  statusBar?: boolean
   /** 点了渲染出来的链接。Tauri 里要走系统浏览器,不能让 webview 自己导航走 */
   onOpenLink?: (url: string) => void
   /** [[双链]] 的自动补全候选 */
   wikiSuggest?: (q: string) => Promise<WikiLinkSuggestion[]>
   /** 点了 [[双链]] */
   onOpenWiki?: (target: string) => void
-}>(), { readOnly: false, accent: '#8b6cef', font: 'default', fontSize: 16, fullWidth: false })
+  /**
+   * 粘贴进来一张图。回调负责把它存好,返回要插进正文的那段 markdown;
+   * 返回空串就当没这回事(编辑器不会替它插任何东西)。
+   */
+  onPasteImage?: (file: File) => Promise<string>
+}>(), { readOnly: false, accent: '#8b6cef', font: 'default', fontSize: 16, fullWidth: false,
+   colorHeadings: true, sourceMode: false, typewriter: false, statusBar: false })
 
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
+
+/** 标记「这次改动是外面灌进来的」,用来区分真正的用户输入 */
+const fromProp = Annotation.define<boolean>()
 
 const host = shallowRef<HTMLDivElement | null>(null)
 const view = shallowRef<EditorView | null>(null)
 const roCompartment = new Compartment()
+/*
+  源码模式靠这个格子换扩展,不是靠 CSS。
+
+  第一版想用 CSS 把装饰摁回普通文字 —— 那是错的:图片、表格、[[双链]] 这些
+  是 `Decoration.replace`,**原文那段 DOM 根本不存在**,被换成了一个部件,
+  CSS 再怎么写也变不回文字。真要看原文只能把产生装饰的扩展撤掉。
+
+  用 Compartment 而不是重建 EditorState:重建会把光标、选区、滚动位置、
+  撤销历史全丢掉,切一次源码模式回来就得重新找位置。格子只换这一小撮扩展,
+  文档本身一动不动。
+*/
+const decoCompartment = new Compartment()
 
 /*
   这个库的浅色主题靠根元素上的 data-theme="light",而我们全局用的是
@@ -118,6 +158,9 @@ const cssVars = computed(() => ({
   '--atomic-editor-link': props.accent,
   '--atomic-editor-link-hover': props.accent,
   '--xg-check': checkColor.value,
+  // 标题色:主题色往正文色靠一点,免得整页跳
+  // 一级直接用主题色本身,不再往正文色兑 —— 兑过之后一级和二级几乎分不出来
+  '--xg-head': props.accent,
   '--xg-chevron': 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23000\' stroke-width=\'2.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'m6 9 6 6 6-6\'/%3E%3C/svg%3E")',
   '--atomic-editor-code-bg': 'color-mix(in srgb, var(--foreground) 7%, transparent)',
   '--atomic-editor-selection-bg': `color-mix(in srgb, ${props.accent} 28%, transparent)`,
@@ -249,8 +292,148 @@ const foldHandles = ViewPlugin.fromClass(class {
   }
 }, { decorations: (v) => v.decorations })
 
-function extensions() {
+/*
+  把图片的相对路径改成能加载的地址。
+
+  库里那个 imageBlocks 是直接 `img.src = 原文` 的,没有留解析钩子,
+  所以只能等它把 img 建出来之后再改一遍。用 ViewPlugin 在每次更新后扫一遍
+  可视区里的 img —— 数量就是屏幕上那几张,不值得为它上 MutationObserver。
+
+  只动相对路径:http(s)、data:、asset: 开头的都已经是能用的地址,碰了反而会坏。
+*/
+const fixImageSrc = ViewPlugin.fromClass(class {
+  view: EditorView
+  constructor(view: EditorView) {
+    this.view = view
+    this.fix()
+  }
+
+  update() {
+    this.fix()
+  }
+
+  fix() {
+    const resolve = currentResolveAsset
+    if (!resolve) return
+    for (const img of this.view.dom.querySelectorAll('img')) {
+      const raw = img.getAttribute('data-xg-raw') ?? img.getAttribute('src') ?? ''
+      if (!raw || /^(https?:|data:|blob:|asset:|http:\/\/asset)/.test(raw)) continue
+      // 记下原文:CM6 会复用 DOM,不记的话第二遍就拿转换后的地址再转一次
+      img.setAttribute('data-xg-raw', raw)
+      const url = resolve(raw)
+      if (url && url !== img.getAttribute('src')) img.setAttribute('src', url)
+    }
+  }
+}, {})
+
+/*
+  ViewPlugin 是在 extensions() 里构造的,拿不到 props。这个模块级变量就是
+  给它捎话用的 —— 同一时刻只有一个笔记编辑器活着,不存在串台。
+*/
+let currentResolveAsset: ((src: string) => string) | null = null
+
+/**
+ * 所有「把原文换成好看的东西」的扩展。源码模式下整批不装。
+ *
+ * 顺序有讲究:语法高亮要先于装饰,装饰要在主题之后。
+ */
+/*
+  源码模式的语法配色。
+
+  # 只给记号上色,正文保持前景色
+
+  黑底白字、白底黑字 —— 这是读原文时最舒服的状态。VSCode 里整行标题都是绿的,
+  那是因为它把 `markup.heading` 当成一个整体;但在这儿我们是**编辑**这份原文,
+  正文一旦跟着变色,读起来就不像自己写的字了。所以只有 `#`、`-`、`>` 这些
+  **记号本身**染色,内容一律不动。
+
+  # 为什么按节点名而不是按 tag
+
+  lezer-markdown 把 HeaderMark、ListMark、QuoteMark、EmphasisMark、CodeMark
+  **全都标成同一个 tag**(processingInstruction),用 HighlightStyle 只能让它们
+  一个颜色。想让 `#` 是绿的、`-` 是橙的,就只能自己走一遍语法树按节点名区分。
+
+  # 颜色出处
+
+  取自用户 VSCode 里那套 Vitesse(antfu 的主题)的 markdown 取值,深浅两套都抄了,
+  不是我随手配的。
+*/
+const MARK_CLASS: Record<string, string> = {
+  // 标题整行先染绿,`###` 那几个字符随后被 HeaderMark 盖成灰 ——
+  // 顺序靠的是「后进的节点范围更小、嵌在里面」,内层的 color 自然赢
+  ATXHeading1: 'xg-src-head',
+  ATXHeading2: 'xg-src-head',
+  ATXHeading3: 'xg-src-head',
+  ATXHeading4: 'xg-src-head',
+  ATXHeading5: 'xg-src-head',
+  ATXHeading6: 'xg-src-head',
+  SetextHeading1: 'xg-src-head',
+  SetextHeading2: 'xg-src-head',
+  HeaderMark: 'xg-src-mark',
+  ListMark: 'xg-src-list',
+  QuoteMark: 'xg-src-mark',
+  EmphasisMark: 'xg-src-mark',
+  StrikethroughMark: 'xg-src-mark',
+  CodeMark: 'xg-src-code',
+  LinkMark: 'xg-src-mark',
+  URL: 'xg-src-link',
+  HorizontalRule: 'xg-src-list',
+  TaskMarker: 'xg-src-mark',
+}
+
+const MARK_DECOS: Record<string, Decoration> = Object.fromEntries(
+  Object.entries(MARK_CLASS).map(([k, v]) => [k, Decoration.mark({ class: v })]),
+)
+
+/** 走一遍可视区的语法树,给记号挂上类名 */
+const sourceMarks = ViewPlugin.fromClass(class {
+  decorations: DecorationSet
+
+  constructor(view: EditorView) {
+    this.decorations = this.build(view)
+  }
+
+  update(u: ViewUpdate) {
+    if (u.docChanged || u.viewportChanged) this.decorations = this.build(u.view)
+  }
+
+  build(view: EditorView) {
+    const b = new RangeSetBuilder<Decoration>()
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(view.state).iterate({
+        from,
+        to,
+        enter: (node) => {
+          const d = MARK_DECOS[node.name]
+          if (d && node.to > node.from) b.add(node.from, node.to, d)
+        },
+      })
+    }
+    return b.finish()
+  }
+}, { decorations: (v) => v.decorations })
+
+function decorations() {
   const openLink = (url: string) => props.onOpenLink?.(url)
+  return [
+    atomicMarkdownSyntax,
+    tables({ onLinkClick: openLink }),
+    imageBlocks(),
+    fixImageSrc,
+    inlinePreview({ onLinkClick: openLink }),
+    // 公式和流程图。放在 inlinePreview 之后:它俩都是「整段换成一个部件」,
+    // 排在前面的话行内那些装饰会先把 $...$ 里的字符啃掉
+    mathAndDiagrams(isDarkNow),
+    tableAffordances(),
+    wikiLinks({
+      suggest: props.wikiSuggest,
+      onOpen: (t) => props.onOpenWiki?.(t),
+      openOnClick: true,
+    }),
+  ]
+}
+
+function extensions() {
   return [
     highlightSpecialChars(),
     history(),
@@ -265,6 +448,22 @@ function extensions() {
     extendEmphasisPair,     // **加粗** 成对扩写
     autoCloseCodeFence,     // ``` 自动配对
     EditorView.lineWrapping,
+    /*
+      禅模式的「打字机」那一半:让光标行停在视口中间。
+
+      CM6 自带的做法是给 .cm-content 上下各垫半屏的内边距,再每次滚到光标 ——
+      垫内边距会让文档开头凭空多出半屏空白,很怪。这里只在光标移动时滚一次,
+      `y: 'center'` 就够,不动布局。
+    */
+    EditorView.updateListener.of((u) => {
+      if (!props.typewriter || !u.selectionSet) return
+      const pos = u.state.selection.main.head
+      // **不能在 update 里同步 dispatch** —— CM6 会警告「重入更新」,
+      // 严重时会丢掉这一轮的其他变更。挪到下一帧,那时候这轮更新已经收尾了。
+      requestAnimationFrame(() => {
+        u.view.dispatch({ effects: EditorView.scrollIntoView(pos, { y: 'center' }) })
+      })
+    }),
     codeFolding(),
     headingFold,
     foldHandles,
@@ -276,7 +475,26 @@ function extensions() {
       库自己的 React 组件把这个类加在容器上,我们不用那个组件,所以自己加。
     */
     EditorView.editorAttributes.of({ class: 'atomic-cm-editor' }),
+    /*
+      拼写检查交给系统,不自己带词典。
+
+      webview 底下就是 Chromium,它自带各语言的拼写检查和右键「添加到词典」——
+      自己塞一份词典进来体积大、更新不了、还只能覆盖有限几种语言。
+      默认关着:中文笔记里满屏红波浪线比不检查还烦,想要的人去设置里开。
+    */
+    EditorView.contentAttributes.compute([], () => ({
+      spellcheck: String(settings.vaultSpellcheck),
+    })),
     search({ top: true }),
+    /*
+      查找替换面板的汉化和配色。
+
+      CM6 自带的这块面板是给「代码编辑器」用的:全英文、自己带一套深色配色,
+      放在这个浅色笔记界面里像贴上去的补丁。phrases 走它的官方 i18n 接口,
+      配色则全部改走应用的 CSS 变量,深浅色跟着界面一起变。
+    */
+    EditorState.phrases.of(SEARCH_ZH),
+    searchPanelTheme,
     /*
       base: markdownLanguage 才有 GFM(表格、删除线、任务列表、自动链接);
       纯 CommonMark 的话 inlinePreview 根本看不到 Task / Table 这些节点。
@@ -292,7 +510,6 @@ function extensions() {
     markdownLanguage.data.of({
       closeBrackets: { brackets: ['(', '[', '{', "'", '"', '*', '_', '`'] },
     }),
-    atomicMarkdownSyntax,
     atomicEditorTheme,
     keymap.of([
       ...closeBracketsKeymap,
@@ -302,17 +519,42 @@ function extensions() {
       indentWithTab,
       ...defaultKeymap,
     ]),
-    // 装饰这三个要排在主题之后
-    tables({ onLinkClick: openLink }),
-    imageBlocks(),
-    inlinePreview({ onLinkClick: openLink }),
-    wikiLinks({
-      suggest: props.wikiSuggest,
-      onOpen: (t) => props.onOpenWiki?.(t),
-      openOnClick: true,
+    // 装饰整批放进格子里,源码模式一次性撤掉
+    decoCompartment.of(props.sourceMode ? sourceMarks : decorations()),
+    /*
+      粘贴图片。
+
+      **必须 preventDefault**,否则 CM6 会把剪贴板里那份文本表示也插进来 ——
+      从截图工具粘过来经常带一段文件名,不拦的话正文里会多出一行垃圾。
+
+      存盘是异步的,而 paste 事件不等人,所以先把光标位置记下来,
+      存完再按那个位置插 —— 中间用户可能已经把光标挪走了。
+    */
+    EditorView.domEventHandlers({
+      paste(e, view) {
+        const handler = props.onPasteImage
+        if (!handler || !e.clipboardData) return false
+        const file = [...e.clipboardData.files].find((f) => f.type.startsWith('image/'))
+        if (!file) return false
+        e.preventDefault()
+        const at = view.state.selection.main
+        void handler(file).then((md) => {
+          if (!md) return
+          view.dispatch({
+            changes: { from: at.from, to: at.to, insert: md },
+            selection: { anchor: at.from + md.length },
+          })
+          view.focus()
+        })
+        return true
+      },
     }),
     EditorView.updateListener.of((u) => {
       if (!u.docChanged) return
+      // 外面灌进来的内容不要再回抛。切标签时 modelValue 一变,下面那个 watch
+      // 就会 dispatch 一次替换全文 —— 不拦的话这里会当成「用户编辑了」发回去,
+      // 上层于是把刚点开的预览标签转成常驻,预览标签等于白做。
+      if (u.transactions.some((tr) => tr.annotation(fromProp))) return
       emit('update:modelValue', u.state.doc.toString())
     }),
     roCompartment.of(readOnlyExtension(props.readOnly)),
@@ -321,6 +563,8 @@ function extensions() {
 
 onMounted(() => {
   if (!host.value) return
+  currentResolveAsset = props.resolveAsset ?? null
+  watchTableMenus()
   view.value = new EditorView({
     parent: host.value,
     state: EditorState.create({ doc: props.modelValue, extensions: extensions() }),
@@ -328,6 +572,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  menuObserver?.disconnect()
+  menuObserver = null
+  currentResolveAsset = null
   view.value?.destroy()
   view.value = null
 })
@@ -340,7 +587,25 @@ onBeforeUnmount(() => {
 watch(() => props.modelValue, (v) => {
   const ed = view.value
   if (!ed || v === ed.state.doc.toString()) return
-  ed.dispatch({ changes: { from: 0, to: ed.state.doc.length, insert: v } })
+  ed.dispatch({
+    changes: { from: 0, to: ed.state.doc.length, insert: v },
+    annotations: fromProp.of(true),
+  })
+})
+
+watch(themeAttr, () => {
+  // mermaid 的主题是初始化时定死的,换深浅色必须让它重来一遍,
+  // 否则深色界面里嵌着一张白底图
+  resetMermaidTheme()
+  view.value?.dispatch({
+    effects: decoCompartment.reconfigure(props.sourceMode ? sourceMarks : decorations()),
+  })
+})
+
+watch(() => props.sourceMode, (src) => {
+  view.value?.dispatch({
+    effects: decoCompartment.reconfigure(src ? sourceMarks : decorations()),
+  })
 })
 
 watch(() => props.readOnly, (ro) => {
@@ -467,8 +732,254 @@ function selectedText() {
   return sel.empty ? '' : ed.state.sliceDoc(sel.from, sel.to)
 }
 
+/*
+  表格菜单的中文化。
+
+  库自带的可视化表格编辑(插入/删除行列)已经能用,但菜单项是写死的英文,
+  夹在一屏中文界面里很突兀,而它的配置只开放了 onLinkClick,给不了文案。
+
+  所以在菜单弹出来的那一刻把文字换掉。用 MutationObserver 而不是定时轮询:
+  菜单是点了才建、关掉就销毁的,轮询要么慢半拍要么一直空转。
+*/
+/** CM6 查找面板的英文原文 → 中文。键必须和它源码里的 phrase() 参数逐字一致 */
+const SEARCH_ZH: Record<string, string> = {
+  'Find': '查找',
+  'Replace': '替换为',
+  'next': '下一个',
+  'previous': '上一个',
+  'all': '全部',
+  'match case': '区分大小写',
+  'regexp': '正则',
+  'by word': '全词匹配',
+  'replace': '替换',
+  'replace all': '全部替换',
+  'close': '关闭',
+  'current match': '当前匹配',
+  'replaced $ matches': '替换了 $ 处',
+  'replaced match on line $': '替换了第 $ 行的一处',
+  'on line': '于行',
+}
+
+/*
+  查找替换面板 —— 浮空的磨砂小卡片。
+
+  # 为什么不让它占版面
+
+  CM6 原生把面板挂在编辑器顶上,内容整体往下推一截:一按 Ctrl+F 正文就跳一下,
+  再关掉又跳回来。查找是临时动作,不该让正文为它挪窝。
+  这里把面板整个抬成 absolute 浮在正文上,和应用里其他浮空卡片一个路子。
+
+  # 磨砂要的两个条件
+
+  背景必须是**半透明**的(纯色的话背后没东西可糊),而且不能给它上面的
+  `.cm-panels` 再垫一层实底 —— 那一层会先把正文挡住,blur 到的只是那块实底。
+
+  # 位置
+
+  右上角,离右边留出 3rem:再往右会压到悬浮大纲那条竖线上。
+*/
+const searchPanelTheme = EditorView.theme({
+  /*
+    面板要相对**编辑器**定位,不是相对更外面那张卡片。
+    不写这一句的话它会一路往上找到文档卡片,`top: 10px` 落在面包屑那条顶栏里,
+    面板上半截被顶栏盖住 —— 只剩「替换」那一行露在外面。
+  */
+  '&': { position: 'relative' },
+  '.cm-panels': {
+    position: 'absolute',
+    /*
+      3rem 而不是贴着顶:文档那条面包屑顶栏是**浮在正文上**的,
+      编辑器的上边缘就是卡片的上边缘 —— 贴顶等于钻到顶栏底下去。
+      这个值要跟着顶栏高度走,顶栏改高了这里也得改。
+    */
+    top: '3rem',
+    right: '3rem',
+    left: 'auto',
+    width: 'auto',
+    zIndex: 5,
+    background: 'none',
+    border: 'none',
+    color: 'var(--foreground)',
+  },
+  '.cm-panels-bottom': { top: 'auto', bottom: '10px' },
+  '.cm-panel.cm-search': {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '6px',
+    maxWidth: 'min(40rem, 70vw)',
+    padding: '8px 10px',
+    fontSize: '12px',
+    borderRadius: '14px',
+    border: '1px solid color-mix(in srgb, var(--border) 70%, transparent)',
+    background: 'color-mix(in srgb, var(--card) 72%, transparent)',
+    backdropFilter: 'blur(18px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(18px) saturate(180%)',
+    boxShadow: '0 2px 6px rgb(0 0 0 / 0.06), 0 12px 32px rgb(0 0 0 / 0.12)',
+  },
+  '.cm-panel.cm-search br': { display: 'none' },
+  '.cm-panel.cm-search label': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    color: 'var(--muted-foreground)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    userSelect: 'none',
+  },
+  '.cm-panel.cm-search input[type=checkbox]': {
+    accentColor: 'var(--atomic-editor-accent)',
+    width: '13px',
+    height: '13px',
+    margin: 0,
+  },
+  '.cm-panel.cm-search .cm-textfield': {
+    height: '28px',
+    minWidth: '10rem',
+    padding: '0 9px',
+    fontSize: '12px',
+    color: 'var(--foreground)',
+    background: 'color-mix(in srgb, var(--background) 70%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--border) 80%, transparent)',
+    borderRadius: '9px',
+    outline: 'none',
+    transition: 'border-color 150ms',
+  },
+  '.cm-panel.cm-search .cm-textfield:focus': {
+    borderColor: 'var(--atomic-editor-accent)',
+    background: 'var(--background)',
+  },
+  '.cm-panel.cm-search .cm-button': {
+    height: '28px',
+    padding: '0 10px',
+    fontSize: '12px',
+    color: 'var(--muted-foreground)',
+    background: 'none',
+    backgroundImage: 'none',
+    border: '1px solid transparent',
+    borderRadius: '9px',
+    cursor: 'pointer',
+    transition: 'background 150ms, color 150ms',
+  },
+  '.cm-panel.cm-search .cm-button:hover': {
+    background: 'color-mix(in srgb, var(--foreground) 8%, transparent)',
+    color: 'var(--foreground)',
+  },
+  '.cm-panel.cm-search .cm-button:active': {
+    backgroundImage: 'none',
+    background: 'color-mix(in srgb, var(--foreground) 14%, transparent)',
+  },
+  /*
+    关闭按钮做成 28×28 的方块,和旁边的按钮一样高。
+
+    CM6 原生只给它一个 `×` 字符加几像素内边距,点击范围就那么一丁点大,
+    要瞄准才点得到。可点的东西不该比它看起来更小。
+  */
+  '.cm-panel.cm-search [name=close]': {
+    position: 'static',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '28px',
+    height: '28px',
+    marginLeft: '2px',
+    padding: 0,
+    fontSize: '16px',
+    lineHeight: 1,
+    color: 'var(--muted-foreground)',
+    background: 'none',
+    border: 'none',
+    borderRadius: '9px',
+    cursor: 'pointer',
+    transition: 'background 150ms, color 150ms',
+  },
+  '.cm-panel.cm-search [name=close]:hover': {
+    background: 'color-mix(in srgb, var(--foreground) 8%, transparent)',
+    color: 'var(--foreground)',
+  },
+  '.cm-searchMatch': {
+    borderRadius: '3px',
+    background: 'color-mix(in srgb, var(--atomic-editor-accent) 22%, transparent)',
+  },
+  '.cm-searchMatch-selected': {
+    background: 'color-mix(in srgb, var(--atomic-editor-accent) 45%, transparent)',
+  },
+}, { dark: false })
+
+const TABLE_MENU_ZH: Record<string, string> = {
+  'Insert row above': '在上方插入行',
+  'Insert row below': '在下方插入行',
+  'Insert column left': '在左侧插入列',
+  'Insert column right': '在右侧插入列',
+  'Delete row': '删除本行',
+  'Delete column': '删除本列',
+}
+
+let menuObserver: MutationObserver | null = null
+
+function localizeTableMenus(root: ParentNode) {
+  for (const el of root.querySelectorAll('.cm-atomic-table-menu-item')) {
+    const zh = TABLE_MENU_ZH[el.textContent?.trim() ?? '']
+    if (zh) el.textContent = zh
+  }
+}
+
+function watchTableMenus() {
+  menuObserver = new MutationObserver((records) => {
+    for (const r of records) {
+      for (const node of r.addedNodes) {
+        if (node instanceof HTMLElement) localizeTableMenus(node)
+      }
+    }
+  })
+  menuObserver.observe(document.body, { childList: true, subtree: true })
+}
+
 defineExpose({
   focus: () => view.value?.focus(),
+  /**
+   * 视口正中间落在第几行(0 起)。大纲拿它高亮「正在看的那一节」。
+   *
+   * 走 posAtCoords 而不是自己按行高换算 —— 文档里有图片、表格、折叠段落,
+   * 每一行的高度都不一样,按平均行高算出来的位置会越滚越偏。
+   */
+  centerLine: () => {
+    const ed = view.value
+    if (!ed) return 0
+    const box = ed.scrollDOM.getBoundingClientRect()
+    const pos = ed.posAtCoords({ x: box.left + 8, y: box.top + box.height / 2 })
+    if (pos == null) return 0
+    return ed.state.doc.lineAt(pos).number - 1
+  },
+  /**
+   * 跳到某一行(大纲点击用)。
+   *
+   * scrollIntoView 给 `y: 'start'` 而不是默认的 'nearest' —— 目标行如果已经在
+   * 视口边缘,'nearest' 会判定"看得见"就不滚,用户点了大纲却什么都没动。
+   * 顺手把光标放过去,接着就能改。
+   */
+  gotoLine: (line: number) => {
+    const ed = view.value
+    if (!ed) return
+    const n = Math.min(Math.max(line + 1, 1), ed.state.doc.lines)
+    const pos = ed.state.doc.line(n).from
+    ed.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 12 }),
+    })
+    ed.focus()
+  },
+  /** 当前光标所在的相对位置。外面(拖放)要按它决定往哪插 */
+  insertAtCursor: (text: string) => {
+    const ed = view.value
+    if (!ed) return
+    const at = ed.state.selection.main
+    ed.dispatch({
+      changes: { from: at.from, to: at.to, insert: text },
+      selection: { anchor: at.from + text.length },
+    })
+    ed.focus()
+  },
   wrap, setBlock, insertBlock, paste, clip, selectedText,
   selectAll: () => {
     const ed = view.value
@@ -489,12 +1000,24 @@ defineExpose({
 
 <template>
   <div ref="host" class="xg-md-editor h-full min-h-0 overflow-hidden"
-    :class="fullWidth ? 'is-wide' : ''" :data-theme="themeAttr" :style="cssVars" />
+    :class="[fullWidth ? 'is-wide' : '', colorHeadings ? 'is-colored' : '', sourceMode ? 'is-source' : '', statusBar ? 'has-statusbar' : '']"
+    :data-theme="themeAttr" :style="cssVars" />
 </template>
 
 <style scoped>
 /* 编辑器自己管滚动,外面这层只负责给它一个有界的高度 */
 .xg-md-editor :deep(.cm-editor) { height: 100%; }
+/*
+  **别在这儿写 scrollbar-width。**(踩过的坑,留个记号)
+
+  它的优先级压过 style.css 里那条 `* { scrollbar-width: none }`,原生滚动条
+  就一直露在外面;更糟的是 Chromium 里只要设了 scrollbar-width,
+  `::-webkit-scrollbar` 那一整套伪元素**直接失效** —— 那时候改箭头、改颜色
+  一点反应都没有,根子就在这一行。
+
+  现在正文没有可见的滚动条(全局默认就是藏起来的)。以后要做的话,
+  自绘和样式化原生都试过,两条路的取舍见项目板。
+*/
 .xg-md-editor :deep(.cm-scroller) { overflow: auto; }
 
 /*
@@ -517,6 +1040,15 @@ defineExpose({
   padding-block: 14px;
   padding-inline: 10px;
 }
+
+/*
+  顶栏和底栏都浮在正文上,两头各补一截空白,免得首尾两行被压住。
+
+  上面给到 76px 而不是刚好躲开顶栏的 50 —— 那个高度第一行**紧贴着**顶栏,
+  看着像被顶栏推着走;空出一截之后正文才像一页纸的开头。
+*/
+.xg-md-editor :deep(.cm-content) { padding-top: 76px; }
+.xg-md-editor.has-statusbar :deep(.cm-content) { padding-bottom: 48px; }
 
 .xg-md-editor.is-wide :deep(.cm-content) { padding-inline: 38px; }
 
@@ -589,5 +1121,175 @@ defineExpose({
   color: var(--atomic-editor-fg-muted, #888);
   margin: 0 .3em;
   padding: 0 .4em;
+}
+
+/*
+  标题和引用上色。
+
+  颜色全部由笔记主题色推出来,不另起一套彩虹 —— 六级标题六种色相是灾难,
+  一页看下来眼睛没地方落。这里只动明度和饱和度:一级最重,越往下越淡,
+  到四级往后基本就回到正文色了,反正那几级本来也很少用。
+
+  用 color-mix 混向 --foreground 而不是写死数值:深色浅色两套主题下,
+  「往正文色靠一点」这个意思是同一个,混出来的结果自动跟着主题走,
+  不用维护两份色表。
+*/
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-h1),
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-h2),
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-h3) {
+  color: var(--xg-head);
+}
+
+/*
+  往**透明**兑,不往正文色兑。
+
+  兑正文色在深色下没问题(正文接近白,兑得越多越亮=越淡),可浅色主题下
+  正文接近黑 —— 兑得越多反而越暗,一级到六级整个反过来。
+  兑透明是「让它更淡」这件事本身,和底色是黑是白无关。
+*/
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-h2) {
+  color: color-mix(in srgb, var(--xg-head) 88%, transparent);
+}
+
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-h3) {
+  color: color-mix(in srgb, var(--xg-head) 74%, transparent);
+}
+
+/* 四级往后基本回到正文色 —— 那几级本来就很少用,再上色只会让页面更花 */
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-h4),
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-h5),
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-h6) {
+  color: color-mix(in srgb, var(--xg-head) 55%, transparent);
+}
+
+/* 引用整块压淡并留一道竖线,和标题不是一个维度的强调,所以不给色相 */
+.xg-md-editor.is-colored :deep(.cm-line.cm-atomic-blockquote) {
+  color: var(--atomic-editor-fg-muted);
+}
+
+/*
+  源码模式的**排版**部分。装饰本身是靠撤掉扩展关掉的(见 decoCompartment),
+  这里只负责把字体和行距也换成「看代码」的样子:等宽、字号略小、
+  行高统一 —— 否则标题那几行还是又大又粗,看着不像原文。
+*/
+.xg-md-editor.is-source :deep(.cm-content) {
+  font-family: var(--atomic-editor-font-mono);
+  font-size: calc(var(--atomic-editor-body-size) * 0.92);
+}
+
+.xg-md-editor.is-source :deep(.cm-line) {
+  font-size: inherit !important;
+  font-weight: normal !important;
+  line-height: inherit !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* 源码模式下折叠把手没有意义:那时候标题只是一行 # 开头的文字 */
+.xg-md-editor.is-source :deep(.xg-fold-handle) { display: none; }
+
+
+/*
+  源码模式的记号配色。取自 Vitesse(用户 VSCode 里那套)的 markdown 取值。
+  深色是默认,浅色由 [data-theme="light"] 覆盖 —— 那个属性本来就绑在根节点上,
+  跟着主题实时变,不用在 JS 里再判断一次深浅。
+*/
+.xg-md-editor :deep(.xg-src-head)  { color: #4d9375; }
+.xg-md-editor :deep(.xg-src-list)  { color: #d4976c; }
+.xg-md-editor :deep(.xg-src-quote) { color: #758575dd; }
+.xg-md-editor :deep(.xg-src-mark)  { color: #758575dd; }
+.xg-md-editor :deep(.xg-src-code)  { color: #c99076; }
+.xg-md-editor :deep(.xg-src-link)  { color: #c98a7d; text-decoration: underline; }
+
+.xg-md-editor[data-theme="light"] :deep(.xg-src-head)  { color: #1c6b48; }
+.xg-md-editor[data-theme="light"] :deep(.xg-src-list)  { color: #a65e2b; }
+.xg-md-editor[data-theme="light"] :deep(.xg-src-quote),
+.xg-md-editor[data-theme="light"] :deep(.xg-src-mark)  { color: #a0ada0; }
+.xg-md-editor[data-theme="light"] :deep(.xg-src-code)  { color: #a65e2b; }
+.xg-md-editor[data-theme="light"] :deep(.xg-src-link)  { color: #b56959; }
+
+/*
+  公式和流程图。
+
+  两者都用 --atomic-editor-fg 当前景色,跟着主题走;KaTeX 自带的样式里
+  颜色是继承的,所以这里只需要管容器。
+*/
+.xg-md-editor :deep(.xg-math) { color: var(--atomic-editor-fg); }
+.xg-md-editor :deep(.xg-math-block) { display: block; margin: .6em 0; text-align: center; }
+
+.xg-md-editor :deep(.xg-math-error),
+.xg-md-editor :deep(.xg-mermaid-error) {
+  color: #e05780;
+  font-family: var(--atomic-editor-font-mono);
+  font-size: .85em;
+  white-space: pre-wrap;
+}
+
+.xg-md-editor :deep(.xg-mermaid) {
+  display: block;
+  margin: .8em 0;
+  padding: .8em;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--atomic-editor-fg) 4%, transparent);
+  overflow-x: auto;
+  text-align: center;
+}
+
+.xg-md-editor :deep(.xg-mermaid svg) { max-width: 100%; height: auto; }
+
+/*
+  表格 —— 窄着出生，打字才撑开。
+
+  库里默认给 `<table>` 上了 `min-width: 100%`，于是一张两列的小表也横占整行，
+  中间全是空格子。去掉那条以后表格是 `width: max-content`，有多少内容占多宽；
+  再给单元格一个 6em 的下限，免得空表塌成几条竖线。
+*/
+.xg-md-editor :deep(.cm-atomic-table table) { min-width: 0; }
+.xg-md-editor :deep(.cm-atomic-table th),
+.xg-md-editor :deep(.cm-atomic-table td) { min-width: 6em; }
+
+/*
+  加一列 / 加一行的把手。
+
+  外层改成 grid：表格占第 1 格，竖条在它右边、横条在它下边。
+  网格项默认拉伸，所以竖条自动和表格等高、横条自动和表格等宽 ——
+  表格宽度随打字一直在变，用绝对定位就得一直重新量。
+
+  平时透明，鼠标进表格才淡淡浮出来，指到把手上才变实：
+  不打扰阅读，但要用的时候找得到。
+*/
+.xg-md-editor :deep(.cm-atomic-table) {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto;
+  grid-template-rows: max-content max-content;
+  justify-content: start;
+  align-content: start;
+}
+
+.xg-md-editor :deep(.cm-atomic-table > table) { grid-area: 1 / 1; }
+
+.xg-md-editor :deep(.xg-tbl-add) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--atomic-editor-fg);
+  background: color-mix(in srgb, var(--atomic-editor-fg) 7%, transparent);
+  opacity: 0;
+  transition: opacity 140ms ease, background 140ms ease;
+}
+
+.xg-md-editor :deep(.xg-tbl-add-col) { grid-area: 1 / 2; width: 20px; margin-left: 5px; }
+.xg-md-editor :deep(.xg-tbl-add-row) { grid-area: 2 / 1; height: 16px; margin-top: 5px; }
+
+.xg-md-editor :deep(.cm-atomic-table:hover .xg-tbl-add) { opacity: .45; }
+
+.xg-md-editor :deep(.xg-tbl-add:hover) {
+  opacity: 1;
+  background: color-mix(in srgb, var(--atomic-editor-accent) 22%, transparent);
 }
 </style>

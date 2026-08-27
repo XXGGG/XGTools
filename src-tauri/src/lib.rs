@@ -8,6 +8,10 @@ mod window_effects;
 mod dsh_commands;
 mod dsh_bridge;
 mod vault_commands;
+mod vault_attach;
+mod vault_history;
+mod vault_trash;
+mod vault_watch;
 mod file_search_commands;
 mod tray;
 
@@ -103,6 +107,7 @@ pub fn run() {
         .manage(window_detect::ComThread::spawn())
         .manage(dsh_commands::DshSidecar::default())
         .manage(dsh_bridge::DshBridge::default())
+        .manage(vault_watch::VaultWatch::default())
         .manage(convert_commands::ConvertState {
             cancel_flags: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
@@ -145,6 +150,17 @@ pub fn run() {
             file_search_commands::file_search_status,
             file_search_commands::file_search,
             // Markdown 工作区
+            vault_watch::watch_vault,
+            vault_trash::vault_trash_list,
+            vault_trash::vault_trash_restore,
+            vault_trash::vault_trash_purge,
+            vault_attach::vault_attach_bytes,
+            vault_attach::vault_attach_file,
+            vault_attach::vault_find_orphan_images,
+            vault_history::vault_snapshot,
+            vault_history::vault_history_list,
+            vault_history::vault_history_read,
+            vault_history::vault_history_clear,
             vault_commands::vault_list,
             vault_commands::vault_read,
             vault_commands::vault_write,
@@ -153,7 +169,10 @@ pub fn run() {
             vault_commands::vault_move,
             vault_commands::vault_delete,
             vault_commands::vault_reveal,
+            vault_commands::vault_file_info,
+            vault_commands::save_export,
             vault_commands::vault_search,
+            vault_commands::vault_backlinks,
             // Dock commands
             dock_commands::get_apps,
             dock_commands::save_apps,
