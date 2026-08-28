@@ -1869,6 +1869,7 @@ async function sendFromVault() {
           <ContextMenuTrigger as-child>
             <div @keydown="onEditorKey" class="flex-1 min-h-0 overflow-hidden">
               <MarkdownEditor ref="editor" v-model="activeTab.content"
+                :scroll-key="activeTab.path"
                 @update:model-value="activeTab && markEdited(activeTab.path)"
                 :accent="settings.vaultAccent" :resolve-asset="resolveAsset"
                 :on-paste-image="onPasteImage"

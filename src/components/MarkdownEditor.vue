@@ -51,6 +51,9 @@ import type { WikiLinkSuggestion } from '@atomic-editor/editor'
 import { isDarkNow, settings, VAULT_FONT_STACK, type VaultFont } from '@/composables/useAppSettings'
 import { mathAndDiagrams, resetMermaidTheme } from './editor/mathBlocks'
 import { tableAffordances } from './editor/tableTools'
+import { listIndent, listBackspace, taskSpace } from './editor/listTools'
+import { strictLists } from './editor/strictLists'
+import { listMarkers } from './editor/listMarkers'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -79,6 +82,14 @@ const props = withDefaults(defineProps<{
   typewriter?: boolean
   /** 底部有没有浮着状态栏。有的话正文要多留一截,不然最后一行被压住 */
   statusBar?: boolean
+  /**
+   * 滚动位置记在哪个名下(一般给笔记的路径)。
+   *
+   * 切到别的页面时整个笔记页会被 v-if 拆掉,编辑器连同滚动位置一起没了,
+   * 回来重建就停在文档末尾。这里按这个 key 把位置存在模块级的表里 ——
+   * 组件销毁了它还在,回来照着恢复。换标签页时同理。
+   */
+  scrollKey?: string
   /** 点了渲染出来的链接。Tauri 里要走系统浏览器,不能让 webview 自己导航走 */
   onOpenLink?: (url: string) => void
   /** [[双链]] 的自动补全候选 */
@@ -97,6 +108,9 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
 /** 标记「这次改动是外面灌进来的」,用来区分真正的用户输入 */
 const fromProp = Annotation.define<boolean>()
+
+/** 路径 → 滚动位置。模块级,组件被拆掉也留着 */
+const scrollMemory = new Map<string, number>()
 
 const host = shallowRef<HTMLDivElement | null>(null)
 const view = shallowRef<EditorView | null>(null)
@@ -173,8 +187,12 @@ const cssVars = computed(() => ({
     用 em 不用 ch:ch 量的是「0」的宽度,中文里一个字比它宽得多,
     同样的 ch 值中英文排出来的行长差一大截。em 跟着字号走,换字号也不用重算。
     45em ≈ 720px(16px 字号下),比 Obsidian 默认的 700px 略宽一点。
+
+    加的那 90px 是左右两侧的内边距(左 38 + 右 52,右边宽是给悬浮大纲腾的)。
+    box-sizing 是 border-box,内边距算在 max-width 里面 —— 不补回去的话,
+    给收窄模式加上外边距之后阅读宽度会凭空少一截。
   */
-  '--atomic-editor-measure': props.fullWidth ? 'none' : '45em',
+  '--atomic-editor-measure': props.fullWidth ? 'none' : 'calc(45em + 90px)',
 }))
 
 
@@ -421,6 +439,9 @@ function decorations() {
     imageBlocks(),
     fixImageSrc,
     inlinePreview({ onLinkClick: openLink }),
+    // 列表标记按层级换样子(1/a/i、●/○/▪)。必须排在 inlinePreview 之后 ——
+    // 它盖的正是 inlinePreview 画出来的那套标记
+    listMarkers(),
     // 公式和流程图。放在 inlinePreview 之后:它俩都是「整段换成一个部件」,
     // 排在前面的话行内那些装饰会先把 $...$ 里的字符啃掉
     mathAndDiagrams(isDarkNow),
@@ -445,6 +466,7 @@ function extensions() {
     highlightActiveLine(),
     closeBrackets(),
     startAsteriskList,      // 回车续列表 / 空条目退一级
+    taskSpace,              // `- [ ]` 后面直接打字,自动补空格
     extendEmphasisPair,     // **加粗** 成对扩写
     autoCloseCodeFence,     // ``` 自动配对
     EditorView.lineWrapping,
@@ -500,18 +522,40 @@ function extensions() {
       纯 CommonMark 的话 inlinePreview 根本看不到 Task / Table 这些节点。
       extensions: highlightMarkdown 是 ==高亮== 的解析规则 —— 少了它
       `==xx==` 会原样显示,而且不报错,很难看出是解析层缺东西。
+      strictLists 收紧列表和分隔线的判定,细节见那个文件的注释。
     */
     markdown({
       base: markdownLanguage,
       codeLanguages: [...ATOMIC_CODE_LANGUAGES],
-      extensions: highlightMarkdown,
+      extensions: [highlightMarkdown, strictLists],
     }),
-    // 把括号自动配对扩展到 Markdown 的成对符号上
+    /*
+      括号自动配对扩展到 Markdown 的成对符号上。
+
+      **`[` 不在里面**,故意的。它一自动补 `]`,任务项就打不出来了:
+      打 `[` 得到 `[|]`,再按 `]` 是「跨过闭括号」,那个本该在括号里的空格
+      就落到了外面 —— 打出来是 `- []  正文`(两个空格),不是任务项。
+      `[[双链]]` 不受影响:那个补全自己会把 `]]` 补上,不靠这里。
+    */
     markdownLanguage.data.of({
-      closeBrackets: { brackets: ['(', '[', '{', "'", '"', '*', '_', '`'] },
+      closeBrackets: { brackets: ['(', '{', "'", '"', '*', '_', '`'] },
     }),
     atomicEditorTheme,
     keymap.of([
+      /*
+        列表的缩进要排在 indentWithTab **前面**。
+
+        自带那个是给代码用的:2 空格、不认列表、更不会重排序号。
+        我们这个只在选区碰到列表项时接管,别处返回 false 原样放行。
+      */
+      { key: 'Tab', run: listIndent(1) },
+      { key: 'Shift-Tab', run: listIndent(-1) },
+      /*
+        退格也要排在 markdownKeymap 前面 —— 它那个
+        deleteMarkupBackward 是「把标记换成等宽空格」,
+        会留下一行只有空白的半级行。理由见 listBackspace 的注释。
+      */
+      { key: 'Backspace', run: listBackspace },
       ...closeBracketsKeymap,
       ...historyKeymap,
       ...searchKeymap,
@@ -569,14 +613,38 @@ onMounted(() => {
     parent: host.value,
     state: EditorState.create({ doc: props.modelValue, extensions: extensions() }),
   })
+  restoreScroll()
 })
 
 onBeforeUnmount(() => {
+  rememberScroll()
   menuObserver?.disconnect()
   menuObserver = null
   currentResolveAsset = null
   view.value?.destroy()
   view.value = null
+})
+
+function rememberScroll(key = props.scrollKey) {
+  const ed = view.value
+  if (ed && key) scrollMemory.set(key, ed.scrollDOM.scrollTop)
+}
+
+function restoreScroll() {
+  const ed = view.value
+  const top = props.scrollKey ? scrollMemory.get(props.scrollKey) : undefined
+  if (!ed || top === undefined) return
+  /*
+    要等一帧。刚建出来的编辑器只渲染了视口里那几行,scrollHeight 还没长到
+    真实高度,这时候设 scrollTop 会被夹到当前高度 —— 也就是「回来停在半路」。
+  */
+  requestAnimationFrame(() => { if (view.value === ed) ed.scrollDOM.scrollTop = top })
+}
+
+// 换标签页:先把上一篇的位置记下来,再恢复这一篇的
+watch(() => props.scrollKey, (_now, before) => {
+  rememberScroll(before)
+  restoreScroll()
 })
 
 /*
@@ -587,8 +655,16 @@ onBeforeUnmount(() => {
 watch(() => props.modelValue, (v) => {
   const ed = view.value
   if (!ed || v === ed.state.doc.toString()) return
+  /*
+    换完正文要把光标放回原处。
+
+    整篇替换会把选区映射到 0,于是外部同步一进来,正在打字的人光标就
+    跳到第一行第一个字符。夹到新文档长度之内 —— 新内容可能比原来短。
+  */
+  const keep = Math.min(ed.state.selection.main.head, v.length)
   ed.dispatch({
     changes: { from: 0, to: ed.state.doc.length, insert: v },
+    selection: { anchor: keep },
     annotations: fromProp.of(true),
   })
 })
@@ -957,6 +1033,10 @@ defineExpose({
    * scrollIntoView 给 `y: 'start'` 而不是默认的 'nearest' —— 目标行如果已经在
    * 视口边缘,'nearest' 会判定"看得见"就不滚,用户点了大纲却什么都没动。
    * 顺手把光标放过去,接着就能改。
+   *
+   * yMargin 要留够 **顶栏高度 + 一点呼吸**:那条面包屑顶栏是浮在正文上的,
+   * 留 12 的话跳过去的标题正好钻到它底下,看着像没跳对地方。
+   * 44 = top-2(8) + h-9(36),再加 20 的余量。
    */
   gotoLine: (line: number) => {
     const ed = view.value
@@ -965,7 +1045,7 @@ defineExpose({
     const pos = ed.state.doc.line(n).from
     ed.dispatch({
       selection: { anchor: pos },
-      effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 12 }),
+      effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 64 }),
     })
     ed.focus()
   },
@@ -1005,6 +1085,214 @@ defineExpose({
 </template>
 
 <style scoped>
+
+/*
+  标记和正文之间那截距离,以及圆点按层级换字形。
+
+  # 为什么间距要放进 box 里面,不能用 margin
+
+  atomic-editor 原来是 `宽 0.9em + margin-right 0.3em`。margin **不算内容**,
+  所以在一条空列表项(`- ` 后面还没打字)上,光标画在标记 box 的右缘、
+  margin 的**里面** —— 紧贴着圆点;等打了字,字才排在 margin 之后。
+  同一行里「光标位置」和「文字位置」差着一整个 margin,看着就是
+  「光标贴着圆点,一打字又跳开了」。
+
+  所以整截距离改成放在 box 内部:box 固定 1.4em(`box-sizing: border-box`),
+  margin 归零。这样光标落在 box 右缘 = 正文列,和文字对齐。
+
+    · 有序的 `1.` `10.` 是真文字,用 `padding-right` 把它顶到左边;
+    · 圆点是 ::before 画的,直接绝对定位到 box 最左。
+
+  # 字形
+
+  实心 → 空心 → 实心小方块,和 Notion 一样。atomic-editor 那个 `•` 是它自己
+  建的部件,DOM 碰不到,只能把原字符**变透明**、用 ::before 顶上去;
+  层级从行上那个 `xg-lvl-N` 类来(见 editor/listMarkers.ts)。
+  变透明而不是 `font-size: 0` —— 后者会把 1.4em 一起塌成 0,正文列当场左移。
+*/
+/*
+  **只有真正画出标记的那个元素能占凹槽。**
+
+  有序序号被我们换成了自己的部件，而 atomic-editor 原来给序号加的那层
+  `.cm-atomic-list-marker` 外壳还在（它是 mark 装饰，替换掉内容之后壳子
+  仍然留在 DOM 里）。凹槽宽度要是挂在这个类上，外壳和里面的部件就各占
+  一格 —— 序号被挤到左边一整格去，正文也被推远一格，看着就是
+  「圆点和序号对不齐、序号离正文特别远」。
+
+  所以：外壳一律摊平（display:inline、不占宽度），凹槽只给下面这三种
+  真正画东西的元素。
+*/
+.xg-md-editor :deep(.cm-atomic-list-marker:not(.cm-atomic-bullet):not(.cm-atomic-task-checkbox)) {
+  display: inline;
+  width: auto;
+  padding: 0;
+  margin: 0;
+}
+
+/*
+  凹槽本体。宽度 1.4em，和 xg-ind-N 每一级的缩进量**必须相等** ——
+  这样下一级的标记框左缘正好落在上一级正文的起点上（Notion 就是这么排的）。
+
+  间距放在 box 内部（padding，不是 margin）：margin 不算内容，
+  一条空列表项上光标会画在 margin 里面、紧贴着标记，一打字又跳开。
+*/
+.xg-md-editor :deep(.xg-ordinal),
+.xg-md-editor :deep(.cm-atomic-bullet),
+.xg-md-editor :deep(.cm-atomic-task-checkbox) {
+  box-sizing: border-box;
+  width: 1.4em;
+  margin: 0;
+  text-align: left;
+  /*
+    **必须显式清零。**`text-indent` 是会继承的,而带标记那行挂着
+    `text-indent: -1.4em`(用来把标记拽进凹槽)。inline-block 是块级容器,
+    它会**再**把这个负缩进作用到自己的第一行上 —— 序号被推出框外整整一格,
+    框里空着,看着就是「序号和圆点差一格、序号离正文特别远」。
+    圆点是绝对定位画的,不受 text-indent 影响,所以只有序号出问题。
+  */
+  text-indent: 0;
+}
+
+.xg-md-editor :deep(.xg-ordinal),
+.xg-md-editor :deep(.cm-atomic-bullet) { display: inline-block; }
+
+/* 序号是真文字，右边留一点，别贴着正文 */
+.xg-md-editor :deep(.xg-ordinal) { padding-right: 0.3em; }
+
+/*
+  复选框：方框改成 ::before 画，元素本身只当那个 1.4em 的凹槽。
+
+  原来方框是画在 `<input>` 自己身上的（border + background），
+  和正文之间那截距离靠 `margin-right`。**margin 不算内容** ——
+  一条还没打字的任务项上，光标就画在 input 的边框右缘、margin 的里面，
+  紧贴着方框；等打了字，字才排在 margin 之后。和圆点当初一模一样的毛病。
+
+  所以照圆点那套改：input 撑满 1.4em 凹槽、自己不画任何东西，
+  方框和勾都用伪元素绝对定位到凹槽最左。这样光标落在凹槽右缘 = 正文列，
+  和文字对齐；方框还是 1.05em 的正方形。
+*/
+.xg-md-editor :deep(.cm-atomic-task-checkbox) {
+  width: 1.4em;
+  height: 1.05em;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  display: inline-block;
+  position: relative;
+  /*
+    竖向对齐正文。inline-block 默认底边坐在基线上,1.05em 高的方框就整个
+    浮在字的上方;middle 把它的中点对到 x 高度的一半,再往下微调一点点
+    对齐数字/汉字的视觉中心(它们比小写字母高)。
+  */
+  vertical-align: middle;
+  transform: translateY(-0.08em);
+}
+
+.xg-md-editor :deep(.cm-atomic-task-checkbox)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.05em;
+  height: 1.05em;
+  box-sizing: border-box;
+  border: 1.5px solid var(--atomic-editor-fg-muted, #888);
+  border-radius: 0.22em;
+}
+
+.xg-md-editor :deep(.cm-atomic-task-checkbox:checked)::before {
+  background: var(--atomic-editor-accent, #7c3aed);
+  border-color: var(--atomic-editor-accent, #7c3aed);
+}
+
+/* 勾。原来靠 inline-grid 居中,现在方框是伪元素画的,勾也得自己定位到方框中心 */
+.xg-md-editor :deep(.cm-atomic-task-checkbox)::after {
+  position: absolute;
+  left: 0.525em;
+  top: 0.525em;
+  transform: translate(-50%, -58%) rotate(45deg);
+}
+
+.xg-md-editor :deep(.cm-line.xg-mk) { text-indent: -1.4em !important; }
+
+/*
+  圆点是**画**出来的，不是字。
+
+  原来用 ●／○／■ 三个字符，和序号对不齐 —— 三个字形各自的左边距都不一样。
+  画成方块/圆角块之后位置和大小自己说了算。原字符变透明留在原地占位，
+  不能用 `font-size: 0` 藏（那会把 1.4em 一起塌成 0，正文列当场左移）。
+*/
+.xg-md-editor :deep(.cm-atomic-bullet) {
+  padding: 0;
+  color: transparent;
+  position: relative;
+}
+
+.xg-md-editor :deep(.cm-atomic-bullet)::before {
+  content: '';
+  position: absolute;
+  left: 0.08em;                      /* 对着序号那个 1 的起笔位置调的 */
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0.36em;
+  height: 0.36em;
+  background: var(--atomic-editor-fg-muted, #888);
+}
+
+/* 一级实心圆 */
+.xg-md-editor :deep(.xg-lvl-0 .cm-atomic-bullet)::before { border-radius: 50%; }
+
+/* 二级空心圆 —— 内描边掏空，不占额外尺寸 */
+.xg-md-editor :deep(.xg-lvl-1 .cm-atomic-bullet)::before {
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--atomic-editor-fg-muted, #888);
+}
+
+/* 三级实心小方块。方的看着比同尺寸的圆重，收一点 */
+.xg-md-editor :deep(.xg-lvl-2 .cm-atomic-bullet)::before {
+  width: 0.3em;
+  height: 0.3em;
+  border-radius: 1px;
+}
+
+/*
+  列表每一级的缩进宽度。
+
+  这几行画的**不是**源码里的空格 —— atomic-editor 把行首空格整个藏了,
+  缩进是它按层级给整行加的 `padding-left`(见 editor/listMarkers.ts 的注释)。
+  它那个数是每级 0.6em,层级根本看不出来,所以这里整套盖掉:
+  起点 2.2em(= 0.8 基准 + 1.4 标记凹槽),每级 1.4em。
+
+  **每级的量必须正好等于凹槽宽度**,这样下一级的标记框左缘刚好落在上一级
+  正文的起点上 —— Notion 就是这么排的。差一点点(比如凹槽 1.2 而每级 1.4)
+  肉眼就能看出子项的圆点和父项的文字没对齐。
+
+  必须 `!important` —— 那个 padding 是行内样式写的,普通规则盖不住。
+  类名从 xg-ind-0 排到 xg-ind-9,再深的行共用最后一档(不会再变宽,
+  但也不会塌回去)。
+*/
+.xg-md-editor :deep(.cm-line.xg-ind-0) { padding-left: 2.2em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-1) { padding-left: 3.6em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-2) { padding-left: 5em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-3) { padding-left: 6.4em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-4) { padding-left: 7.8em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-5) { padding-left: 9.2em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-6) { padding-left: 10.6em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-7) { padding-left: 12em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-8) { padding-left: 13.4em !important; }
+.xg-md-editor :deep(.cm-line.xg-ind-9) { padding-left: 14.8em !important; }
+
+/*
+  缩进已经退出列表的行。
+
+  解析树还把它算在上一条列表项里(没有空行隔开的话,后面几行都算那一段的
+  续行),atomic-editor 就按树给它加了列表的 padding —— 看着就是「明明退到
+  首行了,字还挤在列表里」。按缩进判定归零。
+*/
+.xg-md-editor :deep(.cm-line.xg-out) { padding-left: 0 !important; text-indent: 0 !important; }
+
 /* 编辑器自己管滚动,外面这层只负责给它一个有界的高度 */
 .xg-md-editor :deep(.cm-editor) { height: 100%; }
 /*
@@ -1038,7 +1326,6 @@ defineExpose({
 
 .xg-md-editor :deep(.cm-content) {
   padding-block: 14px;
-  padding-inline: 10px;
 }
 
 /*
@@ -1050,21 +1337,53 @@ defineExpose({
 .xg-md-editor :deep(.cm-content) { padding-top: 76px; }
 .xg-md-editor.has-statusbar :deep(.cm-content) { padding-bottom: 48px; }
 
-.xg-md-editor.is-wide :deep(.cm-content) { padding-inline: 38px; }
+/*
+  左右两侧的留白,**两种宽度模式一视同仁**,而且窄下来也不许贴边。
 
+  两个坑:
+
+   1. 以前只给全宽模式留 38px,收窄模式一直是 10px。宽窗口下看不出来
+      (收窄靠 max-width + margin auto 居中,两边本来就空着),可窗口一压小,
+      max-width 不起作用了,正文就直接贴到边上。
+   2. 右边浮着**悬浮大纲**那一列短横线。它整个盒子占 52px
+      (贴右缘 20px + 线段最长 20px + 自己的左内边距 12px),
+      正文的右边距不让开这么多,长行就会从线段底下穿过去。
+
+  所以右边比左边宽一截 —— 那不是排版失误,是给大纲条腾的位置。
+
+  收窄模式的阅读宽度不受影响:box-sizing 是 border-box,内边距算在
+  max-width 里面,measure 那个变量已经把这 90px 加回去了
+  (见 cssVars 里的 --atomic-editor-measure)。
+*/
+.xg-md-editor :deep(.cm-content) {
+  padding-left: 38px;
+  padding-right: 52px;
+}
+
+/* 这一栏本来就窄的时候,左边收到 20px;右边不能收,大纲条还在那儿 */
 @container (max-width: 560px) {
-  .xg-md-editor.is-wide :deep(.cm-content) { padding-inline: 10px; }
+  .xg-md-editor :deep(.cm-content) { padding-left: 20px; }
 }
 
 /*
-  选区高亮。CM6 的 drawSelection 自己画一层 div,不是浏览器原生选区,
-  所以 ::selection 管不着它,必须改这个类。
+  选区高亮。
+
+  CM6 的 drawSelection 自己画一层 div(`.cm-selectionBackground`),不是浏览器
+  原生选区,所以 ::selection 管不着它 —— 要改的是这个类。
+
+  **别再给 `.cm-line ::selection` 上色。** drawSelection 特意把原生选区设成
+  透明,就是为了不和自己画的那层重叠;之前这里用 !important 把它改了回来,
+  于是两层半透明叠在一起,划过的地方比别处深一块 —— 用户报的「重复刮选」。
+  表格单元格是独立的 contenteditable,drawSelection 画不到,那儿才需要 ::selection。
 */
 .xg-md-editor :deep(.cm-selectionBackground),
-.xg-md-editor :deep(.cm-focused .cm-selectionBackground),
-.xg-md-editor :deep(.cm-line ::selection),
-.xg-md-editor :deep(.cm-line::selection) {
+.xg-md-editor :deep(.cm-focused .cm-selectionBackground) {
   background: var(--atomic-editor-selection-bg) !important;
+}
+
+.xg-md-editor :deep(.cm-atomic-table-cell-source ::selection),
+.xg-md-editor :deep(.cm-atomic-table-cell-source::selection) {
+  background: var(--atomic-editor-selection-bg);
 }
 
 /* 勾的颜色跟着主题色的亮度走(库里那条写死了白色) */

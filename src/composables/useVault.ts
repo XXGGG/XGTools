@@ -281,8 +281,22 @@ async function syncOpenTabs() {
     if (t.kind === 'other' || t.content !== t.saved) continue
     try {
       const fresh = await invoke<string>('vault_read', { root: vault.root, rel: t.path })
-      // 一样就别动:换内容会把光标和选区打回开头
+
+      /*
+        **await 回来之后必须重新判一次。**
+
+        读盘是异步的,这几十毫秒里用户完全可能又敲了几个字 —— 那时 t.content
+        已经变了,而手上这份 fresh 是旧的。照着写下去等于拿旧内容盖掉刚打的字,
+        而且换 modelValue 会让编辑器整篇重设,**光标当场跳回第一行第一个字符**。
+        这就是那个「偶尔莫名跳到开头」的真凶:它只在「打字 → 自动保存 →
+        监听回声」这个时间窗里发生,所以极难复现。
+      */
+      if (t.content !== t.saved) continue
       if (fresh === t.content) continue
+
+      // 自己刚写下去的那一份被监听器回声回来了 —— 不是外部改动,别动
+      if (fresh === lastWritten.get(t.path)) continue
+
       t.content = fresh
       t.saved = fresh
     } catch {
@@ -465,11 +479,22 @@ export function closeTab(rel: string) {
   persistTabs()
 }
 
+/**
+ * 我们自己最后一次写进每个文件的内容。
+ *
+ * 文件监听分不清「别人改的」和「我们刚存的」—— 存盘同样会触发变更事件。
+ * 拿它比一比就能把自己的回声挡掉,不然每次自动保存都会触发一次
+ * 「读回来 → 重设正文」的往返。
+ */
+const lastWritten = new Map<string, string>()
+
 export async function saveActive() {
   const t = activeTab.value
   if (!t || t.content === t.saved) return
   try {
-    await invoke('vault_write', { root: vault.root, rel: t.path, content: t.content })
+    const snapshot = t.content
+    await invoke('vault_write', { root: vault.root, rel: t.path, content: snapshot })
+    lastWritten.set(t.path, snapshot)
     t.saved = t.content
     // 存过盘就不再是「随手看看」,转成常驻
     t.preview = false
