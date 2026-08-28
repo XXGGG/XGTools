@@ -7,6 +7,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { Tabs, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -212,6 +213,14 @@ const toolList = ref<MenuItem[]>(ordered.filter((m) => m.group === 'tool'))
 const configList = ref<MenuItem[]>(ordered.filter((m) => m.group === 'config'))
 const hiddenSet = computed(() => new Set(settings.sidebarHidden))
 
+/*
+  能当启动页的:上下两排里没被隐藏的那些,顺序跟着侧栏走。
+  设置页本身不算 —— 没人会想每次启动停在设置里。
+*/
+const startCandidates = computed(() =>
+  [...toolList.value, ...configList.value].filter((m) => !hiddenSet.value.has(m.id))
+)
+
 function persistOrder() {
   // 拖动可能跨组,先把每条的 group 按它现在所在的列表回写,再存顺序
   toolList.value.forEach((m) => { m.group = 'tool' })
@@ -346,6 +355,37 @@ const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).lengt
           <p class="text-xs text-muted-foreground">
             {{ t('settings.navHint') }}
           </p>
+
+          <!--
+            候选只列**没被隐藏的**页:选一个自己关掉的页当启动页,
+            结果只能是启动时被退回别的地方 —— 那就不该让人选得到。
+          -->
+          <div class="rounded-xl border divide-y overflow-hidden">
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--play] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.startPage') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.startPageDesc') }}</div>
+              </div>
+              <!--
+                用项目自己的 Select,不用原生 <select> —— 原生下拉是系统控件,
+                跟这套界面的圆角、配色、材质全对不上,深色模式下尤其像贴上去的。
+                「__auto__」是自动那一档:reka 的 Select 不接受空串当值。
+              -->
+              <Select :model-value="settings.startPage || '__auto__'"
+                @update:model-value="(v: any) => { settings.startPage = v === '__auto__' ? '' : String(v ?? '') }">
+                <SelectTrigger class="w-44 shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__auto__">{{ t('settings.startPageAuto') }}</SelectItem>
+                  <SelectItem v-for="m in startCandidates" :key="m.id" :value="m.id">
+                    {{ t(m.labelKey) }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
           <section class="space-y-2">
             <h3 class="text-sm font-medium">{{ t('settings.navTools') }}</h3>

@@ -25,6 +25,13 @@ export type AppSettings = {
   blurOpacity: number
   sidebarOrder: string[]
   sidebarHidden: string[]
+  /**
+   * 启动时打开哪一页。空串 = 侧栏上排第一个没被隐藏的。
+   *
+   * 存的是页面 id 而不是序号 —— 序号会被「调换顺序」和「隐藏某一页」搞乱,
+   * 而那两件事用户随时在做。
+   */
+  startPage: string
   /** 条目归哪一组的用户覆盖(id → 'tool' | 'config')。空表示用代码里的默认分组。 */
   sidebarGroups: Record<string, string>
 
@@ -180,6 +187,7 @@ const DEFAULTS: AppSettings = {
   blurOpacity: 40,
   sidebarOrder: [],
   sidebarHidden: [],
+  startPage: '',
   sidebarGroups: {},
   agentSidebarWidth: 240,
   agentGreeting: '',

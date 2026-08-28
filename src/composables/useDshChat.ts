@@ -36,12 +36,15 @@ export const chat = reactive<{
   pending: Pending | null
   streams: Record<string, string>
   error: string
+  /** 正在拉取旧会话的历史。不标出来的话,打开大会话是几秒白屏,像卡死了 */
+  loadingHistory: boolean
 }>({
   sessionId: '',
   items: [],
   busy: false,
   pending: null,
   streams: {},
+  loadingHistory: false,
   error: '',
 })
 
@@ -206,6 +209,11 @@ function applyEvent(ev: any) {
       break
     }
 
+    case 'permission/preset':
+      // 权限档位是会话事件,谁改的(命令、别的客户端)这里都能跟上
+      permission.preset = String(data?.preset ?? '')
+      break
+
     case 'llm/retry-started':
       chat.items.push({ kind: 'notice', id: nextId(), text: '模型请求失败，正在重试…' })
       break
@@ -275,11 +283,25 @@ export async function loadSessions() {
   if (sessions.loading) return
   sessions.loading = true
   try {
-    const v = await invoke<any>('dsh_rpc', { method: 'session.list', payload: {} })
+    /*
+      session.list 回的是**所有**会话 —— 包括已经归档的。
+      「谁被归档了」记在 workspace.list 的 archivedSessionIds 里,DSH 自己的
+      界面就是拿它做减法。我们以前只拉了前一半,于是「移除」点了、RPC 也成功了,
+      刷回来的列表还是原样 —— 表现就是**会话怎么都删不掉**。
+    */
+    const [v, w] = await Promise.all([
+      invoke<any>('dsh_rpc', { method: 'session.list', payload: {} }),
+      invoke<any>('dsh_rpc', { method: 'workspace.list', payload: {} }),
+    ])
+    const archived = new Set<string>((w?.archivedSessionIds ?? []).map(String))
     sessions.rows = (v?.items ?? [])
       // blank = 一轮都没跑过的空会话。DSH 自己的约定就是列表里不显示它们,
       // 否则每点一次「新会话」就多一条永远空着的记录。
       .filter((s: any) => !s?.blank)
+      .filter((s: any) => !archived.has(String(s?.sessionId)))
+      // 子代理跑出来的会话不进主列表 —— 它们是某次任务的内部产物,
+      // 混进来会看到一堆自己没发起过的对话
+      .filter((s: any) => s?.origin !== 'subagent')
       .map((s: any) => ({
         sessionId: String(s.sessionId),
         title: rowTitle(s),
@@ -341,17 +363,22 @@ export async function openSession(sessionId: string) {
   chat.items = []
   chat.pending = null
   chat.error = ''
+  chat.loadingHistory = true
   try {
     const v = await invoke<any>('dsh_rpc', {
       method: 'session.history',
       payload: { sessionId, maxMessages: 100 },
     })
+    // 中途点开了别的会话:这份回来晚了,别把人家的界面覆盖掉
+    if (chat.sessionId !== sessionId) return
     for (const entry of v?.events ?? []) {
       if (entry?.event) applyEvent(entry.event)
     }
     sealAssistant()   // 历史里最后一段不该留着流式光标
   } catch (e) {
     chat.error = String(e)
+  } finally {
+    if (chat.sessionId === sessionId) chat.loadingHistory = false
   }
 }
 
@@ -361,12 +388,23 @@ export async function newSession(cwd?: string) {
   chat.error = ''
   try {
     // 签名:create({ workspaceId?, cwd?, sessionId?, agentPreset? }) -> { sessionId }
+    // workspaceId 和 cwd 互斥,协议规定只能给一个
+    const payload: Record<string, unknown> = cwd
+      ? { cwd }
+      : (workspaces.pendingId ? { workspaceId: workspaces.pendingId } : {})
+    if (presets.current) payload.agentPreset = presets.current
     const v = await invoke<any>('dsh_rpc', {
       method: 'session.create',
-      payload: cwd ? { cwd } : {},
+      payload,
     })
     chat.sessionId = String(v?.sessionId ?? '')
     if (!chat.sessionId) chat.error = '创建会话没有返回 sessionId'
+    // 空态时选过模型的话,现在有会话了,补交上去
+    if (chat.sessionId && pendingSelection) {
+      const sel = pendingSelection
+      pendingSelection = null
+      await selectModel(sel.provider, sel.model, sel.reasoningEffort)
+    }
   } catch (e) {
     chat.error = String(e)
   }
@@ -401,6 +439,20 @@ export async function sendPrompt(text: string) {
     chat.busy = false
     chat.items.push({ kind: 'notice', id: nextId(), text: String(e) })
   }
+
+  /*
+    空态选过权限档位的,现在补发。
+
+    **必须排在用户第一句之后。** DSH 拿会话的第一条 prompt 生成标题,
+    抢在前面发的话整条会话会被命名成「Read-only mode set」——
+    用户问的那句反而不见了。
+  */
+  if (chat.sessionId && permission.pending) {
+    const want = permission.pending
+    permission.pending = ''
+    await selectPermission(want)
+  }
+
   // 标题是发出第一条之后才由 Host 生成的,所以这里补一次列表刷新;
   // 稍等一下再拉,给它生成标题的时间
   setTimeout(loadSessions, 2500)
@@ -484,21 +536,41 @@ export const models = reactive<{
   loading: boolean
 }>({ current: null, routable: true, options: [], loading: false })
 
+/**
+ * 还没有会话时选中的模型,等会话建出来再补交。
+ *
+ * 空态页(还没聊过)也有那颗模型按钮 —— 而 session.selectModel 必须有会话。
+ * 不记下来的话,用户在空态选的模型会被第一句话建出的会话默默无视。
+ */
+let pendingSelection: { provider: string; model: string; reasoningEffort?: string } | null = null
+
 export async function loadModels() {
-  if (!chat.sessionId || models.loading) return
+  if (models.loading) return
   models.loading = true
   try {
-    const v = await invoke<any>('dsh_rpc', {
-      method: 'session.models',
-      payload: { sessionId: chat.sessionId },
-    })
-    models.current = v?.current ?? null
+    /*
+      有会话走 session.models(带 current/routable);
+      没会话走 llm.models —— 它不要会话,回的是同一份 groups。
+      以前这里直接 return,表现就是**刚打开应用模型下拉永远是空的**,
+      要先随便聊一句才选得了模型。
+    */
+    const v = await invoke<any>('dsh_rpc', chat.sessionId
+      ? { method: 'session.models', payload: { sessionId: chat.sessionId } }
+      : { method: 'llm.models', payload: {} })
+    /*
+      空态(llm.models 没有 current)按这个顺序找该显示谁:
+      刚才手选的 → **部署默认模型**。默认模型存在 DSH 设置的
+      agent-default-model 里 —— 原版空态就直接亮着它,我们对标。
+    */
+    models.current = v?.current ?? pendingSelection ?? (chat.sessionId ? null : await readDefaultModel())
     models.routable = v?.routable !== false
     const out: ModelOption[] = []
     for (const g of v?.groups ?? []) {
       for (const m of g?.models ?? []) {
         out.push({
-          provider: String(g.provider ?? m.provider ?? ''),
+          // 组的 provider 标识在 id 字段(name 是显示名)。以前猜的 g.provider
+          // 根本不存在,空串一路写进「设为默认」,把路由都断了
+          provider: String(g.id ?? g.provider ?? m.provider ?? ''),
           model: String(m.id ?? m.model ?? ''),
           label: String(m.name ?? m.id ?? ''),
           reasoningOptions: (m.reasoningOptions ?? m.reasoning_options ?? []).map((r: any) => ({
@@ -515,8 +587,56 @@ export async function loadModels() {
   }
 }
 
+/** 读 DSH 的部署默认模型(settings 的 agent-default-model 段) */
+async function readDefaultModel(): Promise<{ provider: string; model: string; reasoningEffort?: string } | null> {
+  try {
+    const v = await invoke<any>('dsh_rpc', { method: 'settings.describe', payload: {} })
+    const ns = (v?.namespaces ?? []).find((n: any) => n?.ns === 'agent-default-model')
+    // 协议里这一段叫 value(合成后的生效值,含默认层)
+    const val = ns?.value ?? null
+    if (val?.model) {
+      return {
+        provider: String(val.provider ?? ''),
+        model: String(val.model),
+        ...(val.reasoningEffort ? { reasoningEffort: String(val.reasoningEffort) } : {}),
+      }
+    }
+  } catch { /* 读不到就显示 —,不值得报错 */ }
+  return null
+}
+
+/**
+ * 把某个模型设为**默认**(写进 DSH 设置,和原版的设置页同一个开关)。
+ *
+ * 和 selectModel 的区别:selectModel 只管当前会话,默认模型管以后每个新会话。
+ */
+export async function setDefaultModel(provider: string, model: string, reasoningEffort?: string) {
+  try {
+    await invoke('dsh_rpc', {
+      method: 'settings.update',
+      payload: {
+        ns: 'agent-default-model',
+        /*
+          没有推理档位就**整个字段不给**,不能写 null ——
+          DSH 那边这个 namespace 有 schema,null 过不了校验,整层回退到
+          部署默认值。表现是「设了默认模型,新会话却还是老模型」。
+        */
+        patch: { provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) },
+      },
+    })
+    if (!chat.sessionId) models.current = { provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) }
+  } catch (e) {
+    chat.items.push({ kind: 'notice', id: nextId(), text: String(e) })
+  }
+}
+
 export async function selectModel(provider: string, model: string, reasoningEffort?: string) {
-  if (!chat.sessionId) return
+  // 还没有会话:先记着,newSession 成功后补交(见 pendingSelection)
+  if (!chat.sessionId) {
+    pendingSelection = { provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) }
+    models.current = pendingSelection
+    return
+  }
   try {
     await invoke('dsh_rpc', {
       method: 'session.selectModel',
@@ -535,6 +655,129 @@ export const currentModelLabel = computed(() => {
   const hit = models.options.find((o) => o.provider === c.provider && o.model === c.model)
   return hit?.label ?? c.model
 })
+
+// ── 模式(agent preset)、工作区、访问权限 ──────────────
+
+/*
+  这三样和模型一样,都是「空态先选好、第一句话才生效」的东西:
+  模式和工作区是 session.create 的入参,权限是建完会话补发的 /permission 命令。
+  各自记一个 pending,newSession 里统一兑现。
+*/
+export const presets = reactive<{
+  options: { id: string; name: string; description: string; isDefault: boolean; broken?: string }[]
+  /** 当前会话在用的预设 id;空态时是待用的那一个 */
+  current: string
+  loading: boolean
+}>({ options: [], current: '', loading: false })
+
+export async function loadPresets() {
+  if (presets.loading) return
+  presets.loading = true
+  try {
+    const v = await invoke<any>('dsh_rpc', { method: 'agentPreset.list', payload: {} })
+    presets.options = (v?.presets ?? [])
+      .filter((p: any) => !p?.broken)   // 坏的列出来也选不了,反而像 bug
+      .map((p: any) => ({
+        id: String(p.id),
+        name: String(p.name ?? p.id),
+        description: String(p.description ?? ''),
+        isDefault: !!p.isDefault,
+      }))
+    if (!presets.current) {
+      presets.current = presets.options.find((p) => p.isDefault)?.id ?? presets.options[0]?.id ?? ''
+    }
+  } catch (e) {
+    console.error('读模式列表失败:', e)
+  } finally {
+    presets.loading = false
+  }
+}
+
+export async function selectPreset(id: string) {
+  if (!chat.sessionId) {
+    presets.current = id
+    return
+  }
+  try {
+    // 只对还没跑过的空会话有效 —— 跑过的会话预设已经定了,DSH 会拒
+    await invoke('dsh_rpc', { method: 'agentPreset.select', payload: { sessionId: chat.sessionId, agentPreset: id } })
+    presets.current = id
+  } catch (e) {
+    chat.items.push({ kind: 'notice', id: nextId(), text: String(e) })
+  }
+}
+
+export const workspaces = reactive<{
+  items: { workspaceId: string; path: string; title: string }[]
+  /** 空态选中的工作区;空串 = 跟 DSH 的默认走 */
+  pendingId: string
+  loading: boolean
+}>({ items: [], pendingId: '', loading: false })
+
+export async function loadWorkspaces() {
+  if (workspaces.loading) return
+  workspaces.loading = true
+  try {
+    const v = await invoke<any>('dsh_rpc', { method: 'workspace.list', payload: {} })
+    workspaces.items = (v?.items ?? []).map((w: any) => ({
+      workspaceId: String(w.workspaceId),
+      path: String(w.path ?? ''),
+      title: String(w.title ?? w.path ?? ''),
+    }))
+  } catch (e) {
+    console.error('读工作区列表失败:', e)
+  } finally {
+    workspaces.loading = false
+  }
+}
+
+/** 选个文件夹当新工作区。走 DSH 的原生目录选择器,和原版一个入口 */
+export async function addWorkspace(): Promise<boolean> {
+  try {
+    const picked = await invoke<any>('dsh_rpc', { method: 'host.pickDirectory', payload: {} })
+    if (!picked?.path) return false
+    const v = await invoke<any>('dsh_rpc', { method: 'workspace.create', payload: { path: picked.path } })
+    await loadWorkspaces()
+    if (v?.workspace?.workspaceId) workspaces.pendingId = String(v.workspace.workspaceId)
+    return true
+  } catch (e) {
+    chat.items.push({ kind: 'notice', id: nextId(), text: String(e) })
+    return false
+  }
+}
+
+/**
+ * 访问权限档位。写死三档 —— 这是 DSH 部署配置里声明的那三个预设名,
+ * 切换走 /permission 命令(原版的「工作区可写」下拉背后就是它)。
+ */
+export const PERMISSION_PRESETS = ['read-only', 'workspace-write', 'danger-full-access'] as const
+export const permission = reactive<{ preset: string; pending: string }>({
+  preset: '',
+  pending: '',
+})
+
+export async function selectPermission(name: string) {
+  if (!chat.sessionId) {
+    // 没会话:记着,newSession 建出来后补发命令
+    permission.pending = name
+    permission.preset = name
+    return
+  }
+  try {
+    await invoke('dsh_rpc', {
+      method: 'session.prompt',
+      payload: {
+        sessionId: chat.sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: `/permission ${name}` }],
+        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+    })
+    permission.preset = name
+  } catch (e) {
+    chat.items.push({ kind: 'notice', id: nextId(), text: String(e) })
+  }
+}
 
 // ── 会话管理 ──────────────────────────────────────────
 

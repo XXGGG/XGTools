@@ -14,17 +14,22 @@
 import { ref, nextTick, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useI18n } from '@/i18n'
 import { settings, AGENT_SIDEBAR } from '@/composables/useAppSettings'
+import { renderChatMd, onChatLinkClick } from '@/composables/useChatMarkdown'
 import { dsh, dshUsable, initDsh, installDsh, startDsh, refreshDsh } from '@/composables/useDsh'
 import {
   chat, chatReady, connectChat, newSession, sendPrompt, respondPending,
   sessions, loadSessions, openSession, pinned, togglePin, renameSession, archiveSession,
   sessionSearch, searchSessions,
-  models, loadModels, selectModel, currentModelLabel, type SessionRow,
+  models, loadModels, selectModel, setDefaultModel, currentModelLabel, type SessionRow,
+  presets, loadPresets, selectPreset,
+  workspaces, loadWorkspaces, addWorkspace,
+  permission, selectPermission, PERMISSION_PRESETS,
 } from '@/composables/useDshChat'
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import DshBoot from '@/components/DshBoot.vue'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -44,9 +49,10 @@ watch(() => [dsh.state.phase, dsh.state.url], ([phase, url]) => {
   if (phase === 'ready' && url) connectChat(url as string)
 }, { immediate: false })
 
-// 事件流一通就拉会话列表。放在这里而不是 onMounted:挂载时多半还没连上,
-// 那会儿拉只会拿到「DSH 还没连上」的错误
-watch(chatReady, (ok) => { if (ok) loadSessions() }, { immediate: true })
+// 事件流一通就拉会话列表和模型表。放在这里而不是 onMounted:挂载时多半还没连上,
+// 那会儿拉只会拿到「DSH 还没连上」的错误。
+// 模型也在这儿拉一次:空态页(还没会话)那颗模型按钮不该是空的
+watch(chatReady, (ok) => { if (ok) { loadSessions(); loadModels(); loadPresets(); loadWorkspaces() } }, { immediate: true })
 
 // ── 边车状态 ──
 
@@ -157,6 +163,40 @@ const listEl = ref<HTMLElement | null>(null)
 const empty = computed(() => chat.items.length === 0)
 
 /**
+ * 启动屏该不该盖着聊天区。
+ *
+ * 边车从拉起到事件流接通要好几秒,这段时间聊天区本来只是空态加左下角一行
+ * 「正在启动」,太素。改成整块盖一个启动屏,连上了再散开。
+ *
+ * 三种情形算「还在启动」:边车正在起;起来了但事件流还没通;
+ * 以及应用刚打开、连环境都还没探完(pre 为空)—— 这最后一种不算进去的话,
+ * 首屏会先闪一下空态再换成启动屏。环境不齐(blocker)、起失败、用户手动停掉、
+ * 连接报错(chat.error)的都不算,那些要露出各自的提示 —— 启动屏盖住一条报错,
+ * 用户就只能对着一只鲸鱼干等。
+ */
+const booting = computed(() =>
+  !chatReady.value && !blocker.value && !chat.error
+  && (dsh.state.phase === 'starting'
+    || dsh.state.phase === 'ready'
+    || (dsh.state.phase === 'stopped' && !dsh.pre)))
+
+// ── 三个下拉的显示文案 ──
+
+const currentWorkspaceLabel = computed(() => {
+  const hit = workspaces.items.find((w) => w.workspaceId === workspaces.pendingId)
+  return hit?.title || t('agent.workspace')
+})
+
+const currentPresetLabel = computed(() => {
+  const hit = presets.options.find((p) => p.id === presets.current)
+  return hit?.name || t('agent.mode')
+})
+
+/** 会话里显示事件流折出来的档位;空态显示待用的;都没有就当默认档 */
+const currentPermission = computed(() => permission.preset || 'workspace-write')
+const permissionLabel = computed(() => t('agent.perm_' + currentPermission.value))
+
+/**
  * 只在用户本来就贴着底部时才自动滚。
  * 无条件滚会把正在往上翻历史的人一把拽回底部 —— 长回复流式输出时尤其难受。
  */
@@ -216,11 +256,24 @@ async function doRename() {
 }
 
 const archiveTarget = ref<SessionRow | null>(null)
-function askArchive(s: SessionRow) { archiveTarget.value = s }
+/*
+  **要动的对象必须自己留一份快照,不能等点确认时再读 ref。**
+
+  AlertDialogAction 被点中时会先把弹窗关掉,关闭触发 @update:open 把
+  archiveTarget 清成 null —— 这件事发生在按钮自己的 @click **之前**。
+  于是 doArchive 拿到 null 直接 return,表现就是「点了移除,什么都没发生」。
+  Vault 的删除和重命名踩过同一个坑。
+*/
+let pendingArchive: SessionRow | null = null
+function askArchive(s: SessionRow) {
+  pendingArchive = s
+  archiveTarget.value = s
+}
 async function doArchive() {
-  const s = archiveTarget.value
-  if (!s) return
+  const s = pendingArchive
+  pendingArchive = null
   archiveTarget.value = null
+  if (!s) return
   try { await archiveSession(s.sessionId) } catch { /* 已在内部记日志 */ }
 }
 
@@ -395,8 +448,20 @@ function clearThread() {
     </div>
 
     <!-- ═══════ 聊天区 ═══════ -->
-    <section class="flex-1 min-w-0 flex flex-col overflow-hidden"
+    <section class="flex-1 min-w-0 flex flex-col overflow-hidden relative"
       :class="flat ? '' : 'float-card rounded-[14px] border bg-card'">
+
+      <!--
+        启动屏。边车没起来之前盖在整个聊天区上;连上的那一刻从中间散开:
+        放大到 1.6 倍 + 高斯模糊 + 淡出,底下的正常界面同时露出来 —— 就是交叉淡化。
+        transition 列表里要写 scale 不能只写 transform(Tailwind v4 把 scale 编译成独立属性,
+        坑见 App.vue 切页动画那段注释)。
+      -->
+      <Transition
+        leave-active-class="transition-[opacity,scale,filter] duration-500 ease-in will-change-[opacity,transform,filter]"
+        leave-to-class="opacity-0 scale-[1.6] blur-md">
+        <DshBoot v-if="booting" />
+      </Transition>
 
       <!--
         环境不齐的引导。放在空态之前是刻意的:Node 都没有的时候,给一个能用的输入框
@@ -465,16 +530,55 @@ function clearThread() {
           <!-- 工作区和模式放在框「上方」,和原版 DSH 一致:它们选的是这一轮的作用域,
                不是输入框里的一个开关,视觉上分开更说得通。 -->
           <div class="flex items-center gap-1 mb-2 px-1">
-            <button class="pill">
-              <span class="icon-[lucide--folder] w-3.5 h-3.5" />
-              {{ t('agent.workspace') }}
-              <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
-            </button>
-            <button class="pill">
-              <span class="icon-[lucide--git-branch] w-3.5 h-3.5" />
-              {{ t('agent.mode') }}
-              <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
-            </button>
+            <!-- 工作区:决定新会话建在哪个目录。空态选好,第一句话生效 -->
+            <Popover>
+              <PopoverTrigger as-child>
+                <button class="pill">
+                  <span class="icon-[lucide--folder] w-3.5 h-3.5" />
+                  {{ currentWorkspaceLabel }}
+                  <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" class="w-72 p-1">
+                <button v-for="w in workspaces.items" :key="w.workspaceId"
+                  @click="workspaces.pendingId = w.workspaceId" :class="[
+                    'w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors',
+                    workspaces.pendingId === w.workspaceId ? 'bg-muted' : 'hover:bg-muted/60'
+                  ]">
+                  <div class="truncate">{{ w.title }}</div>
+                  <div class="text-[11px] text-muted-foreground truncate">{{ w.path }}</div>
+                </button>
+                <div v-if="workspaces.items.length" class="h-px bg-border my-1 mx-1" />
+                <button class="w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-muted/60
+                       flex items-center gap-2" @click="addWorkspace">
+                  <span class="icon-[lucide--folder-plus] w-4 h-4" />{{ t('agent.addWorkspace') }}
+                </button>
+              </PopoverContent>
+            </Popover>
+
+            <!-- 模式:DSH 的 agent preset(标准/PTC/极简/创造),空态选好开局生效 -->
+            <Popover>
+              <PopoverTrigger as-child>
+                <button class="pill">
+                  <span class="icon-[lucide--git-branch] w-3.5 h-3.5" />
+                  {{ currentPresetLabel }}
+                  <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" class="w-80 p-1">
+                <button v-for="pr in presets.options" :key="pr.id"
+                  @click="selectPreset(pr.id)" :class="[
+                    'w-full text-left rounded-md px-2.5 py-2 transition-colors',
+                    presets.current === pr.id ? 'bg-muted' : 'hover:bg-muted/60'
+                  ]">
+                  <div class="text-sm flex items-center gap-2">
+                    <span class="flex-1 truncate">{{ pr.name }}</span>
+                    <span v-if="presets.current === pr.id" class="icon-[lucide--check] w-3.5 h-3.5 shrink-0" />
+                  </div>
+                  <div class="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{{ pr.description }}</div>
+                </button>
+              </PopoverContent>
+            </Popover>
           </div>
           <div class="composer">
             <textarea v-model="input" @keydown="onKeydown" rows="2" :placeholder="t('agent.placeholder')"
@@ -484,11 +588,31 @@ function clearThread() {
               <button :title="t('agent.attach')" class="pill-icon">
                 <span class="icon-[lucide--plus] w-4 h-4" />
               </button>
-              <button class="pill">
-                <span class="icon-[lucide--shield-check] w-3.5 h-3.5" />
-                {{ t('agent.permission') }}
-                <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
-              </button>
+              <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
+              <Popover>
+                <PopoverTrigger as-child>
+                  <button class="pill">
+                    <span class="icon-[lucide--shield-check] w-3.5 h-3.5" />
+                    {{ permissionLabel }}
+                    <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" class="w-56 p-1">
+                  <button v-for="pp in PERMISSION_PRESETS" :key="pp"
+                    @click="selectPermission(pp)" :class="[
+                      'w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors flex items-center gap-2',
+                      currentPermission === pp ? 'bg-muted' : 'hover:bg-muted/60'
+                    ]">
+                    <span :class="[
+                      'w-3.5 h-3.5 shrink-0',
+                      pp === 'read-only' ? 'icon-[lucide--eye]'
+                        : pp === 'workspace-write' ? 'icon-[lucide--shield-check]' : 'icon-[lucide--shield-alert]'
+                    ]" />
+                    <span class="flex-1">{{ t('agent.perm_' + pp) }}</span>
+                    <span v-if="currentPermission === pp" class="icon-[lucide--check] w-3.5 h-3.5 shrink-0" />
+                  </button>
+                </PopoverContent>
+              </Popover>
               <Popover>
                 <PopoverTrigger as-child>
                   <button class="pill ml-auto" @click="loadModels">
@@ -508,11 +632,23 @@ function clearThread() {
                   </p>
                   <button v-for="m in models.options" :key="m.provider + '/' + m.model"
                     @click="selectModel(m.provider, m.model)" :class="[
-                      'w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors',
+                      'group w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors',
                       m.provider === models.current?.provider && m.model === models.current?.model
                         ? 'bg-muted' : 'hover:bg-muted/60'
                     ]">
-                    <div class="truncate">{{ m.label }}</div>
+                    <div class="flex items-center gap-2">
+                      <span class="truncate flex-1">{{ m.label }}</span>
+                      <!--
+                        设为默认:写进 DSH 设置(和原版设置页同一个开关),
+                        以后每个新会话都用它。悬停才出现,免得每行都挂着字。
+                      -->
+                      <span @click.stop="setDefaultModel(m.provider, m.model)"
+                        class="shrink-0 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground
+                               opacity-0 group-hover:opacity-100 hover:bg-muted hover:text-foreground
+                               transition-opacity cursor-pointer">
+                        {{ t('agent.setDefault') }}
+                      </span>
+                    </div>
                     <div class="text-[11px] text-muted-foreground truncate">{{ m.provider }}</div>
                     <!-- 有推理强度档位的模型,把档位直接摊开,少一层点击 -->
                     <div v-if="m.reasoningOptions.length" class="flex flex-wrap gap-1 mt-1.5">
@@ -539,6 +675,13 @@ function clearThread() {
         <!-- pt-16:给右上角那三颗控制点让位,否则第一条消息会钻到它们底下 -->
         <div ref="listEl" class="flex-1 min-h-0 overflow-y-auto px-6 pb-6 pt-16">
           <div class="max-w-2xl mx-auto flex flex-col gap-5">
+            <!-- 拉历史的等待态:大会话要等一两秒,不给反馈像卡死 -->
+            <div v-if="chat.loadingHistory && !chat.items.length"
+              class="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+              <span class="icon-[lucide--loader] w-4 h-4 animate-spin" />
+              {{ t('agent.loadingHistory') }}
+            </div>
+
             <div v-for="m in chat.items" :key="m.id">
 
               <!-- 用户:右侧气泡 -->
@@ -552,7 +695,13 @@ function clearThread() {
               <div v-else-if="m.kind === 'assistant'" class="flex gap-3">
                 <span class="icon-[ri--deepseek-line] w-5 h-5 mt-0.5 shrink-0 text-muted-foreground" />
                 <div class="min-w-0 flex-1">
-                  <p class="text-[15px] leading-relaxed whitespace-pre-wrap wrap-break-word">{{ m.text }}</p>
+                  <!--
+                    模型的回复本来就是 markdown,按 markdown 渲染(对标原版)。
+                    渲染器 html:false,原始 HTML 一律转义 —— 模型输出是不可信内容。
+                    点击代理:链接要转给系统浏览器,不能让 webview 自己开。
+                  -->
+                  <div class="chat-md text-[15px] leading-relaxed wrap-break-word"
+                    @click="onChatLinkClick" v-html="renderChatMd(m.text)" />
                   <!-- 流式光标:让「还在写」和「写完了」一眼可辨 -->
                   <span v-if="m.streaming" class="inline-block w-1.5 h-4 align-text-bottom bg-foreground/60 animate-pulse ml-0.5" />
                 </div>
@@ -623,11 +772,80 @@ function clearThread() {
                   <span class="icon-[lucide--message-square-plus] w-3.5 h-3.5" />
                   {{ t('agent.newChat') }}
                 </button>
-                <button class="pill ml-auto">
-                  DeepSeek-V4-Pro
-                  <span class="text-muted-foreground">High</span>
-                  <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
-                </button>
+                <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
+                <Popover>
+                  <PopoverTrigger as-child>
+                    <button class="pill">
+                      <span class="icon-[lucide--shield-check] w-3.5 h-3.5" />
+                      {{ permissionLabel }}
+                      <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" class="w-56 p-1">
+                    <button v-for="pp in PERMISSION_PRESETS" :key="pp"
+                      @click="selectPermission(pp)" :class="[
+                        'w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors flex items-center gap-2',
+                        currentPermission === pp ? 'bg-muted' : 'hover:bg-muted/60'
+                      ]">
+                      <span :class="[
+                        'w-3.5 h-3.5 shrink-0',
+                        pp === 'read-only' ? 'icon-[lucide--eye]'
+                          : pp === 'workspace-write' ? 'icon-[lucide--shield-check]' : 'icon-[lucide--shield-alert]'
+                      ]" />
+                      <span class="flex-1">{{ t('agent.perm_' + pp) }}</span>
+                      <span v-if="currentPermission === pp" class="icon-[lucide--check] w-3.5 h-3.5 shrink-0" />
+                    </button>
+                  </PopoverContent>
+                </Popover>
+                <Popover>
+                  <PopoverTrigger as-child>
+                    <button class="pill ml-auto" @click="loadModels">
+                      <span :class="models.routable ? '' : 'text-amber-500'">{{ currentModelLabel }}</span>
+                      <span v-if="models.current?.reasoningEffort" class="text-muted-foreground">
+                        {{ models.current.reasoningEffort }}
+                      </span>
+                      <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" class="w-72 p-1 max-h-80 overflow-y-auto">
+                    <p v-if="!models.routable" class="px-2.5 py-2 text-xs text-amber-500 leading-relaxed">
+                      {{ t('agent.notRoutable') }}
+                    </p>
+                    <p v-if="!models.options.length" class="px-2.5 py-3 text-xs text-muted-foreground text-center">
+                      {{ models.loading ? '…' : t('agent.noModels') }}
+                    </p>
+                    <button v-for="m in models.options" :key="m.provider + '/' + m.model"
+                      @click="selectModel(m.provider, m.model)" :class="[
+                        'group w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors',
+                        m.provider === models.current?.provider && m.model === models.current?.model
+                          ? 'bg-muted' : 'hover:bg-muted/60'
+                      ]">
+                      <div class="flex items-center gap-2">
+                        <span class="truncate flex-1">{{ m.label }}</span>
+                        <!--
+                          设为默认:写进 DSH 设置(和原版设置页同一个开关),
+                          以后每个新会话都用它。悬停才出现,免得每行都挂着字。
+                        -->
+                        <span @click.stop="setDefaultModel(m.provider, m.model)"
+                          class="shrink-0 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground
+                                 opacity-0 group-hover:opacity-100 hover:bg-muted hover:text-foreground
+                                 transition-opacity cursor-pointer">
+                          {{ t('agent.setDefault') }}
+                        </span>
+                      </div>
+                      <div class="text-[11px] text-muted-foreground truncate">{{ m.provider }}</div>
+                      <!-- 有推理强度档位的模型,把档位直接摊开,少一层点击 -->
+                      <div v-if="m.reasoningOptions.length" class="flex flex-wrap gap-1 mt-1.5">
+                        <span v-for="r in m.reasoningOptions" :key="r.id"
+                          @click.stop="selectModel(m.provider, m.model, r.id)" :class="[
+                            'px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors',
+                            models.current?.model === m.model && models.current?.reasoningEffort === r.id
+                              ? 'bg-foreground/15 text-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted'
+                          ]">{{ r.label }}</span>
+                      </div>
+                    </button>
+                  </PopoverContent>
+                </Popover>
                 <button @click="send" :disabled="!input.trim()" :title="t('agent.send')" class="send-btn">
                   <span class="icon-[lucide--arrow-up] w-4 h-4" />
                 </button>
@@ -728,4 +946,54 @@ function clearThread() {
   transition: opacity 140ms ease;
 }
 .send-btn:disabled { opacity: 0.35; }
+
+/*
+  聊天里的 markdown 排版。
+
+  尺寸整体比笔记页收一号:聊天是对话不是文章,行距字号都要更紧凑。
+  v-html 渲染出来的节点不带 scoped 标记,所以整块都要 :deep()。
+*/
+.chat-md :deep(p) { margin: 0.4em 0; }
+.chat-md :deep(p:first-child) { margin-top: 0; }
+.chat-md :deep(p:last-child) { margin-bottom: 0; }
+.chat-md :deep(h1), .chat-md :deep(h2), .chat-md :deep(h3), .chat-md :deep(h4) {
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.9em 0 0.35em;
+}
+.chat-md :deep(h1) { font-size: 1.25em; }
+.chat-md :deep(h2) { font-size: 1.15em; }
+.chat-md :deep(h3), .chat-md :deep(h4) { font-size: 1.05em; }
+.chat-md :deep(ul), .chat-md :deep(ol) { margin: 0.4em 0; padding-left: 1.4em; }
+.chat-md :deep(ul) { list-style: disc; }
+.chat-md :deep(ol) { list-style: decimal; }
+.chat-md :deep(li) { margin: 0.15em 0; }
+.chat-md :deep(li > p) { margin: 0; }
+.chat-md :deep(code) {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.86em;
+}
+.chat-md :deep(pre) {
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75em 0.9em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.chat-md :deep(pre code) { background: none; padding: 0; font-size: 0.82em; }
+.chat-md :deep(blockquote) {
+  border-left: 3px solid var(--border);
+  padding-left: 0.9em;
+  margin: 0.5em 0;
+  color: var(--muted-foreground);
+}
+.chat-md :deep(a) { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.chat-md :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 0.9em 0; }
+.chat-md :deep(table) { border-collapse: collapse; margin: 0.5em 0; font-size: 0.92em; }
+.chat-md :deep(th), .chat-md :deep(td) { border: 1px solid var(--border); padding: 0.3em 0.6em; text-align: left; }
+.chat-md :deep(th) { background: color-mix(in srgb, var(--foreground) 5%, transparent); }
 </style>
