@@ -41,3 +41,12 @@ release/
 
 # 参考素材(第三方作品,不入库)
 _reference/wisp-particle-orb/
+
+# AI 助手的本地配置与第三方 skill —— 留在本机用，不进仓库。
+# 2026-08-28 从历史里移除：.claude/settings.local.json 带着本机用户名，
+# 而 .claude/skills 和 .agents/skills 是同样 304 个第三方 skill 存了两份。
+.claude/
+.agents/
+
+# Rust 编译产物（另一处 target，之前漏挡进了历史）
+native/target/
