@@ -12,6 +12,8 @@ pub struct ShortcutBindings {
     pub screenshot: Option<tauri_plugin_global_shortcut::Shortcut>,
     pub screenshot_translate: Option<tauri_plugin_global_shortcut::Shortcut>,
     pub palette: Option<tauri_plugin_global_shortcut::Shortcut>,
+    /// 直接以翻译形态唤起命令面板。可选,没配就不注册
+    pub palette_translate: Option<tauri_plugin_global_shortcut::Shortcut>,
 }
 
 #[derive(Deserialize)]
@@ -20,6 +22,9 @@ pub struct AllShortcuts {
     pub screenshot_shortcut: Option<String>,
     pub screenshot_translate_shortcut: Option<String>,
     pub palette_shortcut: Option<String>,
+    // 老版本前端不传这个字段,缺省当 None,别让整个请求反序列化失败
+    #[serde(default)]
+    pub palette_translate_shortcut: Option<String>,
 }
 
 /// 录制快捷键期间,把我们自己注册的全局快捷键全部摘掉。
@@ -53,6 +58,7 @@ pub fn update_all_shortcuts(
     let screenshot = shortcuts.screenshot_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
     let ss_translate = shortcuts.screenshot_translate_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
     let palette = shortcuts.palette_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
+    let palette_translate = shortcuts.palette_translate_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
 
     if let Some(sc) = dock {
         app.global_shortcut().register(sc).map_err(|e| format!("注册 Dock 快捷键失败: {}", e))?;
@@ -66,12 +72,16 @@ pub fn update_all_shortcuts(
     if let Some(sc) = palette {
         app.global_shortcut().register(sc).map_err(|e| format!("注册命令面板快捷键失败: {}", e))?;
     }
+    if let Some(sc) = palette_translate {
+        app.global_shortcut().register(sc).map_err(|e| format!("注册翻译面板快捷键失败: {}", e))?;
+    }
 
     let mut b = bindings.lock().unwrap();
     b.dock = dock;
     b.screenshot = screenshot;
     b.screenshot_translate = ss_translate;
     b.palette = palette;
+    b.palette_translate = palette_translate;
 
     Ok(())
 }

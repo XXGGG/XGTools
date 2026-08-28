@@ -68,6 +68,9 @@ const paletteEnabled = ref(true)
 const paletteShortcut = ref('Ctrl+Alt+Space')
 const paletteRecording = ref(false)
 const paletteError = ref('')
+/** 翻译面板:同一个面板直接以翻译形态唤起。可选,空串 = 不注册 */
+const paletteTranslateShortcut = ref('')
+const paletteTranslateRecording = ref(false)
 
 /*
   文件搜索后端的状态。
@@ -206,6 +209,7 @@ async function syncAllShortcuts() {
     await screenshotStore.init()
     paletteEnabled.value = (await screenshotStore.get<boolean>('palette_enabled')) ?? true
     paletteShortcut.value = (await screenshotStore.get<string>('palette_shortcut')) ?? 'Ctrl+Alt+Space'
+    paletteTranslateShortcut.value = (await screenshotStore.get<string>('palette_translate_shortcut')) ?? ''
     const ssEnabled = (await screenshotStore.get<boolean>('screenshot_enabled')) ?? true
     const ssShortcut = (await screenshotStore.get<string>('screenshot_shortcut')) ?? 'Ctrl+Alt+A'
     const stEnabled = (await screenshotStore.get<boolean>('screenshot_translate_enabled')) ?? false
@@ -216,6 +220,7 @@ async function syncAllShortcuts() {
         screenshot_shortcut: ssEnabled ? ssShortcut : null,
         screenshot_translate_shortcut: stEnabled && stShortcut ? stShortcut : null,
         palette_shortcut: paletteEnabled.value ? paletteShortcut.value : null,
+        palette_translate_shortcut: paletteEnabled.value && paletteTranslateShortcut.value ? paletteTranslateShortcut.value : null,
       }
     })
   } catch (e) {
@@ -253,13 +258,41 @@ async function startRecordingPalette() {
   try { await invoke('pause_shortcuts') } catch { /* 同上 */ }
 }
 
+async function startRecordingPaletteTranslate() {
+  paletteTranslateRecording.value = true
+  try { await invoke('pause_shortcuts') } catch { /* 同上 */ }
+}
+
+async function clearPaletteTranslate() {
+  paletteTranslateShortcut.value = ''
+  await savePaletteTranslate()
+}
+
+async function savePaletteTranslate() {
+  paletteError.value = ''
+  try {
+    await screenshotStore.init()
+    await screenshotStore.set('palette_translate_shortcut', paletteTranslateShortcut.value)
+    await screenshotStore.save()
+  } catch (e) {
+    paletteError.value = '保存失败: ' + String(e)
+    return
+  }
+  try {
+    await syncAllShortcuts()
+  } catch (e) {
+    paletteError.value = '快捷键注册失败: ' + String(e)
+  }
+}
+
 function handleShortcutKeydown(e: KeyboardEvent) {
-  if (!isRecordingShortcut.value && !paletteRecording.value) return
+  if (!isRecordingShortcut.value && !paletteRecording.value && !paletteTranslateRecording.value) return
   e.preventDefault()
   e.stopPropagation()
   if (e.key === 'Escape') {
     cancelRecording()
     paletteRecording.value = false
+    paletteTranslateRecording.value = false
     void syncAllShortcuts()      // 取消也要把摘掉的键装回去
     return
   }
@@ -292,6 +325,12 @@ function handleShortcutKeydown(e: KeyboardEvent) {
     paletteRecording.value = false
     paletteShortcut.value = shortcutStr
     void savePalette()
+    return
+  }
+  if (paletteTranslateRecording.value) {
+    paletteTranslateRecording.value = false
+    paletteTranslateShortcut.value = shortcutStr
+    void savePaletteTranslate()
     return
   }
   recordingKeys.value = shortcutStr
@@ -676,6 +715,29 @@ async function saveIconName(id: string) {
             @click="paletteRecording ? (paletteRecording = false, syncAllShortcuts()) : startRecordingPalette()">
             {{ paletteRecording ? t('dock.pressKeys') : paletteShortcut }}
           </Button>
+        </div>
+
+        <!-- 翻译面板快捷键:可选 -->
+        <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+              <span class="icon-[lucide--languages] w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="font-medium">{{ t('dock.paletteTranslateHotkey') }}</h3>
+              <p class="text-xs text-muted-foreground">{{ t('dock.paletteTranslateHotkeyHint') }}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <Button v-if="paletteTranslateShortcut && !paletteTranslateRecording" variant="ghost" size="sm"
+              class="text-muted-foreground" @click="clearPaletteTranslate()">
+              {{ t('dock.paletteTranslateClear') }}
+            </Button>
+            <Button variant="outline" size="sm" class="min-w-[120px] font-mono"
+              @click="paletteTranslateRecording ? (paletteTranslateRecording = false, syncAllShortcuts()) : startRecordingPaletteTranslate()">
+              {{ paletteTranslateRecording ? t('dock.pressKeys') : (paletteTranslateShortcut || '—') }}
+            </Button>
+          </div>
         </div>
 
         <!-- 文件搜索后端 -->

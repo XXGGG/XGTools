@@ -8,6 +8,15 @@
  *
  * 定位交给这里而不是 Rust:要落在**鼠标所在的那块屏幕**上,而且必须先摆好位置
  * 再 show,否则会在旧位置闪一帧。Rust 那边只负责 eval 一句 __togglePalette()。
+ *
+ * # 翻译形态
+ *
+ * 同一个面板还兼做「一句话翻译」,三条路进来:
+ *   · 输入 `/fy 正文`(也认 /tr、/翻译)—— 这一次按翻译处理
+ *   · 输入什么都没匹配到,直接回车 —— 那就当你是想翻译它
+ *   · 翻译面板快捷键(设置页可配)—— 唤起就是翻译形态
+ * 翻译形态下放大镜换成翻译图标,卡片边上一圈淡红微光,一眼能分清。
+ * 回车翻译,再回车把译文复制走并收起面板。
  */
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import {
@@ -25,6 +34,7 @@ import {
   fuzzyScore, loadStatic, staticItems, searchNotes, searchSessions, searchFiles, runItem,
   type PaletteItem,
 } from './paletteSources'
+import { quickTranslate, type QuickTranslation } from '@/lib/quickTranslate'
 
 const { t } = useI18n()
 const win = getCurrentWindow()
@@ -34,6 +44,7 @@ const WIDTH = 720
 const HEAD = 64          // 输入行的高度
 const ROW = 52           // 每条结果
 const MAX_ROWS = 7       // 超过这个数就滚动,不再往下长
+const TRANS_ROW = 84     // 译文那一格。两行正文 + 一行引擎信息
 
 const query = ref('')
 const cursor = ref(0)
@@ -43,8 +54,37 @@ const listEl = ref<HTMLElement | null>(null)
 /** 系统材质是否生效。决定卡片用半透明(让磨砂桌面透上来)还是纯色 */
 const material = ref(false)
 
+/* ────────── 翻译形态 ────────── */
+
+type Mode = 'search' | 'translate'
+/** 快捷键唤起时定下的形态。'translate' 时整个输入都是待翻译的正文 */
+const mode = ref<Mode>('search')
+const translated = ref<QuickTranslation | null>(null)
+const translating = ref(false)
+const translateError = ref('')
+
+/**
+ * `/fy 正文` 这种前缀。前缀后面的才是正文;只打了前缀还没写正文也算进翻译形态。
+ * 英文别名后面必须跟空格(不然 /try、/fyi 会被误认);中文的 `/翻译你好` 不用空格 ——
+ * 中文输入习惯本来就不打词间空格,而且输入法常把空格吃掉。
+ */
+const PREFIX = /^\/(?:(?:fy|tr)(?:\s+|$)|翻译\s*)/i
+
+/** 这一次要翻译的正文。null 表示当前不是翻译形态 */
+const translateText = computed<string | null>(() => {
+  const q = query.value.trim()
+  if (mode.value === 'translate') return q
+  const m = PREFIX.exec(q)
+  return m ? q.slice(m[0].length).trim() : null
+})
+const inTranslate = computed(() => translateText.value !== null)
+/** 译文格要不要占位:翻译中、有结果、或者报错了 */
+const hasTranslatePanel = computed(() =>
+  inTranslate.value && (translating.value || !!translated.value || !!translateError.value))
+
 /** 静态源在内存里过滤,动态源直接接在后面(它们已经是后端排好序的) */
 const results = computed<PaletteItem[]>(() => {
+  if (inTranslate.value) return []
   const q = query.value.trim()
   // 没输入就只有一行输入框。列一屏功能页看着像"塞满了东西",
   // 而这东西的意义就是敲字才出结果 —— 提示语已经写在 placeholder 里了。
@@ -69,8 +109,12 @@ const results = computed<PaletteItem[]>(() => {
 let lastHeight = -1
 
 async function fitWindow() {
-  const rows = Math.min(results.value.length, MAX_ROWS)
-  const h = HEAD + (rows ? rows * ROW + 8 : 0)
+  let h = HEAD
+  if (hasTranslatePanel.value) h += TRANS_ROW + 8
+  else {
+    const rows = Math.min(results.value.length, MAX_ROWS)
+    if (rows) h += rows * ROW + 8
+  }
   if (h === lastHeight) return
   lastHeight = h
   try { await win.setSize(new LogicalSize(WIDTH, h)) } catch { lastHeight = -1 }
@@ -79,6 +123,7 @@ watch(results, () => {
   if (cursor.value >= results.value.length) cursor.value = 0
   void fitWindow()
 })
+watch(hasTranslatePanel, () => void fitWindow())
 
 /*
   外观跟主窗口走。四件事,少一件就出问题:
@@ -122,14 +167,18 @@ async function applyLook() {
 const open = ref(false)
 let searchTimer = 0
 
-async function openPalette() {
+async function openPalette(kind: Mode = 'search') {
   open.value = true
+  mode.value = kind
   // 主界面里可能刚改过主题或材质。**必须先重读存储再重算** ——
   // 只调 applyLook 是拿内存里那份旧设置重算,等于什么都没变。
   void reloadSettings().then(applyLook)
   query.value = ''
   cursor.value = 0
   dynamic.value = []
+  translated.value = null
+  translating.value = false
+  translateError.value = ''
   lastHeight = -1        // 上次关掉时窗口可能是长的,重开要重新收回一行
   // 应用列表可能在上次开面板之后变过(装了新软件、改了启动台),每次都重取。
   // 它读的是两个本地 json,几毫秒的事。
@@ -166,8 +215,11 @@ async function place() {
 
 watch(query, q => {
   window.clearTimeout(searchTimer)
+  // 正文一变,上一次的译文就作废 —— 不然回车会把旧译文当成「已经翻好」复制走
+  if (translated.value && translated.value.source !== translateText.value) translated.value = null
+  translateError.value = ''
   const s = q.trim()
-  if (!s) { dynamic.value = []; return }
+  if (!s || inTranslate.value) { dynamic.value = []; return }
   // 防抖:笔记全文搜索要走磁盘,会话搜索要走边车,每敲一个字都发一次会明显卡
   searchTimer = window.setTimeout(async () => {
     // 三路并发。文件那一路在后端没就绪时(没装 Everything / Spotlight 被关)
@@ -204,7 +256,41 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
     e.preventDefault(); move(-1); return
   }
-  if (e.key === 'Enter') { e.preventDefault(); void execute(); return }
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (inTranslate.value) { void runTranslate(); return }
+    // 什么都没匹配到就直接回车 —— 当你是想翻译这句。比先删掉再打 /fy 快得多
+    if (!results.value.length && query.value.trim()) { void runTranslate(); return }
+    void execute()
+  }
+}
+
+/**
+ * 回车两段式:第一下翻译,第二下(译文还是这句的)复制并收起。
+ * 没带前缀却走到这儿的(没匹配到任何东西),顺手把面板切进翻译形态,
+ * 图标和红光跟着变,让人知道现在不是在搜东西。
+ */
+async function runTranslate() {
+  if (!inTranslate.value) mode.value = 'translate'
+  const text = translateText.value ?? ''
+  if (!text) return
+  if (translated.value && translated.value.source === text) {
+    try { await navigator.clipboard.writeText(translated.value.text) } catch { /* 剪贴板被拒就只收面板 */ }
+    await closePalette()
+    return
+  }
+  translating.value = true
+  translateError.value = ''
+  translated.value = null
+  try {
+    const r = await quickTranslate(text)
+    // 翻译期间又改了字,这份结果就是过期的
+    if (translateText.value === text) translated.value = r
+  } catch (e) {
+    translateError.value = String(e)
+  } finally {
+    translating.value = false
+  }
 }
 
 function move(d: number) {
@@ -232,6 +318,15 @@ const kindLabel: Record<string, string> = {
   file: 'palette.kindFile',
 }
 
+/** 输入行右边那个小提示 */
+const hint = computed(() => {
+  if (inTranslate.value) {
+    if (translated.value) return t('palette.enterCopy')
+    return translateText.value ? t('palette.enterTranslate') : ''
+  }
+  return results.value.length ? t('palette.enterHint') : ''
+})
+
 onMounted(async () => {
   /*
     **入口函数必须第一个装上,不能排在任何 await 后面。**
@@ -239,11 +334,21 @@ onMounted(async () => {
     capabilities,store 插件被拒直接抛异常 —— __togglePalette 压根没定义,
     于是按快捷键毫无反应,而且不报错、看不出哪里坏了。
     快捷键那边只 eval 这一句,其余全在前端做。
+
+    带参数 'translate' 就是翻译面板那个快捷键:面板开着且已经是翻译形态 → 收起;
+    开着但是搜索形态 → 原地切成翻译;没开 → 以翻译形态打开。
   */
-  ;(window as any).__togglePalette = async () => {
+  ;(window as any).__togglePalette = async (kind?: string) => {
+    const want: Mode = kind === 'translate' ? 'translate' : 'search'
     try {
-      if (open.value) await closePalette()
-      else await openPalette()
+      if (open.value && mode.value === want) await closePalette()
+      else if (open.value) {
+        mode.value = want
+        translated.value = null
+        translateError.value = ''
+        await fitWindow()
+        inputEl.value?.focus()
+      } else await openPalette(want)
     } catch (e) {
       console.error('[palette] 唤起失败', e)
     }
@@ -279,23 +384,48 @@ onMounted(async () => {
       不然卡片和窗口两个半径对不上,角上会露出一牙材质。底色也要半透明,
       让 DWM 磨砂过的桌面透上来。
       关了材质时:窗口纯透明,卡片自己做主 —— 用我们的 14px 和实色。
+
+      翻译形态:边框换淡红,再加一圈淡红微光 —— 有道那种「翻译=红」的联想。
     -->
     <div @mousedown="onCardMouseDown"
-      class="h-full w-full border border-border shadow-2xl flex flex-col overflow-hidden"
-      :class="material ? 'rounded-lg bg-popover/70' : 'rounded-[14px] bg-popover'">
+      class="h-full w-full border shadow-2xl flex flex-col overflow-hidden transition-[border-color,box-shadow] duration-200"
+      :class="[
+        material ? 'rounded-lg bg-popover/70' : 'rounded-[14px] bg-popover',
+        inTranslate ? 'border-red-400/40 shadow-[0_0_28px_rgba(248,113,113,0.22)]' : 'border-border',
+      ]">
       <!-- 输入行。高度写死 HEAD(64),窗口高度的算式依赖它 -->
       <div class="h-16 shrink-0 flex items-center gap-3 px-4">
-        <span class="icon-[lucide--search] w-5 h-5 shrink-0 text-muted-foreground" />
+        <span class="w-5 h-5 shrink-0 transition-colors"
+          :class="inTranslate ? 'icon-[lucide--languages] text-red-400/90' : 'icon-[lucide--search] text-muted-foreground'" />
         <input ref="inputEl" v-model="query" @keydown="onKey" spellcheck="false"
-          :placeholder="t('palette.placeholder')"
+          :placeholder="inTranslate ? t('palette.translatePlaceholder') : t('palette.placeholder')"
           class="flex-1 h-full bg-transparent text-[17px] text-foreground
                  placeholder:text-muted-foreground/60 focus:outline-none" />
-        <kbd v-if="results.length" class="shrink-0 text-[11px] text-muted-foreground/70 font-mono">
-          {{ t('palette.enterHint') }}
+        <kbd v-if="hint" class="shrink-0 text-[11px] text-muted-foreground/70 font-mono">
+          {{ hint }}
         </kbd>
       </div>
 
-      <div v-if="results.length" ref="listEl"
+      <!-- 译文格 -->
+      <div v-if="hasTranslatePanel" class="shrink-0 border-t border-border px-4 py-3 flex flex-col justify-center"
+        :style="{ height: TRANS_ROW + 'px' }">
+        <p v-if="translating" class="flex items-center gap-2 text-sm text-muted-foreground">
+          <span class="icon-[lucide--loader-2] w-4 h-4 animate-spin" />{{ t('palette.translating') }}
+        </p>
+        <p v-else-if="translateError" class="text-sm text-red-400 line-clamp-2">
+          {{ t('palette.translateFailed') }}：{{ translateError }}
+        </p>
+        <template v-else-if="translated">
+          <p class="text-[15px] leading-snug whitespace-pre-wrap line-clamp-2 select-text cursor-text">
+            {{ translated.text }}
+          </p>
+          <p class="mt-1 text-[11px] text-muted-foreground/70 font-mono">
+            {{ translated.detected ?? 'auto' }} → {{ translated.target }} · {{ translated.engine }}
+          </p>
+        </template>
+      </div>
+
+      <div v-else-if="results.length" ref="listEl"
         class="flex-1 min-h-0 overflow-y-auto border-t border-border py-1">
         <button v-for="(item, i) in results" :key="item.id"
           :data-active="i === cursor"
