@@ -361,16 +361,25 @@ pub struct Hit {
     pub line: u32,
 }
 
+/// 全文搜索。
+///
+/// **必须是 async + spawn_blocking。** 同步命令在 Tauri 里跑在主线程上,而这个
+/// 函数要把整个库的文本文件读一遍 —— 主线程一被占住,所有窗口的输入都跟着卡,
+/// 命令面板里打字一顿一顿的就是这么来的。扔到阻塞线程池里,主线程照常派事件。
 #[tauri::command]
-pub fn vault_search(root: String, query: String, limit: usize) -> Result<Vec<Hit>, String> {
+pub async fn vault_search(root: String, query: String, limit: usize) -> Result<Vec<Hit>, String> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return Ok(Vec::new());
     }
-    let root_real = PathBuf::from(&root).canonicalize().map_err(|e| format!("工作区不可用: {e}"))?;
-    let mut hits = Vec::new();
-    walk_search(&root_real, &root_real, &q, limit.max(1).min(300), &mut hits);
-    Ok(hits)
+    tokio::task::spawn_blocking(move || {
+        let root_real = PathBuf::from(&root).canonicalize().map_err(|e| format!("工作区不可用: {e}"))?;
+        let mut hits = Vec::new();
+        walk_search(&root_real, &root_real, &q, limit.max(1).min(300), &mut hits);
+        Ok(hits)
+    })
+    .await
+    .map_err(|e| format!("搜索任务没跑完: {e}"))?
 }
 
 /// 谁链到了这篇。
@@ -386,15 +395,20 @@ pub fn vault_search(root: String, query: String, limit: usize) -> Result<Vec<Hit
 /// `[[笔记]]`、`[[笔记|别名]]`、`[[笔记#小节]]`、`[[目录/笔记]]` 都算,
 /// 因为它们指向的是同一篇。大小写不敏感 —— Windows 的文件名本来就不区分。
 #[tauri::command]
-pub fn vault_backlinks(root: String, target: String) -> Result<Vec<Hit>, String> {
+pub async fn vault_backlinks(root: String, target: String) -> Result<Vec<Hit>, String> {
     let want = target.trim().to_lowercase();
     if want.is_empty() {
         return Ok(Vec::new());
     }
-    let root_real = PathBuf::from(&root).canonicalize().map_err(|e| format!("工作区不可用: {e}"))?;
-    let mut hits = Vec::new();
-    walk_backlinks(&root_real, &root_real, &want, 200, &mut hits);
-    Ok(hits)
+    // 同样要全库扫,同样不能占主线程(理由见 vault_search)
+    tokio::task::spawn_blocking(move || {
+        let root_real = PathBuf::from(&root).canonicalize().map_err(|e| format!("工作区不可用: {e}"))?;
+        let mut hits = Vec::new();
+        walk_backlinks(&root_real, &root_real, &want, 200, &mut hits);
+        Ok(hits)
+    })
+    .await
+    .map_err(|e| format!("搜索任务没跑完: {e}"))?
 }
 
 /// `[[目录/笔记#小节|别名]]` → `笔记`
@@ -480,20 +494,35 @@ fn walk_search(root: &Path, dir: &Path, q: &str, limit: usize, out: &mut Vec<Hit
         }
         // 文件名命中也算 —— 找笔记时经常只记得标题
         let name_hit = name.to_lowercase().contains(q);
+        // 超过 2MB 的文本基本是导出的数据、日志之类,不是笔记;读进来只会拖慢整轮搜索
+        if e.metadata().map(|m| m.len() > 2 * 1024 * 1024).unwrap_or(false) {
+            if name_hit {
+                let rel = p.strip_prefix(root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+                out.push(Hit { path: rel, name, snippet: String::new(), line: 0 });
+            }
+            continue;
+        }
         let Ok(text) = std::fs::read_to_string(&p) else { continue };
         let rel = p.strip_prefix(root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
 
+        /*
+          先整篇小写一次看有没有,没有就直接下一个文件 —— 绝大多数文件都不命中,
+          以前是每一行各 to_lowercase 一次再 contains,几千个文件几十万行,
+          光分配就把一次搜索拖到几百毫秒。命中了再逐行找位置,那只发生在少数文件上。
+        */
         let mut pushed = false;
-        for (i, line) in text.lines().enumerate() {
-            if line.to_lowercase().contains(q) {
-                out.push(Hit {
-                    path: rel.clone(),
-                    name: name.clone(),
-                    snippet: line.trim().chars().take(160).collect(),
-                    line: (i + 1) as u32,
-                });
-                pushed = true;
-                break;   // 每个文件只报第一处,列表才不会被一个文件刷屏
+        if text.to_lowercase().contains(q) {
+            for (i, line) in text.lines().enumerate() {
+                if line.to_lowercase().contains(q) {
+                    out.push(Hit {
+                        path: rel.clone(),
+                        name: name.clone(),
+                        snippet: line.trim().chars().take(160).collect(),
+                        line: (i + 1) as u32,
+                    });
+                    pushed = true;
+                    break;   // 每个文件只报第一处,列表才不会被一个文件刷屏
+                }
             }
         }
         if !pushed && name_hit {

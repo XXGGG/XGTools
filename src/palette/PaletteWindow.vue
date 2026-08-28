@@ -220,17 +220,30 @@ watch(query, q => {
   translateError.value = ''
   const s = q.trim()
   if (!s || inTranslate.value) { dynamic.value = []; return }
-  // 防抖:笔记全文搜索要走磁盘,会话搜索要走边车,每敲一个字都发一次会明显卡
-  searchTimer = window.setTimeout(async () => {
-    // 三路并发。文件那一路在后端没就绪时(没装 Everything / Spotlight 被关)
-    // 返回空数组,不会拖慢也不会报错。
-    const [files, notes, sessions] = await Promise.all([
-      searchFiles(s), searchNotes(s), searchSessions(s),
-    ])
-    // 迟到的结果不能覆盖新查询 —— 几个请求返回顺序不保证
-    if (query.value.trim() !== s) return
-    dynamic.value = [...files, ...notes, ...sessions]
-  }, 140)
+  /*
+    防抖 + 起搜门槛。
+
+    一个字的查询对全盘文件和笔记全文几乎只会命中一堆噪音,还要把整个库
+    读一遍 —— 两个字起才去磁盘。间隔 260ms:比一次按键间隔长、比"停下来等"短,
+    连着打一个词只会在最后发一次。
+  */
+  if (s.length < 2) { dynamic.value = []; return }
+  searchTimer = window.setTimeout(() => {
+    /*
+      三路各自回来各自上,不等最慢的那个。以前 Promise.all 等三个一起 ——
+      会话那路要问边车、文件那路要问系统索引,最慢的一个决定了整个列表
+      什么时候出现;现在笔记先回来就先显示笔记。
+      迟到的结果不能覆盖新查询:每一路回来都要核对一次输入还是不是这句。
+    */
+    const slots: { files?: PaletteItem[]; notes?: PaletteItem[]; sessions?: PaletteItem[] } = {}
+    const flush = () => {
+      if (query.value.trim() !== s) return
+      dynamic.value = [...(slots.files ?? []), ...(slots.notes ?? []), ...(slots.sessions ?? [])]
+    }
+    searchFiles(s).then(r => { slots.files = r; flush() })
+    searchNotes(s).then(r => { slots.notes = r; flush() })
+    searchSessions(s).then(r => { slots.sessions = r; flush() })
+  }, 260)
 })
 
 /*

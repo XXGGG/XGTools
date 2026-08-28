@@ -315,8 +315,20 @@ pub struct FileHit {
     pub is_dir: bool,
 }
 
+/// **async + spawn_blocking**,别让它占主线程。
+///
+/// 查系统索引是一次 COM/进程调用,慢的时候几百毫秒;同步命令跑在主线程上,
+/// 这几百毫秒里所有窗口的输入都是卡的。COM 初始化在 search_impl 里按线程做,
+/// 换到阻塞线程池上跑没问题。
 #[tauri::command]
-pub fn file_search(query: String, limit: usize) -> Result<Vec<FileHit>, String> {
+pub async fn file_search(query: String, limit: usize) -> Result<Vec<FileHit>, String> {
+    tokio::task::spawn_blocking(move || file_search_sync(&query, limit))
+        .await
+        .map_err(|e| format!("搜索任务没跑完: {e}"))?
+}
+
+/// 真正干活的同步版本。拆出来是为了让测试能直接调,不用起 tokio 运行时。
+fn file_search_sync(query: &str, limit: usize) -> Result<Vec<FileHit>, String> {
     let q = query.trim();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -346,7 +358,7 @@ mod tests {
 
     #[test]
     fn 空查询不去碰索引() {
-        assert!(file_search(String::from("   "), 10).unwrap().is_empty());
+        assert!(file_search_sync("   ", 10).unwrap().is_empty());
     }
 
     #[test]
