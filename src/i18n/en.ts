@@ -463,6 +463,7 @@ export const en: Messages = {
     kindSession: 'Session',
     translatePlaceholder: 'Type text to translate, Enter to translate',
     enterTranslate: 'Enter to translate',
+    enterTranslateOrPick: 'Enter to translate · ↓ pick a result',
     enterCopy: 'Enter to copy',
     translating: 'Translating…',
     translateFailed: 'Translation failed',

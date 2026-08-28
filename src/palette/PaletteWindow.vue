@@ -9,14 +9,15 @@
  * 定位交给这里而不是 Rust:要落在**鼠标所在的那块屏幕**上,而且必须先摆好位置
  * 再 show,否则会在旧位置闪一帧。Rust 那边只负责 eval 一句 __togglePalette()。
  *
- * # 翻译形态
+ * # 翻译优先
  *
- * 同一个面板还兼做「一句话翻译」,三条路进来:
- *   · 输入 `/fy 正文`(也认 /tr、/翻译)—— 这一次按翻译处理
- *   · 输入什么都没匹配到,直接回车 —— 那就当你是想翻译它
+ * 面板里**回车默认是翻译**这句话,不是打开第一条结果 —— 想开结果就先按 ↓ 选中
+ * 再回车(点鼠标也行)。这样翻译只要「唤起 → 打字 → 回车」三步,不用先切形态。
+ * 另外两条路直接进翻译形态(只剩翻译,不列结果):
+ *   · 输入 `/fy 正文`(也认 /tr、/翻译)
  *   · 翻译面板快捷键(设置页可配)—— 唤起就是翻译形态
- * 翻译形态下放大镜换成翻译图标,卡片边上一圈淡红微光,一眼能分清。
- * 回车翻译,再回车把译文复制走并收起面板。
+ * 有译文时放大镜换成翻译图标,卡片边上一圈淡红微光。回车翻译,再回车把译文
+ * 复制走并收起面板。
  */
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import {
@@ -47,7 +48,8 @@ const MAX_ROWS = 7       // 超过这个数就滚动,不再往下长
 const TRANS_ROW = 84     // 译文那一格。两行正文 + 一行引擎信息
 
 const query = ref('')
-const cursor = ref(0)
+/** 选中的结果行。-1 = 没选:这时回车是翻译,按 ↓ 才进入结果 */
+const cursor = ref(-1)
 const dynamic = ref<PaletteItem[]>([])
 const inputEl = ref<HTMLInputElement | null>(null)
 const listEl = ref<HTMLElement | null>(null)
@@ -78,9 +80,13 @@ const translateText = computed<string | null>(() => {
   return m ? q.slice(m[0].length).trim() : null
 })
 const inTranslate = computed(() => translateText.value !== null)
+/** 这一刻回车会翻译的那句话:翻译形态是前缀后面的正文,平时就是整个输入 */
+const textToTranslate = computed(() => translateText.value ?? query.value.trim())
 /** 译文格要不要占位:翻译中、有结果、或者报错了 */
 const hasTranslatePanel = computed(() =>
-  inTranslate.value && (translating.value || !!translated.value || !!translateError.value))
+  translating.value || !!translated.value || !!translateError.value)
+/** 图标和红光:进了翻译形态,或者已经翻出东西了 */
+const translateLook = computed(() => inTranslate.value || hasTranslatePanel.value)
 
 /** 静态源在内存里过滤,动态源直接接在后面(它们已经是后端排好序的) */
 const results = computed<PaletteItem[]>(() => {
@@ -109,18 +115,17 @@ const results = computed<PaletteItem[]>(() => {
 let lastHeight = -1
 
 async function fitWindow() {
+  // 译文格和结果列表可以同时在:译文在上,结果在下
   let h = HEAD
   if (hasTranslatePanel.value) h += TRANS_ROW + 8
-  else {
-    const rows = Math.min(results.value.length, MAX_ROWS)
-    if (rows) h += rows * ROW + 8
-  }
+  const rows = Math.min(results.value.length, MAX_ROWS)
+  if (rows) h += rows * ROW + 8
   if (h === lastHeight) return
   lastHeight = h
   try { await win.setSize(new LogicalSize(WIDTH, h)) } catch { lastHeight = -1 }
 }
 watch(results, () => {
-  if (cursor.value >= results.value.length) cursor.value = 0
+  if (cursor.value >= results.value.length) cursor.value = -1
   void fitWindow()
 })
 watch(hasTranslatePanel, () => void fitWindow())
@@ -174,7 +179,7 @@ async function openPalette(kind: Mode = 'search') {
   // 只调 applyLook 是拿内存里那份旧设置重算,等于什么都没变。
   void reloadSettings().then(applyLook)
   query.value = ''
-  cursor.value = 0
+  cursor.value = -1
   dynamic.value = []
   translated.value = null
   translating.value = false
@@ -215,9 +220,11 @@ async function place() {
 
 watch(query, q => {
   window.clearTimeout(searchTimer)
-  // 正文一变,上一次的译文就作废 —— 不然回车会把旧译文当成「已经翻好」复制走
-  if (translated.value && translated.value.source !== translateText.value) translated.value = null
+  // 正文一变,上一次的译文就作废 —— 不然回车会把旧译文当成「已经翻好」复制走;
+  // 选中行也归零:新的一句话,回车又是翻译
+  if (translated.value && translated.value.source !== textToTranslate.value) translated.value = null
   translateError.value = ''
+  cursor.value = -1
   const s = q.trim()
   if (!s || inTranslate.value) { dynamic.value = []; return }
   /*
@@ -271,21 +278,18 @@ function onKey(e: KeyboardEvent) {
   }
   if (e.key === 'Enter') {
     e.preventDefault()
-    if (inTranslate.value) { void runTranslate(); return }
-    // 什么都没匹配到就直接回车 —— 当你是想翻译这句。比先删掉再打 /fy 快得多
-    if (!results.value.length && query.value.trim()) { void runTranslate(); return }
-    void execute()
+    // 用 ↓ 选中了某条结果才是「打开它」;其余情况回车一律翻译
+    if (!inTranslate.value && cursor.value >= 0 && results.value[cursor.value]) { void execute(); return }
+    void runTranslate()
   }
 }
 
 /**
  * 回车两段式:第一下翻译,第二下(译文还是这句的)复制并收起。
- * 没带前缀却走到这儿的(没匹配到任何东西),顺手把面板切进翻译形态,
- * 图标和红光跟着变,让人知道现在不是在搜东西。
+ * 平时的搜索形态不切走:结果列表留在译文下面,想开哪条按 ↓ 就能选。
  */
 async function runTranslate() {
-  if (!inTranslate.value) mode.value = 'translate'
-  const text = translateText.value ?? ''
+  const text = textToTranslate.value
   if (!text) return
   if (translated.value && translated.value.source === text) {
     try { await navigator.clipboard.writeText(translated.value.text) } catch { /* 剪贴板被拒就只收面板 */ }
@@ -298,7 +302,7 @@ async function runTranslate() {
   try {
     const r = await quickTranslate(text)
     // 翻译期间又改了字,这份结果就是过期的
-    if (translateText.value === text) translated.value = r
+    if (textToTranslate.value === text) translated.value = r
   } catch (e) {
     translateError.value = String(e)
   } finally {
@@ -306,10 +310,12 @@ async function runTranslate() {
   }
 }
 
+/** 在「没选」和 n 条结果之间循环:-1 → 0 → … → n-1 → -1 */
 function move(d: number) {
   const n = results.value.length
   if (!n) return
-  cursor.value = (cursor.value + d + n) % n
+  const m = n + 1
+  cursor.value = (((cursor.value + 1 + d) % m) + m) % m - 1
   nextTick(() => {
     listEl.value?.querySelector<HTMLElement>('[data-active="true"]')
       ?.scrollIntoView({ block: 'nearest' })
@@ -331,13 +337,14 @@ const kindLabel: Record<string, string> = {
   file: 'palette.kindFile',
 }
 
-/** 输入行右边那个小提示 */
+/** 输入行右边那个提示:告诉你此刻回车会干什么 */
 const hint = computed(() => {
-  if (inTranslate.value) {
-    if (translated.value) return t('palette.enterCopy')
-    return translateText.value ? t('palette.enterTranslate') : ''
-  }
-  return results.value.length ? t('palette.enterHint') : ''
+  if (!textToTranslate.value) return ''
+  if (!inTranslate.value && cursor.value >= 0) return t('palette.enterHint')
+  if (translated.value && translated.value.source === textToTranslate.value) return t('palette.enterCopy')
+  return inTranslate.value || !results.value.length
+    ? t('palette.enterTranslate')
+    : t('palette.enterTranslateOrPick')
 })
 
 onMounted(async () => {
@@ -404,17 +411,17 @@ onMounted(async () => {
       class="h-full w-full border shadow-2xl flex flex-col overflow-hidden transition-[border-color,box-shadow] duration-200"
       :class="[
         material ? 'rounded-lg bg-popover/70' : 'rounded-[14px] bg-popover',
-        inTranslate ? 'border-red-400/40 shadow-[0_0_28px_rgba(248,113,113,0.22)]' : 'border-border',
+        translateLook ? 'border-red-400/40 shadow-[0_0_28px_rgba(248,113,113,0.22)]' : 'border-border',
       ]">
       <!-- 输入行。高度写死 HEAD(64),窗口高度的算式依赖它 -->
       <div class="h-16 shrink-0 flex items-center gap-3 px-4">
         <span class="w-5 h-5 shrink-0 transition-colors"
-          :class="inTranslate ? 'icon-[lucide--languages] text-red-400/90' : 'icon-[lucide--search] text-muted-foreground'" />
+          :class="translateLook ? 'icon-[lucide--languages] text-red-400/90' : 'icon-[lucide--search] text-muted-foreground'" />
         <input ref="inputEl" v-model="query" @keydown="onKey" spellcheck="false"
           :placeholder="inTranslate ? t('palette.translatePlaceholder') : t('palette.placeholder')"
           class="flex-1 h-full bg-transparent text-[17px] text-foreground
                  placeholder:text-muted-foreground/60 focus:outline-none" />
-        <kbd v-if="hint" class="shrink-0 text-[11px] text-muted-foreground/70 font-mono">
+        <kbd v-if="hint" class="shrink-0 text-[13px] text-muted-foreground font-mono whitespace-nowrap">
           {{ hint }}
         </kbd>
       </div>
@@ -438,7 +445,7 @@ onMounted(async () => {
         </template>
       </div>
 
-      <div v-else-if="results.length" ref="listEl"
+      <div v-if="results.length" ref="listEl"
         class="flex-1 min-h-0 overflow-y-auto border-t border-border py-1">
         <button v-for="(item, i) in results" :key="item.id"
           :data-active="i === cursor"

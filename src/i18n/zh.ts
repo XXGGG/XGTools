@@ -457,6 +457,7 @@ export const zh = {
     kindSession: '会话',
     translatePlaceholder: '输入要翻译的文字，回车翻译',
     enterTranslate: '回车翻译',
+    enterTranslateOrPick: '回车翻译 · ↓ 选结果',
     enterCopy: '回车复制',
     translating: '翻译中…',
     translateFailed: '翻译失败',
