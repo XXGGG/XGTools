@@ -149,13 +149,26 @@ onMounted(async () => {
 
     reveal 幂等,还挂了个 3 秒的保险 —— 中间任何一步抛异常,窗口也不能永远藏着。
   */
+  /*
+    亮相之前 body 挂着 effect-pending:一块**不透明的主题底色**(见 style.css)。
+
+    窗口还藏着的时候贴上去的云母/亚克力,DWM 在它第一次显示时会按浅色重画一遍 ——
+    深色主题下看到的就是「底面怎么是白的」。所以 show 之后要**再贴一次**材质;
+    这几十毫秒里底色是不透明的,浅色材质透不上来,用户看不到那一下。
+  */
+  document.body.classList.add('effect-pending')
   let revealed = false
   const reveal = () => {
     if (revealed) return
     revealed = true
     // 走 Rust 那边的 reveal_main:它会顺手把前台抢过来(见 tray.rs 的说明),
     // 直接 win.show() 的话窗口可能显示在别的窗口底下。万一命令不在,退回 show。
-    invoke('reveal_main').catch(() => win.show().then(() => win.setFocus()))
+    const shown = invoke('reveal_main').catch(() => win.show().then(() => win.setFocus()))
+    void shown.then(async () => {
+      if (settings.blurKind !== 'none') await applyWindowEffect()
+      // 给 DWM 一点时间把深色材质画上来,再把不透明底色撤掉
+      window.setTimeout(() => document.body.classList.remove('effect-pending'), 250)
+    })
   }
   window.setTimeout(reveal, 3000)
 
@@ -231,6 +244,8 @@ onMounted(async () => {
     shortcutWarning.value = t('common.shortcutTaken', { name: names })
     setTimeout(() => { shortcutWarning.value = '' }, 8000)
   })
+  // 后台重试把键抢回来了(见 lib.rs),提示就没必要再挂着
+  listen('shortcut-register-recovered', () => { shortcutWarning.value = '' })
 
 })
 </script>
