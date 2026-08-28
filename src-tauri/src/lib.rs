@@ -141,6 +141,7 @@ pub fn run() {
             tray::anchor_tray_menu,
             tray::hide_tray_menu,
             tray::tray_show_main,
+            tray::reveal_main,
             tray::tray_toggle_dock,
             tray::tray_open_palette,
             tray::tray_screenshot,
@@ -345,6 +346,18 @@ pub fn run() {
                 None
             };
 
+            // 翻译面板:同一个面板,唤起时直接进翻译形态。没配就不注册;
+            // 面板整个关掉时它也跟着关。
+            let palette_translate_shortcut = if palette_enabled {
+                store_json.as_ref()
+                    .and_then(|v| v.get("palette_translate_shortcut"))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .and_then(|s| dock_commands::parse_shortcut_str(s).ok())
+            } else {
+                None
+            };
+
             let screenshot_translate_shortcut = if screenshot_translate_enabled {
                 store_json.as_ref()
                     .and_then(|v| v.get("screenshot_translate_shortcut"))
@@ -360,6 +373,7 @@ pub fn run() {
                 screenshot: Some(screenshot_shortcut),
                 screenshot_translate: screenshot_translate_shortcut,
                 palette: palette_shortcut,
+                palette_translate: palette_translate_shortcut,
             }));
             app.manage(bindings.clone());
 
@@ -393,6 +407,10 @@ pub fn run() {
                                 // 面板要落在鼠标所在的那块屏幕上,而且高度随结果条数变,
                                 // 先 show 再摆位会闪一下。隐藏的 webview 照样能执行 eval。
                                 let _ = win.eval("window.__togglePalette && window.__togglePalette()");
+                            }
+                        } else if b.palette_translate.as_ref() == Some(shortcut) {
+                            if let Some(win) = app.get_webview_window("palette") {
+                                let _ = win.eval("window.__togglePalette && window.__togglePalette('translate')");
                             }
                         } else if b.dock.as_ref() == Some(shortcut) {
                             if let Some(win) = app.get_webview_window("dock") {
@@ -434,6 +452,9 @@ pub fn run() {
             // (Alt+Space 就会弹出窗口的系统菜单)。
             if let Some(sc) = palette_shortcut {
                 try_register(sc, "palette", &mut failed_shortcuts);
+            }
+            if let Some(sc) = palette_translate_shortcut {
+                try_register(sc, "palette_translate", &mut failed_shortcuts);
             }
 
             // 通知前端有哪些快捷键注册失败

@@ -521,6 +521,27 @@ pub async fn dsh_start(app: AppHandle) -> Result<DshState, String> {
         remember_pid(&app, None);
     }
     sidecar.set(&app, state.clone());
+
+    // 起来之后盯着它:进程哪天自己没了(崩溃、被任务管理器结束、被谁 kill 了),
+    // 状态要跟着回到「未启动」。不盯的话这儿永远是 ready,前端对着一个已经不存在的
+    // 地址连,只能看到「连接被拒绝」,绿灯还亮着,用户根本不知道该点哪儿。
+    if state.phase == "ready" {
+        let app2 = app.clone();
+        tokio::spawn(async move {
+            let _ = child.wait().await;
+            let sc = app2.state::<DshSidecar>();
+            // 只在「还是我这个 pid」时动手 —— 用户已经手动重启过一轮的话,别把新的盖掉
+            let mine = *sc.pid.lock().unwrap() == pid;
+            if mine {
+                *sc.pid.lock().unwrap() = None;
+                remember_pid(&app2, None);
+                sc.set(&app2, DshState {
+                    phase: "stopped".into(), url: String::new(),
+                    message: "边车退出了".into(), pid: None,
+                });
+            }
+        });
+    }
     Ok(state)
 }
 

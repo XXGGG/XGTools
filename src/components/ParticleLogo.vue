@@ -45,6 +45,11 @@ const props = withDefaults(defineProps<{
   iconViewBox?: number
   /** 描边宽度，按 viewBox 的单位算 */
   iconStrokeWidth?: number
+  /**
+   * 图标按填充画而不是描边。Remix 那种实心图标（比如 DeepSeek 的鲸鱼）
+   * 的路径是闭合面，描边只能得到一圈轮廓线，要填充才是那只鲸鱼。
+   */
+  iconFill?: boolean
 }>(), {
   iconSize: 104, text: 'XGTools', fontSize: 46, gap: 2,
   pad: 90, step: 1.5, radius: 100,
@@ -120,10 +125,15 @@ function buildParticles(dpr: number) {
   const scale = iconPx / props.iconViewBox
   c.scale(scale, scale)
   c.strokeStyle = '#fff'
+  c.fillStyle = '#fff'
   c.lineWidth = props.iconStrokeWidth
   c.lineCap = 'round'
   c.lineJoin = 'round'
-  for (const d of (props.iconPaths ?? ICON_PATHS)) c.stroke(new Path2D(d))
+  for (const d of (props.iconPaths ?? ICON_PATHS)) {
+    const path = new Path2D(d)
+    if (props.iconFill) c.fill(path)
+    else c.stroke(path)
+  }
   c.restore()
 
   // 字标

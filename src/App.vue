@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, onMounted, defineAsyncComponent, nextTick } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { invoke } from '@tauri-apps/api/core'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit, listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
@@ -64,7 +65,13 @@ import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
 
 const { t } = useI18n()
-const currentView = ref('Agent')
+/*
+  空串开局,等设置读完再定(见 onMounted 里的 startPage)。
+
+  以前这里直接写死 'Agent' —— 而 Agent 是可以在设置里关掉的,
+  关掉之后启动照样停在它上面,侧栏没有对应的图标,看着像卡在一个不存在的页。
+*/
+const currentView = ref('')
 // 侧栏显示哪些页、什么顺序,由设置页驱动(清单本体在 lib/sidebar-prefs.ts)
 const menuItems = computed(() =>
   reconcile(MENU_ITEMS, { order: settings.sidebarOrder, hidden: settings.sidebarHidden })
@@ -88,6 +95,19 @@ watch(menuItems, (items) => {
   if (!items.some((m) => m.id === currentView.value)) currentView.value = items[0].id
 })
 
+/**
+ * 启动停在哪一页。
+ *
+ * 设置里选的那一页如果后来被隐藏了(或者干脆不存在了),就退回上排第一个
+ * 还开着的 —— 存的是 id,而「隐藏某一页」是随时会发生的事,不能假设它还在。
+ */
+function resolveStartPage() {
+  const items = menuItems.value
+  const want = settings.startPage
+  if (want && items.some((m) => m.id === want)) return want
+  return items[0]?.id ?? 'Home'
+}
+
 
 const isKeyVisualizer = ref(false)
 const isDockWindow = ref(false)
@@ -104,6 +124,7 @@ const shortcutNameMap: Record<string, string> = {
   screenshot: 'nav.screenshot',
   screenshot_translate: 'nav.screenshot',
   palette: 'dock.tabPalette',
+  palette_translate: 'dock.paletteTranslateHotkey',
 }
 
 // 把浏览器自带的快捷键收掉(Ctrl+P/R/F5/缩放…),见 useBrowserKeys
@@ -118,7 +139,28 @@ onMounted(async () => {
   if (win.label === 'screenshot') { isScreenshotWindow.value = true; return }
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
 
+  /*
+    主窗口在 tauri.conf.json 里是 visible: false,什么时候亮相由这里说了算。
+
+    以前是一建出来就显示:窗口本身全透明(为了亚克力),设置还在从磁盘读、
+    材质还没贴上,这几百毫秒里用户看到的是「桌面透出来 + 几块有色组件浮着」,
+    等材质一贴上又整个闪一下。现在读完设置、贴好材质、画完第一帧再 show,
+    用户看到的第一眼就是完成态。
+
+    reveal 幂等,还挂了个 3 秒的保险 —— 中间任何一步抛异常,窗口也不能永远藏着。
+  */
+  let revealed = false
+  const reveal = () => {
+    if (revealed) return
+    revealed = true
+    // 走 Rust 那边的 reveal_main:它会顺手把前台抢过来(见 tray.rs 的说明),
+    // 直接 win.show() 的话窗口可能显示在别的窗口底下。万一命令不在,退回 show。
+    invoke('reveal_main').catch(() => win.show().then(() => win.setFocus()))
+  }
+  window.setTimeout(reveal, 3000)
+
   await loadSettings()
+  currentView.value = resolveStartPage()
 
   // 「打开 XGTools 就是打开智能体」—— 边车在这里就拉起来,不等用户切到那一页。
   // 不 await:装了 DSH 的话它要几秒才 ready,挂在这儿会把整个界面的首屏卡住。
@@ -130,6 +172,11 @@ onMounted(async () => {
     const err = await applyWindowEffect()
     if (err) { console.error('恢复窗口特效失败:', err); settings.blurKind = 'none' }
   }
+
+  // 等 Vue 把首页渲染出来、再留一小截给 webview 真正画上去,然后才露脸。
+  // 不用 requestAnimationFrame:窗口还藏着的时候 WebView2 未必给你派帧。
+  await nextTick()
+  window.setTimeout(reveal, 60)
 
   // 恢复按键显示窗口状态
   const store = new LazyStore('settings.json')
