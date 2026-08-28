@@ -10,7 +10,7 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { SelectionManager } from './selection'
 import { AnnotationManager } from './annotations'
 import { WindowSnapManager } from './windowSnap'
-import { SelectState, DrawTool, STROKE_COLORS, FILL_COLORS, STROKE_WIDTH_PRESETS, FONT_SIZE_PRESETS, TEXT_BG_COLORS, TEXT_STROKE_COLORS, FONT_FAMILIES, FONT_SIZE_LABELS, TEXT_ALIGNS, BORDER_STYLES, LINE_STYLES, ARROW_TYPES, PEN_STYLES, CORNER_STYLES } from './types'
+import { SelectState, DrawTool, STROKE_COLORS, FILL_COLORS, STROKE_WIDTH_PRESETS, FONT_SIZE_PRESETS, TEXT_BG_COLORS, TEXT_STROKE_COLORS, FONT_FAMILIES, FONT_SIZE_LABELS, TEXT_ALIGNS, BORDER_STYLES, LINE_STYLES, ARROW_TYPES, PEN_STYLES, CORNER_STYLES, SELECTION_ACCENTS, setSelectionAccent } from './types'
 import type { Annotation, BorderStyle, LineStyle, ArrowType, EndpointStyle, PenStyle, CornerStyle } from './types'
 import { useI18n, applySavedLocale } from '@/i18n'
 
@@ -143,6 +143,41 @@ function onPanelDragEnd() {
   _panelDragging = false
   document.removeEventListener('mousemove', onPanelDragMove)
   document.removeEventListener('mouseup', onPanelDragEnd)
+}
+
+/*
+  工具栏也能拖。它默认贴在选区右下角,选区一大就可能压在你要标注的地方,
+  或者跑到屏幕边上把按钮挤没了 —— 抓着左端那个六点图标挪开就行。
+  拖过之后位置就归用户;再次改选区时自动定位会重新接管。
+*/
+let _tbDragging = false
+let _tbMouseStartX = 0, _tbMouseStartY = 0, _tbStartX = 0, _tbStartY = 0
+
+function onToolbarDragStart(e: MouseEvent) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  e.stopPropagation()
+  _tbDragging = true
+  _tbMouseStartX = e.clientX
+  _tbMouseStartY = e.clientY
+  _tbStartX = toolbarX.value
+  _tbStartY = toolbarY.value
+  document.addEventListener('mousemove', onToolbarDragMove)
+  document.addEventListener('mouseup', onToolbarDragEnd)
+}
+
+function onToolbarDragMove(e: MouseEvent) {
+  if (!_tbDragging) return
+  // 别拖出屏幕:留 4px 边,和自动定位用的一样
+  const w = document.querySelector<HTMLElement>('.toolbar')?.offsetWidth ?? 0
+  toolbarX.value = Math.max(4, Math.min(_tbStartX + (e.clientX - _tbMouseStartX), window.innerWidth - w - 4))
+  toolbarY.value = Math.max(4, Math.min(_tbStartY + (e.clientY - _tbMouseStartY), window.innerHeight - 44))
+}
+
+function onToolbarDragEnd() {
+  _tbDragging = false
+  document.removeEventListener('mousemove', onToolbarDragMove)
+  document.removeEventListener('mouseup', onToolbarDragEnd)
 }
 
 // 内联文字编辑器
@@ -628,8 +663,8 @@ function applyCornerRadiusClip(srcCanvas: HTMLCanvasElement, cornerRadius: numbe
 
 /** 如果开启了"自动添加背景与投影"，将截图画布包裹进带背景、圆角、多层阴影的新画布 */
 async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement, snapCornerRadius = 0): Promise<HTMLCanvasElement> {
-  const enabled = (await settingsStore.get<boolean>('screenshot_auto_bg_shadow')) ?? false
-  if (!enabled) return srcCanvas
+  // 工具条上那个开关只管这一次截图,不写回设置(见 bgOn)
+  if (!bgOn.value) return srcCanvas
 
   const bgColor = (await settingsStore.get<string>('screenshot_bg_color')) ?? 'transparent'
   const padding = (await settingsStore.get<number>('screenshot_bg_padding')) ?? 32
@@ -734,6 +769,13 @@ async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement, snapCornerRa
 // ============ 完成截图 → 复制到剪贴板 ============
 
 async function copyToClipboard() {
+  /*
+    文字还在编辑框里就先落下去。
+    编辑框开着的时候焦点未必在 textarea 上(点过面板里的滑块/按钮之后就不在了),
+    这时按回车走的是这里而不是编辑器自己的回车 —— 结果是截图里带着一个虚线编辑框。
+    正确的手感是 截图 → 打字 → 回车,一步到位,不用先点一下别处。
+  */
+  if (showTextEditor.value) commitTextEditor()
   const bgCanvas = canvasRef.value
   if (!selMgr || !bgCanvas) return
 
@@ -797,6 +839,13 @@ async function copyToClipboard() {
 // ============ 保存到文件 ============
 
 async function saveToFile(fast = false) {
+  /*
+    文字还在编辑框里就先落下去。
+    编辑框开着的时候焦点未必在 textarea 上(点过面板里的滑块/按钮之后就不在了),
+    这时按回车走的是这里而不是编辑器自己的回车 —— 结果是截图里带着一个虚线编辑框。
+    正确的手感是 截图 → 打字 → 回车,一步到位,不用先点一下别处。
+  */
+  if (showTextEditor.value) commitTextEditor()
   const bgCanvas = canvasRef.value
   if (!selMgr || !bgCanvas) return
 
@@ -935,6 +984,15 @@ interface OcrTextBlock {
 
 const ocrResults = ref<OcrTextBlock[]>([])
 const ocrLoading = ref(false)
+/*
+  这一次截图要不要加背景投影。
+
+  开局取设置里的值,工具条上那个按钮只改它、**不写回设置** ——
+  「这张图要不要背景」是每张图各自的事,为了一张图去设置页里翻一遍开关、
+  截完还得记得改回来,那才是麻烦。
+*/
+const bgOn = ref(false)
+
 const ocrMode = ref(false)
 let ocrInited = false
 
@@ -1356,6 +1414,17 @@ const translateLoadingStyle = computed(() => {
 })
 
 async function runScreenshotTranslate() {
+  /*
+    再点一下就收起来。
+
+    这个按钮点亮着的时候等于「翻译浮层开着」,而唯一的退路以前只有 Esc ——
+    可点亮的按钮再点一下应该关掉它,这是按钮的通用预期。
+  */
+  if (translateResults.value.length > 0) {
+    exitTranslateMode()
+    return
+  }
+
   const bgCanvas = canvasRef.value
   if (!selMgr || !bgCanvas) return
 
@@ -1617,6 +1686,10 @@ async function executeScreenshot() {
 }
 
 async function _doExecuteScreenshot() {
+  // 每次新截图都回到设置里的默认值 —— 上一张临时关掉了背景,
+  // 不该让下一张跟着一起没有
+  bgOn.value = (await settingsStore.get<boolean>('screenshot_auto_bg_shadow')) ?? false
+
   // 如果上次截图还在进行，先同步重置状态（不走 cancelCapture 的隐藏窗口逻辑）
   if (capturing.value) {
     capturing.value = false
@@ -1750,6 +1823,7 @@ onMounted(async () => {
   // 监听截图事件（检查截图开关）
   await settingsStore.init()
   _unlistens.push(await listen('execute-screenshot', async () => {
+    setSelectionAccent(SELECTION_ACCENTS.normal)      // 普通截图:淡蓝框
     const enabled = (await settingsStore.get<boolean>('screenshot_enabled')) ?? true
     if (!enabled) return
     // 截图进行中再按快捷键 → 取消当前截图
@@ -1769,6 +1843,7 @@ onMounted(async () => {
       return
     }
     translateMode.value = true
+    setSelectionAccent(SELECTION_ACCENTS.translate)   // 翻译截图:淡红框
     executeScreenshot()
   }))
 
@@ -1873,6 +1948,9 @@ const tools = [
       :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
       @mousedown.stop
     >
+      <!-- 抓手:按住拖动整条工具栏 -->
+      <span class="toolbar-grip icon-[lucide--grip-vertical]" :title="t('shot.dragToolbar')"
+        @mousedown="onToolbarDragStart" />
       <!-- 标注工具 -->
       <div class="toolbar-group">
         <button
@@ -1905,6 +1983,13 @@ const tools = [
       <button class="tb" :class="{ active: translateResults.length > 0 }" :title="t('shot.translate')" :disabled="translateLoading" @click="runScreenshotTranslate">
         <span v-if="translateLoading" class="icon-[lucide--loader-2] tb-icon spin" />
         <span v-else class="icon-[lucide--languages] tb-icon" />
+      </button>
+      <!--
+        这一次要不要背景投影。改的是本次截图,不写回设置 ——
+        为一张图去设置页翻开关、截完还得改回来,那才是麻烦。
+      -->
+      <button class="tb" :class="{ active: bgOn }" :title="t('shot.bg')" @click="bgOn = !bgOn">
+        <span class="tb-icon" :class="bgOn ? 'icon-[lucide--image]' : 'icon-[lucide--image-off]'" />
       </button>
       <button class="tb" :title="t('shot.pin')" @click="pinToScreen">
         <span class="icon-[lucide--pin] tb-icon" />
@@ -2371,6 +2456,17 @@ const tools = [
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.toolbar-grip {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin: 0 2px 0 -2px;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: grab;
+}
+.toolbar-grip:hover { color: rgba(255, 255, 255, 0.8); }
+.toolbar-grip:active { cursor: grabbing; }
 
 .toolbar-group {
   display: flex;

@@ -244,8 +244,8 @@ export type Annotation =
 
 /** 选区样式常量（参考 Snow-Shot） */
 export const SELECTION_STYLE = {
-  /** 选区边框颜色 */
-  borderColor: '#4096ff',
+  /** 选区边框颜色。默认淡蓝;截图翻译时换成淡红,见 setSelectionAccent */
+  borderColor: '#7aa7e6',
   /** 选区边框宽度 */
   borderWidth: 2,
   /** 遮罩透明度 */
@@ -255,7 +255,7 @@ export const SELECTION_STYLE = {
   /** 控制点填充色 */
   controlPointFill: '#ffffff',
   /** 控制点描边色 */
-  controlPointStroke: '#4096ff',
+  controlPointStroke: '#7aa7e6',
   /** 控制点描边宽度 */
   controlPointStrokeWidth: 1.5,
   /** 角点显示阈值 */
@@ -276,7 +276,7 @@ export const SELECTION_STYLE = {
   sizeLabelColor: '#ffffff',
   /** 尺寸标签字号 */
   sizeLabelFontSize: 12,
-} as const
+}
 
 /** 默认描边颜色 */
 export const STROKE_COLORS = ['#1e1e1e', '#f5222d', '#52c41a', '#1677ff', '#faad14']
@@ -365,3 +365,15 @@ export const COLOR_PICKER_STYLE = {
   offsetX: 20,
   offsetY: 20,
 } as const
+
+/**
+ * 两种截图的框线色。普通截图淡蓝,截图翻译淡红 —— 一眼能分清现在按的是哪个
+ * 快捷键。都压过饱和度:鲜艳的框线会和画面里的颜色打架。
+ */
+export const SELECTION_ACCENTS = { normal: '#7aa7e6', translate: '#e08a8a' } as const
+
+/** 换选区的主色。边框和控制点描边一起换,漏一个就是两种颜色混着 */
+export function setSelectionAccent(color: string) {
+  SELECTION_STYLE.borderColor = color
+  SELECTION_STYLE.controlPointStroke = color
+}
