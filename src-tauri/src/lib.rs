@@ -466,6 +466,48 @@ pub fn run() {
                     std::thread::sleep(std::time::Duration::from_secs(2));
                     let _ = app_handle.emit("shortcut-register-failed", failed);
                 });
+
+                /*
+                  注册失败不能就此认命。
+
+                  典型场景是两个实例同开(开发时 dev 版和安装版一起跑):后起的那个
+                  抢不到键,以前就一直哑着,直到重启。占着键的那个实例一退出,
+                  这里的重试就把键拿回来了。
+
+                  每轮都从 bindings 重新读要注册的键,不用当初失败的那份快照 ——
+                  用户这期间可能在设置里改过键,照旧注册就会多出一个没人要的组合。
+                  间隔从 5 秒翻倍到 60 秒封顶,最多跑两小时。
+                */
+                let app_retry = app.handle().clone();
+                let bindings_retry = bindings.clone();
+                std::thread::spawn(move || {
+                    let mut wait = 5u64;
+                    for _ in 0..120 {
+                        std::thread::sleep(std::time::Duration::from_secs(wait));
+                        let wanted: Vec<tauri_plugin_global_shortcut::Shortcut> = {
+                            let b = bindings_retry.lock().unwrap();
+                            [b.dock, b.screenshot, b.screenshot_translate, b.palette, b.palette_translate]
+                                .into_iter()
+                                .flatten()
+                                .collect()
+                        };
+                        let gs = app_retry.global_shortcut();
+                        let mut still_missing = false;
+                        for sc in wanted {
+                            if gs.is_registered(sc) {
+                                continue;
+                            }
+                            if gs.register(sc).is_err() {
+                                still_missing = true;
+                            }
+                        }
+                        if !still_missing {
+                            let _ = app_retry.emit("shortcut-register-recovered", ());
+                            break;
+                        }
+                        wait = (wait * 2).min(60);
+                    }
+                });
             }
 
             Ok(())
