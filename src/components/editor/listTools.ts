@@ -67,18 +67,39 @@ import type { EditorState, ChangeSpec } from '@codemirror/state'
 const ORDERED = /^(\s*)(\d+)([.)])(\s+)([\s\S]*)$/
 const BULLET = /^(\s*)([-*+])(\s+)([\s\S]*)$/
 
+/**
+ * 一个制表符占几列。
+ *
+ * **缩进要按列算,不能按字符数算。** Obsidian 默认写制表符,一个 Tab 是一个字符,
+ * 却顶四列宽 —— 按字符数算的话,`\t1. 子项` 的缩进是 1,回写时变成一个空格,
+ * 一个空格顶不到父项的内容列(`3. ` 是 3 列),这条子项当场掉成顶层的兄弟。
+ * 一动这块列表(退格、Tab)整片层级就散架,而源文件看着"只是空白变了"。
+ * CommonMark 规定 Tab 停位是 4,这里照办。
+ */
+const TAB = 4
+
+/** 从第 col 列开始,走过 text 之后到第几列 */
+function advance(col: number, text: string): number {
+  for (const ch of text) col = ch === '\t' ? (Math.floor(col / TAB) + 1) * TAB : col + 1
+  return col
+}
+
+/**
+ * indent 是**列**不是字符数;lead 是原样的前导空白。
+ * 没动过缩进的行按 lead 原样写回去 —— 制表符缩进的文件不会因为碰了一下就被换成空格。
+ */
 type Row =
-  | { kind: 'ol', indent: number, num: number, dot: string, sp: string, text: string }
-  | { kind: 'ul', indent: number, mark: string, sp: string, text: string }
-  | { kind: 'plain', indent: number, text: string }
+  | { kind: 'ol', indent: number, lead: string, num: number, dot: string, sp: string, text: string }
+  | { kind: 'ul', indent: number, lead: string, mark: string, sp: string, text: string }
+  | { kind: 'plain', indent: number, lead: string, text: string }
 
 function parse(line: string): Row {
   const o = ORDERED.exec(line)
-  if (o) return { kind: 'ol', indent: o[1].length, num: Number(o[2]), dot: o[3], sp: o[4], text: o[5] }
+  if (o) return { kind: 'ol', indent: advance(0, o[1]), lead: o[1], num: Number(o[2]), dot: o[3], sp: o[4], text: o[5] }
   const b = BULLET.exec(line)
-  if (b) return { kind: 'ul', indent: b[1].length, mark: b[2], sp: b[3], text: b[4] }
+  if (b) return { kind: 'ul', indent: advance(0, b[1]), lead: b[1], mark: b[2], sp: b[3], text: b[4] }
   const lead = /^(\s*)([\s\S]*)$/.exec(line)!
-  return { kind: 'plain', indent: lead[1].length, text: lead[2] }
+  return { kind: 'plain', indent: advance(0, lead[1]), lead: lead[1], text: lead[2] }
 }
 
 /**
@@ -89,12 +110,22 @@ function parse(line: string): Row {
  */
 function contentCol(r: Row): number {
   if (r.kind === 'plain') return r.indent
-  const mark = r.kind === 'ol' ? String(r.num).length + r.dot.length : r.mark.length
-  return r.indent + mark + r.sp.length
+  const mark = r.kind === 'ol' ? `${r.num}${r.dot}` : r.mark
+  return advance(advance(r.indent, mark), r.sp)
 }
 
-function render(r: Row): string {
-  const pad = ' '.repeat(r.indent)
+/** 这一块列表原本用制表符缩进吗 —— 新缩进跟着它写,不把人家的文件搅成混着的 */
+function usesTabs(rows: Row[]): boolean {
+  return rows.some((r) => r.lead.includes('	'))
+}
+
+function render(r: Row, tabs = false): string {
+  // 缩进没动过就把原来那截空白原样写回去;动过了按列重铺 —— 铺什么字符看这块原本用什么
+  const pad = advance(0, r.lead) === r.indent
+    ? r.lead
+    : tabs
+      ? '	'.repeat(Math.floor(r.indent / TAB)) + ' '.repeat(r.indent % TAB)
+      : ' '.repeat(r.indent)
   // 空行也留住缩进 —— 退格是一级一级往回走的,中间那几步正文是空的,
   // 缩进就是它当前站在第几级,抹掉的话台阶就没了
   if (r.kind === 'plain') return pad + r.text
@@ -272,7 +303,8 @@ export function listIndent(dir: 1 | -1): Command {
 
     const start = state.doc.line(a).from
     const end = state.doc.line(b).to
-    const changes: ChangeSpec = { from: start, to: end, insert: rows.map(render).join('\n') }
+    const tabs = usesTabs(rows)
+    const changes: ChangeSpec = { from: start, to: end, insert: rows.map((r) => render(r, tabs)).join('\n') }
 
     /*
       光标跟着缩进走。
@@ -282,7 +314,7 @@ export function listIndent(dir: 1 | -1): Command {
     */
     const anchorLine = state.doc.lineAt(from)
     const newFrom = state.doc.line(a).from
-      + rows.slice(0, anchorLine.number - a).reduce((s, r) => s + render(r).length + 1, 0)
+      + rows.slice(0, anchorLine.number - a).reduce((s, r) => s + render(r, tabs).length + 1, 0)
       + Math.max(0, from - anchorLine.from + delta[anchorLine.number - a])
 
     dispatch(state.update({
@@ -297,6 +329,9 @@ export function listIndent(dir: 1 | -1): Command {
 
 /** 列表标记连同后面那截空格。m[0] 的长度就是「正文从第几列开始」 */
 const MARKER = /^(\s*)(?:[-*+]|\d+[.)])(\s+)/
+
+/** 整行就是一个**空的列表项**:只有缩进 + 标记(后面顶多剩空白) */
+const EMPTY_ITEM = /^(\s*)(?:[-*+]|\d+[.)])[ \t]*$/
 
 /**
  * 光标正好停在正文开头时，退格走**一级一级的台阶**，不是一个字符一个字符。
@@ -332,17 +367,6 @@ export const listBackspace: Command = (target) => {
   if (!sel.empty) return false
 
   const line = state.doc.lineAt(sel.head)
-  const m = MARKER.exec(line.text)
-  const lead = /^\s*/.exec(line.text)![0].length
-  // 有标记就是标记后面,没标记就是缩进后面
-  if (sel.head - line.from !== (m ? m[0].length : lead)) return false
-  if (!m && lead === 0) return false          // 顶格的普通行,没台阶可退
-
-  const { a, b } = blockRange(state, line.number, line.number)
-  const rows: Row[] = []
-  for (let n = a; n <= b; n++) rows.push(parse(state.doc.line(n).text))
-  const i = line.number - a
-  const me = rows[i]
 
   /*
     **空项**上退格 = 把这一行整个删掉,光标回到上一行末尾。
@@ -350,9 +374,16 @@ export const listBackspace: Command = (target) => {
     以前是把标记剥掉、留一个空行在列表中间。空行在 markdown 里是列表的终止符:
     后面那些项被当成一个新列表,连带子项的层级一起重排,画面上整片列表当场散架
     (2026-08-29 踩过:删掉一个空的「2.」,下面十几条的缩进全没了)。
-    一个空项本来就没有内容可保留,删行是唯一不会动到别人的做法;序号顺手重排。
+    一个空项没有内容可保留,删行是唯一不牵连别人的做法;序号顺手重排。
+
+    **不要求光标停在哪一列** —— 标记在画面上被换成了圆点/序号,光标落在标记里的
+    哪一格全看渲染,卡着"正好在标记后面"这个条件的话,少数情况下就漏给了
+    markdown 自带的 deleteMarkupBackward(它把标记换成等宽空格,于是留下半级空白行,
+    整片列表照样散架)。空项整行都没内容,光标在这行的任何位置删掉它都是对的。
   */
-  if (m && !me.text.trim() && line.number > 1) {
+  if (EMPTY_ITEM.test(line.text) && line.number > 1) {
+    const { a, b } = blockRange(state, line.number, line.number)
+    const i = line.number - a
     const prev = state.doc.line(line.number - 1)
     if (i === 0) {
       // 上一行不在这块列表里(空行或普通段落):直接把这行连换行一起删
@@ -364,9 +395,11 @@ export const listBackspace: Command = (target) => {
       }))
       return true
     }
+    const rows: Row[] = []
+    for (let n = a; n <= b; n++) rows.push(parse(state.doc.line(n).text))
     rows.splice(i, 1)
     renumber(rows)
-    const text = rows.map(render)
+    const text = rows.map((r) => render(r, usesTabs(rows)))
     const head = state.doc.line(a).from
       + text.slice(0, i - 1).reduce((s, t) => s + t.length + 1, 0)
       + text[i - 1].length
@@ -378,6 +411,18 @@ export const listBackspace: Command = (target) => {
     }))
     return true
   }
+
+  const m = MARKER.exec(line.text)
+  const lead = /^\s*/.exec(line.text)![0].length
+  // 有标记就是标记后面,没标记就是缩进后面
+  if (sel.head - line.from !== (m ? m[0].length : lead)) return false
+  if (!m && lead === 0) return false          // 顶格的普通行,没台阶可退
+
+  const { a, b } = blockRange(state, line.number, line.number)
+  const rows: Row[] = []
+  for (let n = a; n <= b; n++) rows.push(parse(state.doc.line(n).text))
+  const i = line.number - a
+  const me = rows[i]
 
   /*
     没有标记的行才动缩进。落点是**上面那些项的内容列里、比我浅的那一个** ——
@@ -396,7 +441,7 @@ export const listBackspace: Command = (target) => {
     }
   }
 
-  rows[i] = { kind: 'plain', indent, text: me.text }
+  rows[i] = { kind: 'plain', indent, lead: indent === me.indent ? me.lead : ' '.repeat(indent), text: me.text }
   renumber(rows)
 
   /*
@@ -408,7 +453,7 @@ export const listBackspace: Command = (target) => {
     正文是空的那一步不用补：空行自己就把列表断开了。
   */
   const escape = indent === 0 && !!me.text && a < line.number
-  const text = rows.map(render)
+  const text = rows.map((r) => render(r, usesTabs(rows)))
   if (escape) text.splice(i, 0, '')
 
   // 光标停在新的正文开头

@@ -23,7 +23,7 @@
  * 语法解析要先于装饰、装饰要在主题之后、更新监听要在装饰之后。
  */
 import { shallowRef, onMounted, onBeforeUnmount, watch, computed } from 'vue'
-import { EditorState, Compartment, Annotation } from '@codemirror/state'
+import { EditorState, Compartment, Annotation, Prec } from '@codemirror/state'
 import {
   EditorView, keymap, drawSelection, dropCursor, rectangularSelection,
   highlightActiveLine, highlightSpecialChars,
@@ -541,6 +541,15 @@ function extensions() {
       closeBrackets: { brackets: ['(', '{', "'", '"', '*', '_', '`'] },
     }),
     atomicEditorTheme,
+    /*
+      空列表项上的退格要盖过所有人。
+
+      atomic-editor 的 wiki 链接挂的是 Prec.highest 的退格、表格挂的是 Prec.high,
+      markdown 自带的 deleteMarkupBackward 也在。普通优先级排第一位仍可能被越过,
+      于是空项被换成一行空白 —— 列表当场断成两截。listBackspace 只在真正该管的
+      情形下返回 true,其余一律放行,所以拔到最高不会挡了别人的事。
+    */
+    Prec.highest(keymap.of([{ key: 'Backspace', run: listBackspace }])),
     keymap.of([
       /*
         列表的缩进要排在 indentWithTab **前面**。
@@ -551,9 +560,11 @@ function extensions() {
       { key: 'Tab', run: listIndent(1) },
       { key: 'Shift-Tab', run: listIndent(-1) },
       /*
-        退格也要排在 markdownKeymap 前面 —— 它那个
-        deleteMarkupBackward 是「把标记换成等宽空格」,
-        会留下一行只有空白的半级行。理由见 listBackspace 的注释。
+        退格排在 markdownKeymap 前面 —— 它那个 deleteMarkupBackward 是
+        「把标记换成等宽空格」,会留下一行只有空白的半级行,而空白行是列表的
+        终止符,后面整片的层级会跟着散架。理由见 listBackspace 的注释。
+        (真正的优先级在下面的 Prec.highest 那份 —— 光排在数组前面还不够,
+        atomic-editor 的 wiki 链接和表格各自挂了 highest / high 的退格。)
       */
       { key: 'Backspace', run: listBackspace },
       ...closeBracketsKeymap,
