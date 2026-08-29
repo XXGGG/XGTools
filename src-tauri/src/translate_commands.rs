@@ -553,10 +553,22 @@ async fn openai_compatible_request(
         _ => ("https://api.openai.com/v1/chat/completions", "gpt-4o-mini"),
     };
 
-    let url = config.api_url.as_deref().unwrap_or(default_url);
+    // 用户填的往往是 https://xxx/v1 这种根地址(Ollama、各种中转站都这么写),
+    // 没带 /chat/completions 就补上;带了就原样用
+    let url_owned = config
+        .api_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .map(|u| {
+            let u = u.trim_end_matches('/');
+            if u.ends_with("/chat/completions") { u.to_string() } else { format!("{u}/chat/completions") }
+        })
+        .unwrap_or_else(|| default_url.to_string());
+    let url = url_owned.as_str();
     let model = config.model.as_deref().unwrap_or(default_model);
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
         "messages": [
             { "role": "system", "content": TRANSLATE_SYSTEM_PROMPT },
@@ -564,6 +576,12 @@ async fn openai_compatible_request(
         ],
         "temperature": 0.1
     });
+    // 本机模型服务(Ollama / LM Studio 这类填 127.0.0.1 的)跑的多半是带"思考"的模型,
+    // 翻译一句先想十秒纯属浪费,还会把想法混进译文。Ollama 的 OpenAI 兼容接口认
+    // reasoning_effort:"none" 关掉;只对本机地址加 —— 云端厂商对陌生字段有的直接报错。
+    if url.contains("127.0.0.1") || url.contains("localhost") {
+        body["reasoning_effort"] = serde_json::json!("none");
+    }
 
     let client = reqwest::Client::new();
     let resp = client
@@ -596,8 +614,24 @@ async fn openai_compatible_request(
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
         .and_then(|c| c.as_str())
-        .map(|s| s.to_string())
+        .map(strip_think)
         .ok_or(format!("{} 返回格式错误", engine))
+}
+
+/// 把模型吐出来的 <think>…</think> 整段去掉。关了思考的模型有时还会留一对空标签,
+/// 没关的会把整段推理塞进译文前面 —— 两种都不该出现在翻译结果里。
+fn strip_think(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find("<think>") {
+        out.push_str(&rest[..start]);
+        match rest[start..].find("</think>") {
+            Some(end) => rest = &rest[start + end + "</think>".len()..],
+            None => { rest = ""; break }
+        }
+    }
+    out.push_str(rest);
+    out.trim().to_string()
 }
 
 /// Claude API (Anthropic Messages API)
