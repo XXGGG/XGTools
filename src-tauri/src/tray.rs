@@ -118,6 +118,7 @@ pub fn hide_tray_menu(app: tauri::AppHandle) {
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
+        crate::window_effects::kick_backdrop(&w);
         let _ = w.unminimize();
         let _ = w.set_focus();
     }

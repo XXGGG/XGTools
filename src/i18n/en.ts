@@ -81,6 +81,8 @@ export const en: Messages = {
     bgAcrylic: 'Acrylic',
     surfaceOpacity: 'Surface opacity',
     effectFailed: 'Could not apply the effect: {msg}',
+    effectStuck: 'Background gone white / material not showing?',
+    effectKick: 'Refresh it',
 
     about: 'About',
     version: 'Version',

@@ -171,6 +171,12 @@ function setLanguage(v: Locale | 'auto') {
   setLocale(v === 'auto' ? detectLocale() : v)
 }
 
+/** 材质没画出来(底面发白)时手动踢一下 DWM,见 window_effects.rs 的 kick_backdrop */
+async function kickBackdrop() {
+  if (settings.blurKind !== 'none') await applyWindowEffect()
+  await invoke('kick_window_backdrop', { label: 'main' }).catch(() => {})
+}
+
 async function applyEffect(kind: BlurKind = settings.blurKind): Promise<boolean> {
   const err = await applyWindowEffect(kind)
   effectError.value = err ?? ''
@@ -464,6 +470,10 @@ onUnmounted(() => {
             </div>
 
             <p v-if="effectError" class="text-xs text-amber-500">{{ t('settings.effectFailed', { msg: effectError }) }}</p>
+            <p v-if="settings.blurKind !== 'none'" class="text-xs text-muted-foreground">
+              {{ t('settings.effectStuck') }}
+              <button @click="kickBackdrop" class="underline underline-offset-2 hover:text-foreground">{{ t('settings.effectKick') }}</button>
+            </p>
           </section>
 
 

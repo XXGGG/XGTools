@@ -128,3 +128,51 @@ pub fn set_window_effect(
     }
     Ok(())
 }
+
+/// 把 DWM 的背景材质"踢醒"。
+///
+/// 现象:云母 / 亚克力的属性明明都设对了(DWMWA_SYSTEMBACKDROP_TYPE = MICA、深色 = 1),
+/// DWM 就是不画,窗口底下露出一片白,深色主题下整个界面像褪了色。启动后第一次显示时最容易中招,
+/// 正式版比 dev 更常见(时序不同),偶尔跑着跑着也会掉。实测 SWP_FRAMECHANGED、重设属性、
+/// 隐藏再显示、cloak 都叫不醒它,**只有最小化再还原**这一下 DWM 才重新开始画。
+///
+/// 所以就做这一下:先关掉 DWM 过渡动画(不然会看到窗口飞向任务栏),最小化,立刻还原
+/// (最大化的窗口还原成最大化),再把动画打开。整个过程在一帧内完成,配合前端那层不透明底色,
+/// 用户看不到任何闪动。
+#[cfg(windows)]
+pub fn kick_backdrop(win: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsIconic, IsWindowVisible, IsZoomed, ShowWindow, SW_MINIMIZE, SW_RESTORE, SW_SHOWMAXIMIZED,
+    };
+    let Ok(hwnd) = win.hwnd() else { return };
+    let hwnd = HWND(hwnd.0 as _);
+    unsafe {
+        // 藏着或本来就最小化的窗口不折腾:显示的时候自然会再走一遍
+        if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return;
+        }
+        let on: i32 = 1;
+        let off: i32 = 0;
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &on as *const _ as *const _, 4);
+        let zoomed = IsZoomed(hwnd).as_bool();
+        let _ = ShowWindow(hwnd, SW_MINIMIZE);
+        let _ = ShowWindow(hwnd, if zoomed { SW_SHOWMAXIMIZED } else { SW_RESTORE });
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &off as *const _ as *const _, 4);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn kick_backdrop(_win: &tauri::WebviewWindow) {}
+
+/// 前端在材质贴好之后调一次;设置页也有个手动入口
+#[tauri::command]
+pub fn kick_window_backdrop(app: tauri::AppHandle, label: Option<String>) -> Result<(), String> {
+    let label = label.unwrap_or_else(|| "main".to_string());
+    let win = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("找不到窗口: {label}"))?;
+    kick_backdrop(&win);
+    Ok(())
+}

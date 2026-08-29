@@ -75,6 +75,8 @@ export const zh = {
     bgAcrylic: '亚克力',
     surfaceOpacity: '底面不透明度',
     effectFailed: '特效应用失败：{msg}',
+    effectStuck: '底面发白、材质没显示出来？',
+    effectKick: '重刷一下',
 
     about: '关于',
     version: '版本',

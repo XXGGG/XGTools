@@ -122,6 +122,7 @@ pub fn run() {
             // 窗口背景特效(云母/亚克力/模糊)
             window_effects::set_window_effect,
             window_effects::set_window_corners,
+            window_effects::kick_window_backdrop,
             // DSH 边车:探测环境、按需安装、随应用起停
             dsh_commands::dsh_preflight,
             dsh_commands::dsh_install,
