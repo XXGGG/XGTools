@@ -165,14 +165,11 @@ onMounted(async () => {
     // 直接 win.show() 的话窗口可能显示在别的窗口底下。万一命令不在,退回 show。
     const shown = invoke('reveal_main').catch(() => win.show().then(() => win.setFocus()))
     void shown.then(async () => {
-      if (settings.blurKind !== 'none') {
-        await applyWindowEffect()
-        // DWM 时不时贴了材质也不画(尤其正式版第一次显示),只有最小化再还原才醒 ——
-        // 趁底色还不透明,静悄悄踢它一下。见 window_effects.rs 的 kick_backdrop
-        await invoke('kick_window_backdrop', { label: 'main' }).catch(() => {})
-      }
-      // 给 DWM 一点时间把深色材质画上来,再把不透明底色撤掉
-      window.setTimeout(() => document.body.classList.remove('effect-pending'), 250)
+      if (settings.blurKind !== 'none') await applyWindowEffect()
+      // DWM 时不时贴了材质也不画(尤其正式版第一次显示),只有最小化再还原才醒。
+      // reveal_main 里已经安排了显示后 350ms / 900ms 各踢一次(见 window_effects.rs 的
+      // kick_backdrop),这里把不透明底色留够一秒,踢的过程用户看不到
+      window.setTimeout(() => document.body.classList.remove('effect-pending'), 1100)
     })
   }
   window.setTimeout(reveal, 3000)

@@ -118,9 +118,10 @@ pub fn hide_tray_menu(app: tauri::AppHandle) {
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
-        crate::window_effects::kick_backdrop(&w);
         let _ = w.unminimize();
         let _ = w.set_focus();
+        // 云母偶尔在显示之后几百毫秒才丢背景,延时踢两下把它叫醒,见 window_effects.rs
+        crate::window_effects::kick_backdrop_later(app, "main", &[350, 900]);
     }
 }
 
@@ -151,6 +152,7 @@ pub fn reveal_main(app: tauri::AppHandle) {
             }
         }
         let _ = w.set_focus();
+        crate::window_effects::kick_backdrop_later(&app, "main", &[350, 900]);
     }
 }
 

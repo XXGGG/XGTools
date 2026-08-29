@@ -141,10 +141,11 @@ pub fn set_window_effect(
 /// 用户看不到任何闪动。
 #[cfg(windows)]
 pub fn kick_backdrop(win: &tauri::WebviewWindow) {
-    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
     use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
     use windows::Win32::UI::WindowsAndMessaging::{
-        IsIconic, IsWindowVisible, IsZoomed, ShowWindow, SW_MINIMIZE, SW_RESTORE, SW_SHOWMAXIMIZED,
+        GetForegroundWindow, IsIconic, IsWindowVisible, IsZoomed, SendMessageW, SetForegroundWindow,
+        ShowWindow, SW_MINIMIZE, SW_RESTORE, SW_SHOWMAXIMIZED, WA_ACTIVE, WM_ACTIVATE,
     };
     let Ok(hwnd) = win.hwnd() else { return };
     let hwnd = HWND(hwnd.0 as _);
@@ -157,8 +158,15 @@ pub fn kick_backdrop(win: &tauri::WebviewWindow) {
         let off: i32 = 0;
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &on as *const _ as *const _, 4);
         let zoomed = IsZoomed(hwnd).as_bool();
+        let was_foreground = GetForegroundWindow() == hwnd;
         let _ = ShowWindow(hwnd, SW_MINIMIZE);
         let _ = ShowWindow(hwnd, if zoomed { SW_SHOWMAXIMIZED } else { SW_RESTORE });
+        // 还原之后 DWM 的"激活态"是旧的:窗口明明在前台,云母却按未激活画成扁平深灰,
+        // 看着像没贴材质。补一个 WM_ACTIVATE 它才重画;本来不在前台的不发,免得假装激活。
+        if was_foreground {
+            let _ = SetForegroundWindow(hwnd);
+            SendMessageW(hwnd, WM_ACTIVATE, Some(WPARAM(WA_ACTIVE as usize)), Some(LPARAM(0)));
+        }
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &off as *const _ as *const _, 4);
     }
 }
@@ -166,7 +174,53 @@ pub fn kick_backdrop(win: &tauri::WebviewWindow) {
 #[cfg(not(windows))]
 pub fn kick_backdrop(_win: &tauri::WebviewWindow) {}
 
-/// 前端在材质贴好之后调一次;设置页也有个手动入口
+/// 只刷激活态,不折腾窗口:还原之后 DWM 常常还按"未激活"画云母(扁平深灰,像没贴材质),
+/// 紧跟着发 WM_ACTIVATE 它未必来得及理,隔一会儿再发一次才稳。只对真在前台的窗口发。
+#[cfg(windows)]
+pub fn refresh_active(win: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SendMessageW, WA_ACTIVE, WM_ACTIVATE};
+    let Ok(hwnd) = win.hwnd() else { return };
+    let hwnd = HWND(hwnd.0 as _);
+    unsafe {
+        if GetForegroundWindow() == hwnd {
+            SendMessageW(hwnd, WM_ACTIVATE, Some(WPARAM(WA_ACTIVE as usize)), Some(LPARAM(0)));
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn refresh_active(_win: &tauri::WebviewWindow) {}
+
+/// 过一会儿再踢:窗口刚 show 出来那一瞬 DWM 还没开始合成,这时候踢等于白踢,
+/// 它是几百毫秒后才把背景丢掉的。所以显示之后隔 350ms 踢一次、900ms 再补一次,
+/// 前端那层不透明底色留够一秒,用户全程看不到。
+pub fn kick_backdrop_later(app: &tauri::AppHandle, label: &str, delays_ms: &[u64]) {
+    fn later(app: &tauri::AppHandle, label: &str, ms: u64, f: fn(&tauri::WebviewWindow)) {
+        let app = app.clone();
+        let label = label.to_string();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Some(w) = app2.get_webview_window(&label) {
+                    f(&w);
+                }
+            });
+        });
+    }
+    let mut last = 0;
+    for &ms in delays_ms {
+        later(app, label, ms, kick_backdrop);
+        // 每次踢完隔 200ms 刷一次激活态
+        later(app, label, ms + 200, refresh_active);
+        last = last.max(ms);
+    }
+    // 最后再补一次纯激活刷新,兜住"踢醒了但还是扁平灰"的那种
+    later(app, label, last + 900, refresh_active);
+}
+
+/// 设置页的手动入口:立刻踢一次,再补一次
 #[tauri::command]
 pub fn kick_window_backdrop(app: tauri::AppHandle, label: Option<String>) -> Result<(), String> {
     let label = label.unwrap_or_else(|| "main".to_string());
@@ -174,5 +228,6 @@ pub fn kick_window_backdrop(app: tauri::AppHandle, label: Option<String>) -> Res
         .get_webview_window(&label)
         .ok_or_else(|| format!("找不到窗口: {label}"))?;
     kick_backdrop(&win);
+    kick_backdrop_later(&app, &label, &[400]);
     Ok(())
 }
