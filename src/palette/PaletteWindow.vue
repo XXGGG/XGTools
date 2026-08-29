@@ -123,6 +123,8 @@ async function fitWindow() {
   if (h === lastHeight) return
   lastHeight = h
   try { await win.setSize(new LogicalSize(WIDTH, h)) } catch { lastHeight = -1 }
+  // 高度变了,该待的位置也变了(居中要按新高度算;有结果就抬上去)
+  if (open.value) glideTo(targetY(h))
 }
 watch(results, () => {
   if (cursor.value >= results.value.length) cursor.value = -1
@@ -203,16 +205,57 @@ async function closePalette() {
   await win.hide()
 }
 
-/** 摆到鼠标所在那块屏幕的上三分之一处 */
+/*
+  位置。
+
+  **整块面板永远在屏幕正中**:刚唤起是一个输入框居中;搜出结果、译文格长出来,
+  面板变高,就按新高度重新居中 —— 顶边缓缓上移给下面腾地方,把字删光了又
+  缓缓滑回去。试过「有结果就抬到屏幕上部」,一输入就蹿得太高,不要。
+
+  面板是独立的 OS 窗口,没法用 CSS transition,只能自己逐帧 setPosition。
+  一次滑动 600ms、ease-out(先快后慢),三十几帧、三十几次 IPC,感觉不到开销。
+*/
+const GLIDE_MS = 600
+
+/** 鼠标所在那块屏幕的几何,唤起时取一次,后面滑动都按它算(物理像素) */
+let mon = { x: 0, y: 0, w: 1920, h: 1080, scale: 1 }
+let winX = 0
+let curY = 0
+let glide = 0
+
+/** 面板居中时该在的纵坐标。h 是窗口的逻辑高度 */
+function targetY(h: number): number {
+  return mon.y + Math.round((mon.h - h * mon.scale) / 2)
+}
+
+/** 缓缓滑到 y。中途目标变了就从当前位置接着滑,不会跳 */
+function glideTo(y: number) {
+  cancelAnimationFrame(glide)
+  const from = curY
+  const dist = y - from
+  if (!dist) return
+  const t0 = performance.now()
+  const step = (now: number) => {
+    const p = Math.min(1, (now - t0) / GLIDE_MS)
+    const eased = 1 - Math.pow(1 - p, 3)          // ease-out cubic
+    curY = Math.round(from + dist * eased)
+    void win.setPosition(new PhysicalPosition(winX, curY))
+    if (p < 1) glide = requestAnimationFrame(step)
+  }
+  glide = requestAnimationFrame(step)
+}
+
+/** 唤起时:记下屏幕几何,直接摆到正中(这一下不滑,滑的是之后的变化) */
 async function place() {
   try {
     const cur = await cursorPosition()
     const m = (await monitorFromPoint(cur.x, cur.y)) ?? null
     if (!m) return
-    const scale = m.scaleFactor
-    const x = m.position.x + Math.round((m.size.width - WIDTH * scale) / 2)
-    const y = m.position.y + Math.round(m.size.height * 0.18)
-    await win.setPosition(new PhysicalPosition(x, y))
+    mon = { x: m.position.x, y: m.position.y, w: m.size.width, h: m.size.height, scale: m.scaleFactor }
+    winX = mon.x + Math.round((mon.w - WIDTH * mon.scale) / 2)
+    cancelAnimationFrame(glide)
+    curY = targetY(HEAD)
+    await win.setPosition(new PhysicalPosition(winX, curY))
   } catch { /* 拿不到显示器信息就用上次的位置,总比不弹好 */ }
 }
 
