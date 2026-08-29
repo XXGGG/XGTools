@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { localModel, checkLocalModel, downloadLocalModel, removeLocalModel, LOCAL_MODEL_BYTES } from '@/lib/bergamot'
+import { ENGINES, engineLabel, loadChain, translateChain, type ChainFailure } from '@/lib/translateChain'
+import { VueDraggable } from 'vue-draggable-plus'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,15 +23,6 @@ interface AiConfig {
   api_url: string
   model: string
 }
-
-type TranslateMode = 'free' | 'ai'
-
-const freeEngines = [
-  { id: 'google', label: 'Google 翻译' },
-  { id: 'bing', label: 'Bing 翻译' },
-  { id: 'deepl', label: 'DeepL 翻译' },
-  { id: 'mymemory', label: 'MyMemory 翻译' },
-]
 
 const aiEngines = [
   { id: 'openai', label: 'OpenAI' },
@@ -62,9 +56,15 @@ const defaultModels: Record<string, string> = Object.fromEntries(
 
 // ─── State ────────────────────────────────────────────
 
-const translateMode = ref<TranslateMode>('free')
-const freeEngine = ref('google')
+/** 引擎优先级链:从上往下试,谁成功用谁。见 lib/translateChain */
+const chain = ref<string[]>([])
+/** 设置弹窗里正展开配置的引擎(AI 或本机离线);null = 都收着 */
+const configOpen = ref<string | null>(null)
+/** AI 配置表单绑定的引擎。展开哪个 AI 引擎的配置它就指向哪个 */
 const aiEngine = ref('openai')
+/** 最近一次翻译:用了谁、它前面谁失败了 */
+const lastUsed = ref<string | null>(null)
+const lastFailed = ref<ChainFailure[]>([])
 
 const defaultAiConfig = (): AiConfig => ({ api_key: '', api_url: '', model: '' })
 const aiConfigs = ref<Record<string, AiConfig>>(
@@ -90,33 +90,24 @@ const fetchingModels = ref(false)
 
 // ─── 计算属性 ─────────────────────────────────────────
 
-const activeEngine = computed(() => {
-  if (translateMode.value === 'ai') {
-    const cfg = aiConfigs.value[aiEngine.value]
-    if (cfg?.api_key && aiValidated.value[aiEngine.value] === true) {
-      return aiEngine.value
-    }
-    return freeEngine.value
-  }
-  return freeEngine.value
-})
+const chainLabel = computed(() => chain.value.map(engineLabel).join(' → '))
+/** 还没进链的引擎,设置里列成一排可以点着加 */
+const available = computed(() => ENGINES.filter(e => !chain.value.includes(e.id)))
+const configKind = computed(() => ENGINES.find(e => e.id === configOpen.value)?.kind ?? null)
 
-const isUsingFallback = computed(() =>
-  translateMode.value === 'ai' && activeEngine.value === freeEngine.value
-)
-
-const activeEngineLabel = computed(() => {
-  const all = [...freeEngines, ...aiEngines]
-  return all.find(e => e.id === activeEngine.value)?.label ?? activeEngine.value
-})
+/** 链里每个引擎的小状态:AI 没配 key / 离线模型没下,都标一下,免得排上去了却一直被跳过 */
+function engineWarn(id: string): string | null {
+  const kind = ENGINES.find(e => e.id === id)?.kind
+  if (kind === 'ai' && !aiConfigs.value[id]?.api_key) return t('translate.aiUnconfigured')
+  if (kind === 'local' && localModel.status !== 'ready') return t('translate.localMissing')
+  return null
+}
 
 // ─── Load / Save ──────────────────────────────────────
 
 async function loadSettings() {
   await store.init()
-  translateMode.value = (await store.get<TranslateMode>('translate_mode')) ?? 'free'
-  freeEngine.value = (await store.get<string>('translate_free_engine')) ?? 'google'
-  aiEngine.value = (await store.get<string>('translate_ai_engine')) ?? 'openai'
+  chain.value = await loadChain()
   const saved = await store.get<Record<string, AiConfig>>('translate_ai_configs')
   if (saved) {
     for (const key of Object.keys(aiConfigs.value)) {
@@ -133,15 +124,16 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-  await store.set('translate_mode', translateMode.value)
-  await store.set('translate_free_engine', freeEngine.value)
-  await store.set('translate_ai_engine', aiEngine.value)
+  await store.set('translate_chain', chain.value)
   await store.set('translate_ai_configs', aiConfigs.value)
   await store.set('translate_ai_validated', aiValidated.value)
   await store.save()
 }
 
-onMounted(loadSettings)
+onMounted(async () => { await loadSettings(); void checkLocalModel() })
+
+const localPct = computed(() => Math.round(localModel.progress * 100))
+const localSizeMb = Math.round(LOCAL_MODEL_BYTES / 1024 / 1024)
 
 // ─── 翻译逻辑 ─────────────────────────────────────────
 
@@ -163,24 +155,11 @@ async function doTranslate() {
   }
   loading.value = true
   try {
-    const engine = activeEngine.value
-    const isAi = aiEngines.some(e => e.id === engine)
-    const config = isAi ? aiConfigs.value[engine] : undefined
-    const result = await invoke<{ text: string; detected_lang: string | null; engine: string }>('translate', {
-      request: {
-        text: inputText.value,
-        source_lang: 'auto',
-        target_lang: detectTargetLang(inputText.value),
-        engine,
-        ai_config: config?.api_key ? {
-          api_key: config.api_key,
-          api_url: config.api_url || null,
-          model: config.model || null,
-        } : null,
-      }
-    })
-    outputText.value = result.text
-    detectedLang.value = result.detected_lang ?? null
+    const r = await translateChain(inputText.value, detectTargetLang(inputText.value), chain.value, aiConfigs.value)
+    outputText.value = r.text
+    detectedLang.value = r.detected
+    lastUsed.value = r.engine
+    lastFailed.value = r.failed
   } catch (e) {
     outputText.value = `翻译失败: ${e}`
   } finally {
@@ -188,7 +167,7 @@ async function doTranslate() {
   }
 }
 
-function detectTargetLang(text: string): string {
+function detectTargetLang(text: string): 'zh' | 'en' {
   const chineseRatio = (text.match(/[\u4e00-\u9fff]/g) || []).length / text.length
   return chineseRatio > 0.3 ? 'en' : 'zh'
 }
@@ -311,12 +290,27 @@ function debounceSave() {
   saveTimer = setTimeout(() => { if (settingsLoaded.value) saveSettings() }, 500)
 }
 
-watch([translateMode, freeEngine, aiEngine], () => {
+watch(chain, () => {
   if (settingsLoaded.value) {
     saveSettings()
     if (inputText.value.trim()) doTranslate()
   }
-})
+}, { deep: true })
+
+function addEngine(id: string) {
+  if (!chain.value.includes(id)) chain.value = [...chain.value, id]
+  // 加进来的是要配置的那种,顺手把它的配置展开
+  if (ENGINES.find(e => e.id === id)?.kind !== 'free') toggleConfig(id, true)
+}
+function removeEngine(id: string) {
+  chain.value = chain.value.filter(e => e !== id)
+  if (configOpen.value === id) configOpen.value = null
+}
+function toggleConfig(id: string, forceOpen = false) {
+  if (!forceOpen && configOpen.value === id) { configOpen.value = null; return }
+  configOpen.value = id
+  if (ENGINES.find(e => e.id === id)?.kind === 'ai') aiEngine.value = id
+}
 </script>
 
 <template>
@@ -327,8 +321,11 @@ watch([translateMode, freeEngine, aiEngine], () => {
       <div class="flex items-center justify-between shrink-0">
         <div class="flex items-center gap-2.5">
           <span class="text-sm text-muted-foreground">{{ t('translate.currentEngine') }}</span>
-          <span class="text-sm font-medium px-3 py-1 rounded-md bg-muted">{{ activeEngineLabel }}</span>
-          <span v-if="isUsingFallback" class="text-sm text-amber-400">{{ t('translate.aiFellBack') }}</span>
+          <span class="text-sm font-medium px-3 py-1 rounded-md bg-muted truncate max-w-[26rem]" :title="chainLabel">{{ chainLabel || t('translate.chainEmpty') }}</span>
+          <span v-if="lastUsed && lastFailed.length" class="text-sm text-amber-400 truncate"
+            :title="lastFailed.map(f => engineLabel(f.engine) + '：' + f.error).join('\n')">
+            {{ t('translate.fellBack', { failed: lastFailed.map(f => engineLabel(f.engine)).join('、'), engine: engineLabel(lastUsed) }) }}
+          </span>
         </div>
         <Button variant="ghost" size="sm" @click="showSettingsDialog = true" :title="t('translate.settings')">
           <span class="icon-[lucide--settings] w-5 h-5" />
@@ -427,59 +424,68 @@ watch([translateMode, freeEngine, aiEngine], () => {
         <!-- 内容 -->
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
 
-          <!-- 模式选择 -->
-          <div class="space-y-3">
-            <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.source') }}</p>
+          <!-- 引擎顺序:拖动排序,从上往下试 -->
+          <div class="space-y-2">
+            <div>
+              <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.chain') }}</p>
+              <p class="text-xs text-muted-foreground mt-1 leading-relaxed">{{ t('translate.chainHint') }}</p>
+            </div>
+            <VueDraggable v-model="chain" handle=".chain-grip" :animation="180" :force-fallback="true" ghost-class="opacity-30"
+              class="rounded-lg border divide-y overflow-hidden">
+              <div v-for="(id, i) in chain" :key="id" class="flex items-center gap-2 px-2.5 py-2 bg-background">
+                <span class="chain-grip icon-[lucide--grip-vertical] w-4 h-4 shrink-0 text-muted-foreground cursor-grab active:cursor-grabbing" />
+                <span class="w-4 text-xs text-muted-foreground tabular-nums text-center">{{ i + 1 }}</span>
+                <span class="text-sm flex-1 truncate">{{ engineLabel(id) }}</span>
+                <span v-if="engineWarn(id)" class="text-xs text-amber-400 shrink-0">{{ engineWarn(id) }}</span>
+                <Button v-if="ENGINES.find(e => e.id === id)?.kind !== 'free'" variant="ghost" size="icon-sm"
+                  :title="t('translate.configure')" @click="toggleConfig(id)">
+                  <span class="icon-[lucide--settings-2] w-3.5 h-3.5" :class="configOpen === id ? 'text-foreground' : 'text-muted-foreground'" />
+                </Button>
+                <Button variant="ghost" size="icon-sm" :title="t('translate.removeEngine')" @click="removeEngine(id)">
+                  <span class="icon-[lucide--x] w-3.5 h-3.5 text-muted-foreground" />
+                </Button>
+              </div>
+            </VueDraggable>
+            <p v-if="!chain.length" class="text-xs text-amber-400">{{ t('translate.chainEmpty') }}</p>
+          </div>
+
+          <!-- 没进链的引擎,点一下加到末尾 -->
+          <div v-if="available.length" class="space-y-2">
+            <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.addEngine') }}</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="e in available" :key="e.id" @click="addEngine(e.id)"
+                class="h-7 px-2.5 rounded-md border border-border text-xs transition-colors hover:bg-muted flex items-center gap-1">
+                <span class="icon-[lucide--plus] w-3 h-3" />{{ e.label }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 本机离线模型:不随安装包走,这里按需下 -->
+          <div v-if="configOpen === 'local'" class="rounded-lg border p-3 space-y-2">
+            <div class="flex items-center justify-between text-sm">
+              <span>{{ t('translate.localModel') }}</span>
+              <span class="text-xs" :class="localModel.status === 'ready' ? 'text-emerald-500' : localModel.status === 'error' ? 'text-red-500' : 'text-muted-foreground'">
+                {{ localModel.status === 'ready' ? t('translate.localReady')
+                  : localModel.status === 'downloading' ? t('translate.localDownloading', { pct: localPct })
+                  : localModel.status === 'error' ? t('translate.localFailed')
+                  : t('translate.localMissing') }}
+              </span>
+            </div>
+            <p class="text-xs text-muted-foreground leading-relaxed">{{ t('translate.localDesc', { mb: localSizeMb }) }}</p>
+            <div v-if="localModel.status === 'downloading'" class="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div class="h-full bg-primary transition-[width] duration-300" :style="{ width: localPct + '%' }" />
+            </div>
             <div class="flex gap-2">
-              <Button
-                variant="outline"
-                @click="translateMode = 'free'"
-                class="flex-1 py-3 h-auto"
-                :class="translateMode === 'free' ? 'border-primary bg-primary/10 text-foreground' : ''"
-              >
-                <span class="icon-[lucide--globe] w-4 h-4" />
-                {{ t('translate.freeApi') }}
+              <Button v-if="localModel.status !== 'ready'" size="sm" :disabled="localModel.status === 'downloading'" @click="downloadLocalModel()">
+                {{ localModel.status === 'downloading' ? t('translate.localDownloading', { pct: localPct }) : t('translate.localDownload') }}
               </Button>
-              <Button
-                variant="outline"
-                @click="translateMode = 'ai'"
-                class="flex-1 py-3 h-auto"
-                :class="translateMode === 'ai' ? 'border-primary bg-primary/10 text-foreground' : ''"
-              >
-                <span class="icon-[lucide--bot] w-4 h-4" />
-                {{ t('translate.aiTranslate') }}
-              </Button>
+              <Button v-else variant="outline" size="sm" @click="removeLocalModel()">{{ t('translate.localRemove') }}</Button>
             </div>
+            <p v-if="localModel.error" class="text-xs text-red-500 wrap-break-word">{{ localModel.error }}</p>
           </div>
 
-          <!-- 免费接口选择 -->
-          <div v-if="translateMode === 'free'" class="space-y-3">
-            <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.freeApi') }}</p>
-            <Select :model-value="freeEngine" @update:model-value="(v) => freeEngine = String(v)">
-              <SelectTrigger>
-                <SelectValue :placeholder="t('translate.pickApi')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="e in freeEngines" :key="e.id" :value="e.id">{{ e.label }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <!-- AI 配置 -->
-          <div v-if="translateMode === 'ai'" class="space-y-4">
-            <!-- AI 引擎选择 -->
-            <div class="space-y-3">
-              <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.aiEngine') }}</p>
-              <Select :model-value="aiEngine" @update:model-value="(v) => aiEngine = String(v)">
-                <SelectTrigger>
-                  <SelectValue :placeholder="t('translate.pickEngine')" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="e in aiEngines" :key="e.id" :value="e.id">{{ e.label }}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
+          <!-- AI 引擎配置(展开了哪个就显示哪个的) -->
+          <div v-if="configOpen && configKind === 'ai'" class="space-y-4">
             <!-- 当前 AI 配置表单 -->
             <div class="space-y-3 p-4 border border-border rounded-lg bg-muted/10">
               <div class="flex items-center justify-between">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { translateBlocks } from '@/lib/translateChain'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
@@ -1467,62 +1468,14 @@ async function runScreenshotTranslate() {
       return
     }
 
-    // 2. 读取翻译设置
-    await settingsStore.init()
-    const mode = (await settingsStore.get<string>('translate_mode')) ?? 'free'
-    const freeEngine = (await settingsStore.get<string>('translate_free_engine')) ?? 'google'
-    const aiEngine = (await settingsStore.get<string>('translate_ai_engine')) ?? 'openai'
-    const aiConfigs = (await settingsStore.get<Record<string, { api_key: string; api_url: string; model: string }>>('translate_ai_configs')) ?? {}
-
-    const engine = mode === 'free' ? freeEngine : aiEngine
-    const aiConfig = mode === 'ai' ? aiConfigs[aiEngine] : undefined
-
-    // 3. 确定目标语言
+    // 2. 目标语言
     const allText = blocks.map(b => b.text).join('')
     const chineseRatio = (allText.match(/[\u4e00-\u9fff]/g) || []).length / allText.length
-    const targetLang = chineseRatio > 0.3 ? 'en' : 'zh'
+    const targetLang: 'zh' | 'en' = chineseRatio > 0.3 ? 'en' : 'zh'
 
-    // 4. 翻译
-    if (mode === 'ai' && aiConfig?.api_key) {
-      // AI 引擎：合并所有文本，一次翻译
-      const separator = '\n---BLOCK---\n'
-      const combined = blocks.map(b => b.text).join(separator)
-      const res = await invoke<{ text: string; detected_lang: string | null; engine: string }>('translate', {
-        request: {
-          text: combined,
-          source_lang: 'auto',
-          target_lang: targetLang,
-          engine,
-          ai_config: { api_key: aiConfig.api_key, api_url: aiConfig.api_url || null, model: aiConfig.model || null },
-        },
-      })
-      const parts = res.text.split(/---BLOCK---/)
-      translateResults.value = blocks.map((block, i) => ({
-        block,
-        translated: (parts[i] || '').trim(),
-      }))
-    } else {
-      // 免费引擎：并行翻译每个文本块
-      const results = await Promise.all(
-        blocks.map(async (block) => {
-          try {
-            const res = await invoke<{ text: string; detected_lang: string | null; engine: string }>('translate', {
-              request: {
-                text: block.text,
-                source_lang: 'auto',
-                target_lang: targetLang,
-                engine,
-                ai_config: null,
-              },
-            })
-            return { block, translated: res.text }
-          } catch {
-            return { block, translated: block.text }
-          }
-        })
-      )
-      translateResults.value = results
-    }
+    // 3. 顺着翻译页配好的引擎链翻:AI 引擎合并成一次请求,其余逐块各自兜底
+    const { texts } = await translateBlocks(blocks.map(b => b.text), targetLang)
+    translateResults.value = blocks.map((block, i) => ({ block, translated: texts[i] || block.text }))
   } catch (err) {
     console.error('[ScreenshotTranslate] failed:', err)
   } finally {
