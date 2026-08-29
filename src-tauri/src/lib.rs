@@ -146,6 +146,7 @@ pub fn run() {
             tray::tray_open_palette,
             tray::tray_screenshot,
             tray::tray_force_close_overlays,
+            tray::reload_screenshot_window,
             tray::tray_quit,
             // 全盘文件搜索(每个平台一个后端,见 file_search_commands.rs)
             file_search_commands::file_search_status,
@@ -190,6 +191,7 @@ pub fn run() {
             dock_commands::update_shortcut,
             dock_commands::pause_shortcuts,
             dock_commands::update_all_shortcuts,
+            dock_commands::shortcut_status,
             dock_commands::refresh_all_icons,
             dock_commands::update_acrylic,
             dock_commands::save_custom_icon,
@@ -349,11 +351,14 @@ pub fn run() {
             // 翻译面板:同一个面板,唤起时直接进翻译形态。没配就不注册;
             // 面板整个关掉时它也跟着关。
             let palette_translate_shortcut = if palette_enabled {
-                store_json.as_ref()
+                // 从没设过 = 用默认 Ctrl+Alt+T;设过但清成空 = 用户明确不要,不注册
+                let s = store_json.as_ref()
                     .and_then(|v| v.get("palette_translate_shortcut"))
-                    .and_then(|v| v.as_str())
+                    .map(|v| v.as_str().unwrap_or("").to_string())
+                    .unwrap_or_else(|| "Ctrl+Alt+T".to_string());
+                Some(s)
                     .filter(|s| !s.trim().is_empty())
-                    .and_then(|s| dock_commands::parse_shortcut_str(s).ok())
+                    .and_then(|s| dock_commands::parse_shortcut_str(&s).ok())
             } else {
                 None
             };

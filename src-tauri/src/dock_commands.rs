@@ -41,41 +41,53 @@ pub fn pause_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("暂停快捷键失败: {}", e))
 }
 
-/// 统一更新所有快捷键（原子操作：先全部注销再注册）
+/// 统一更新所有快捷键(先全部注销再逐个注册)。
+///
+/// 尽力而为:某一个被别的程序占着,其余的照常装上,把没装上的键名返回给前端。
+/// 以前一个失败就 `?` 直接返回 —— 排在它后面的全没注册,bindings 也没更新,
+/// 用户看到的是「改了没生效」,其实是前面某个不相干的键卡住了。
 #[tauri::command]
 pub fn update_all_shortcuts(
     app: tauri::AppHandle,
     shortcuts: AllShortcuts,
     bindings: tauri::State<'_, Arc<Mutex<ShortcutBindings>>>,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-    app.global_shortcut()
-        .unregister_all()
+    let gs = app.global_shortcut();
+    gs.unregister_all()
         .map_err(|e| format!("Failed to unregister shortcuts: {}", e))?;
 
-    let dock = shortcuts.dock_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
-    let screenshot = shortcuts.screenshot_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
-    let ss_translate = shortcuts.screenshot_translate_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
-    let palette = shortcuts.palette_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
-    let palette_translate = shortcuts.palette_translate_shortcut.as_deref().and_then(|s| parse_shortcut_str(s).ok());
+    let parse = |s: Option<&str>| {
+        s.filter(|s| !s.trim().is_empty())
+            .and_then(|s| parse_shortcut_str(s).ok())
+    };
+    let dock = parse(shortcuts.dock_shortcut.as_deref());
+    let screenshot = parse(shortcuts.screenshot_shortcut.as_deref());
+    let ss_translate = parse(shortcuts.screenshot_translate_shortcut.as_deref());
+    let palette = parse(shortcuts.palette_shortcut.as_deref());
+    let palette_translate = parse(shortcuts.palette_translate_shortcut.as_deref());
 
-    if let Some(sc) = dock {
-        app.global_shortcut().register(sc).map_err(|e| format!("注册 Dock 快捷键失败: {}", e))?;
-    }
-    if let Some(sc) = screenshot {
-        app.global_shortcut().register(sc).map_err(|e| format!("注册截图快捷键失败: {}", e))?;
-    }
-    if let Some(sc) = ss_translate {
-        app.global_shortcut().register(sc).map_err(|e| format!("注册截图翻译快捷键失败: {}", e))?;
-    }
-    if let Some(sc) = palette {
-        app.global_shortcut().register(sc).map_err(|e| format!("注册命令面板快捷键失败: {}", e))?;
-    }
-    if let Some(sc) = palette_translate {
-        app.global_shortcut().register(sc).map_err(|e| format!("注册翻译面板快捷键失败: {}", e))?;
+    let mut failed: Vec<String> = Vec::new();
+    for (name, sc) in [
+        ("dock", dock),
+        ("screenshot", screenshot),
+        ("screenshot_translate", ss_translate),
+        ("palette", palette),
+        ("palette_translate", palette_translate),
+    ] {
+        let Some(sc) = sc else { continue };
+        if gs.register(sc).is_err() {
+            // 上个实例没退干净时先摘一下再装,和启动时一样
+            let _ = gs.unregister(sc);
+            if gs.register(sc).is_err() {
+                failed.push(name.to_string());
+            }
+        }
     }
 
+    // 没装上的也记进 bindings:状态查询要知道「想要但没拿到」,
+    // 启动时那条重试线程也是从这里读要抢回来的键
     let mut b = bindings.lock().unwrap();
     b.dock = dock;
     b.screenshot = screenshot;
@@ -83,7 +95,41 @@ pub fn update_all_shortcuts(
     b.palette = palette;
     b.palette_translate = palette_translate;
 
-    Ok(())
+    Ok(failed)
+}
+
+#[derive(Serialize)]
+pub struct ShortcutStatus {
+    pub key: String,
+    /// 配了并且所属功能开着
+    pub wanted: bool,
+    /// 系统层真的注册上了。wanted 而不 registered = 被别的程序占着
+    pub registered: bool,
+}
+
+/// 每个快捷键此刻的真实状态,设置页的红绿灯靠它
+#[tauri::command]
+pub fn shortcut_status(
+    app: tauri::AppHandle,
+    bindings: tauri::State<'_, Arc<Mutex<ShortcutBindings>>>,
+) -> Vec<ShortcutStatus> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let gs = app.global_shortcut();
+    let b = bindings.lock().unwrap();
+    [
+        ("dock", b.dock),
+        ("screenshot", b.screenshot),
+        ("screenshot_translate", b.screenshot_translate),
+        ("palette", b.palette),
+        ("palette_translate", b.palette_translate),
+    ]
+    .into_iter()
+    .map(|(key, sc)| ShortcutStatus {
+        key: key.to_string(),
+        wanted: sc.is_some(),
+        registered: sc.map(|s| gs.is_registered(s)).unwrap_or(false),
+    })
+    .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

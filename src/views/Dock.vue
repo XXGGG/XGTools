@@ -209,7 +209,7 @@ async function syncAllShortcuts() {
     await screenshotStore.init()
     paletteEnabled.value = (await screenshotStore.get<boolean>('palette_enabled')) ?? true
     paletteShortcut.value = (await screenshotStore.get<string>('palette_shortcut')) ?? 'Ctrl+Alt+Space'
-    paletteTranslateShortcut.value = (await screenshotStore.get<string>('palette_translate_shortcut')) ?? ''
+    paletteTranslateShortcut.value = (await screenshotStore.get<string>('palette_translate_shortcut')) ?? 'Ctrl+Alt+T'
     const ssEnabled = (await screenshotStore.get<boolean>('screenshot_enabled')) ?? true
     const ssShortcut = (await screenshotStore.get<string>('screenshot_shortcut')) ?? 'Ctrl+Alt+A'
     const stEnabled = (await screenshotStore.get<boolean>('screenshot_translate_enabled')) ?? false

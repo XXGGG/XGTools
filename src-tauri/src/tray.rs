@@ -214,3 +214,20 @@ pub fn tray_force_close_overlays(app: tauri::AppHandle) {
 pub fn tray_quit(app: tauri::AppHandle) {
     app.exit(0);
 }
+
+/// 截图窗口的「重启」:整个 webview 原地重载,监听器、状态全部从头来。
+///
+/// 现象:截图快捷键偶尔按了没反应 —— Rust 这边键明明注册着、事件也发出去了,
+/// 是截图窗口那头的监听器没了(热重载、长时间挂着之后都见过)。重载这一个窗口
+/// 比重启整个程序便宜得多。先解掉置顶挪到屏幕外再重载,免得重载途中露出一层
+/// 透明的截图窗口吃鼠标。
+#[tauri::command]
+pub fn reload_screenshot_window(app: tauri::AppHandle) -> Result<(), String> {
+    let win = app
+        .get_webview_window("screenshot")
+        .ok_or_else(|| "截图窗口不存在".to_string())?;
+    let _ = win.set_always_on_top(false);
+    let _ = win.set_position(tauri::PhysicalPosition::new(-10000i32, -10000i32));
+    let _ = win.hide();
+    win.eval("location.reload()").map_err(|e| e.to_string())
+}

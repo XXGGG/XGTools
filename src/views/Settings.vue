@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-shell'
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart'
@@ -29,6 +29,12 @@ import { VAULT_FONT_SIZE, VAULT_ACCENTS, VAULT_FONTS, VAULT_FONT_STACK, settings
   type BlurKind, type ThemeMode, type ChatSurface } from '@/composables/useAppSettings'
 import { useI18n, detectLocale, type Locale } from '@/i18n'
 import { MENU_ITEMS, orderedAll, type MenuItem } from '@/lib/sidebar-prefs'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import {
+  readAllShortcuts, writeShortcut, writeEnabled, resetAllShortcuts, syncAllShortcuts, shortcutStatus,
+  pauseShortcuts, shortcutFromKeydown, SHORTCUT_DEFAULTS,
+  type ShortcutKey, type ShortcutState,
+} from '@/lib/shortcuts'
 
 const { t, setLocale } = useI18n()
 
@@ -246,6 +252,137 @@ const ATTACH_MODES = [
 ] as const
 
 const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).length)
+/*
+  快捷键总览。
+
+  全软件的全局快捷键汇在这一页:能改、能看出哪个被别的程序占着(想要却没注册上)、
+  能一键全部重新注册 —— 占着键的程序退出之后,不用重启我们这边也能把键抢回来。
+  各功能页上原来的快捷键行还在,改哪边都是同一份数据。
+*/
+const HK_META: Record<ShortcutKey, { icon: string; nameKey: string; descKey: string }> = {
+  palette: { icon: 'icon-[lucide--command]', nameKey: 'settings.keyPalette', descKey: 'settings.keyPaletteDesc' },
+  palette_translate: { icon: 'icon-[lucide--languages]', nameKey: 'settings.keyPaletteTranslate', descKey: 'settings.keyPaletteTranslateDesc' },
+  screenshot: { icon: 'icon-[lucide--camera]', nameKey: 'settings.keyScreenshot', descKey: 'settings.keyScreenshotDesc' },
+  screenshot_translate: { icon: 'icon-[lucide--scan-text]', nameKey: 'settings.keyScreenshotTranslate', descKey: 'settings.keyScreenshotTranslateDesc' },
+  dock: { icon: 'icon-[lucide--layout-grid]', nameKey: 'settings.keyDock', descKey: 'settings.keyDockDesc' },
+}
+type HkStatus = 'on' | 'taken' | 'off' | 'unset'
+const HK_STATUS: Record<HkStatus, { cls: string; textKey: string }> = {
+  on: { cls: 'text-emerald-500', textKey: 'settings.keyOn' },
+  taken: { cls: 'text-red-500', textKey: 'settings.keyTaken' },
+  off: { cls: 'text-muted-foreground', textKey: 'settings.keyOff' },
+  unset: { cls: 'text-muted-foreground', textKey: 'settings.keyUnset' },
+}
+
+const hkRows = ref<ShortcutState[]>([])
+const hkLive = ref<Record<string, boolean>>({})      // key → 系统层注册上了没
+const hkRecording = ref<ShortcutKey | null>(null)
+const hkBusy = ref(false)
+const hkMsg = ref<{ ok: boolean; text: string } | null>(null)
+
+function hkStatus(r: ShortcutState): HkStatus {
+  if (!r.shortcut) return 'unset'
+  if (!r.enabled) return 'off'
+  return hkLive.value[r.key] ? 'on' : 'taken'
+}
+
+async function refreshHk() {
+  hkRows.value = await readAllShortcuts()
+  const live = await shortcutStatus().catch(() => [])
+  hkLive.value = Object.fromEntries(live.map((s) => [s.key, s.registered]))
+}
+
+async function reregisterHk() {
+  hkBusy.value = true
+  hkMsg.value = null
+  try {
+    const failed = await syncAllShortcuts()
+    await refreshHk()
+    hkMsg.value = failed.length
+      ? { ok: false, text: t('settings.keysStillTaken', { name: failed.map((k) => t(HK_META[k].nameKey)).join('、') }) }
+      : { ok: true, text: t('settings.keysAllGood') }
+  } catch (e) {
+    hkMsg.value = { ok: false, text: String(e) }
+  } finally {
+    hkBusy.value = false
+  }
+}
+
+async function startRecordHk(k: ShortcutKey) {
+  if (hkRecording.value === k) { await stopRecordHk(); return }
+  hkRecording.value = k
+  hkMsg.value = null
+  try { await pauseShortcuts() } catch { /* 摘不掉就照常录,顶多某些键录不到 */ }
+}
+
+/** 录完或取消都要走这里:录制时摘掉的键得装回去 */
+async function stopRecordHk() {
+  hkRecording.value = null
+  await syncAllShortcuts().catch(() => [])
+  await refreshHk()
+}
+
+/** 截图快捷键"掉了"(键在、窗口没反应)时,重载截图窗口 */
+async function restartScreenshot() {
+  hkMsg.value = null
+  try {
+    await invoke('reload_screenshot_window')
+    hkMsg.value = { ok: true, text: t('settings.keysRestartShotDone') }
+  } catch (e) {
+    hkMsg.value = { ok: false, text: String(e) }
+  }
+}
+
+async function clearHk(k: ShortcutKey) {
+  await writeShortcut(k, '')
+  await reregisterHk()
+}
+
+async function onHkKeydown(e: KeyboardEvent) {
+  const k = hkRecording.value
+  if (!k) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.key === 'Escape') { await stopRecordHk(); return }
+  const sc = shortcutFromKeydown(e)
+  if (!sc) return
+  hkRecording.value = null
+  await writeShortcut(k, sc)
+  await reregisterHk()
+}
+
+/** 直接在这页开关功能,不用跑去各功能页 */
+async function toggleHk(k: ShortcutKey, on: boolean) {
+  await writeEnabled(k, on)
+  await reregisterHk()
+}
+
+async function resetHk(k: ShortcutKey) {
+  await writeShortcut(k, SHORTCUT_DEFAULTS[k])
+  await reregisterHk()
+}
+
+const hkResetOpen = ref(false)
+async function resetAllHk() {
+  hkResetOpen.value = false
+  await resetAllShortcuts()
+  await reregisterHk()
+  if (hkMsg.value?.ok) hkMsg.value = { ok: true, text: t('settings.keysResetDone') }
+}
+
+let hkUnlisten: UnlistenFn[] = []
+onMounted(async () => {
+  window.addEventListener('keydown', onHkKeydown)
+  await refreshHk()
+  hkUnlisten = await Promise.all([
+    listen('shortcut-register-failed', () => { void refreshHk() }),
+    listen('shortcut-register-recovered', () => { void refreshHk() }),
+  ])
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onHkKeydown)
+  hkUnlisten.forEach((u) => u())
+})
 </script>
 
 <template>
@@ -254,6 +391,7 @@ const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).lengt
       <Tabs default-value="general">
         <TitleBarTabs>
           <TabsTrigger value="general" class="h-11 px-4 rounded-xl">{{ t('settings.general') }}</TabsTrigger>
+          <TabsTrigger value="keys" class="h-11 px-4 rounded-xl">{{ t('settings.keys') }}</TabsTrigger>
           <TabsTrigger value="sidebar" class="h-11 px-4 rounded-xl">{{ t('settings.nav') }}</TabsTrigger>
           <TabsTrigger value="vault" class="h-11 px-4 rounded-xl">{{ t('settings.vault') }}</TabsTrigger>
           <TabsTrigger value="dsh" class="h-11 px-4 rounded-xl">{{ t('settings.dsh') }}</TabsTrigger>
@@ -351,6 +489,75 @@ const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).lengt
         </TabsContent>
 
         <!-- ================= 导航 ================= -->
+        <TabsContent value="keys" class="space-y-5">
+          <p class="text-xs text-muted-foreground">{{ t('settings.keysHint') }}</p>
+
+          <div class="rounded-xl border divide-y">
+            <div v-for="r in hkRows" :key="r.key" class="flex items-center gap-4 px-4 py-3.5">
+              <span :class="[HK_META[r.key].icon, 'w-5 h-5 shrink-0 text-muted-foreground']" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t(HK_META[r.key].nameKey) }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t(HK_META[r.key].descKey) }}</div>
+              </div>
+              <span class="flex items-center gap-1.5 text-xs shrink-0" :class="HK_STATUS[hkStatus(r)].cls">
+                <span class="w-1.5 h-1.5 rounded-full bg-current" />
+                {{ t(HK_STATUS[hkStatus(r)].textKey) }}
+              </span>
+              <button v-if="r.key === 'screenshot'" @click="restartScreenshot"
+                :title="t('settings.keysRestartShotHint')"
+                class="h-8 px-2.5 shrink-0 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted flex items-center gap-1">
+                <span class="icon-[lucide--rotate-cw] w-3.5 h-3.5" />{{ t('settings.keysRestartShot') }}
+              </button>
+              <button v-if="r.shortcut !== SHORTCUT_DEFAULTS[r.key] && hkRecording !== r.key" @click="resetHk(r.key)"
+                :title="t('settings.keysReset')"
+                class="h-8 w-8 shrink-0 rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted flex items-center justify-center">
+                <span class="icon-[lucide--rotate-ccw] w-3.5 h-3.5" />
+              </button>
+              <button v-if="r.optional && r.shortcut && hkRecording !== r.key" @click="clearHk(r.key)"
+                class="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted">
+                {{ t('settings.keysClear') }}
+              </button>
+              <button @click="startRecordHk(r.key)" :class="[
+                'h-8 min-w-36 px-3 rounded-lg border text-xs font-mono transition-colors',
+                hkRecording === r.key ? 'border-foreground/60 bg-muted/60 animate-pulse' : 'border-border hover:bg-muted'
+              ]">
+                {{ hkRecording === r.key ? t('dock.pressKeys') : (r.shortcut || '—') }}
+              </button>
+              <!-- 功能开关。翻译面板没有自己的开关,占个位保持右边对齐 -->
+              <div class="w-11 shrink-0 flex justify-end">
+                <Switch v-if="r.ownSwitch" :model-value="r.enabled" :title="t('settings.keysEnable')"
+                  @update:model-value="(v: boolean) => toggleHk(r.key, v)" />
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-xl border divide-y">
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--refresh-cw] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.keysReregister') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.keysReregisterDesc') }}</div>
+              </div>
+              <button @click="reregisterHk" :disabled="hkBusy"
+                class="h-8 px-3.5 rounded-lg border border-border text-sm transition-colors hover:bg-muted disabled:opacity-50">
+                {{ hkBusy ? t('settings.keysRefreshing') : t('settings.keysRefresh') }}
+              </button>
+            </div>
+            <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--rotate-ccw] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.keysResetAll') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.keysResetAllDesc') }}</div>
+              </div>
+              <button @click="hkResetOpen = true" :disabled="hkBusy"
+                class="h-8 px-3.5 rounded-lg border border-border text-sm transition-colors hover:bg-muted disabled:opacity-50">
+                {{ t('settings.keysResetAllBtn') }}
+              </button>
+            </div>
+          </div>
+          <p v-if="hkMsg" class="text-xs" :class="hkMsg.ok ? 'text-emerald-500' : 'text-red-500'">{{ hkMsg.text }}</p>
+        </TabsContent>
+
         <TabsContent value="sidebar" class="space-y-5">
           <p class="text-xs text-muted-foreground">
             {{ t('settings.navHint') }}
@@ -799,6 +1006,19 @@ const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).lengt
             class="bg-destructive text-white hover:bg-destructive/90">
             {{ t('settings.dshUninstallBtn') }}
           </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <AlertDialog v-model:open="hkResetOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ t('settings.keysResetAllTitle') }}</AlertDialogTitle>
+          <AlertDialogDescription>{{ t('settings.keysResetAllBody') }}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ t('convert.cancel') }}</AlertDialogCancel>
+          <AlertDialogAction @click="resetAllHk">{{ t('settings.keysResetAllBtn') }}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
