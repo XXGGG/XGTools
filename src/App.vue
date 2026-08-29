@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, defineAsyncComponent, nextTick } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { invoke } from '@tauri-apps/api/core'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit, listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
@@ -45,6 +44,7 @@ function onTopDoubleClick(e: MouseEvent) {
 }
 
 import TitleBar from './components/TitleBar.vue'
+import BootCloth from './components/BootCloth.vue'
 import { zen } from './composables/useZen'
 import { bindBrowserKeys } from './composables/useBrowserKeys'
 import HomeView from './views/Home.vue'
@@ -118,6 +118,13 @@ const isPinWindow = ref(false)
 
 const shortcutWarning = ref('')
 
+/**
+ * 启动黑布(见 BootCloth.vue):窗口一出来就盖在最上面的粒子 Logo,
+ * 设置读完、材质贴好、首页画完之后散场。无论中间出什么岔子,6 秒后也一定撤掉。
+ */
+const booting = ref(true)
+const bootCloth = ref<InstanceType<typeof BootCloth> | null>(null)
+
 // 后端传回来的是快捷键的内部名,这里映射到 i18n 的键再翻译
 const shortcutNameMap: Record<string, string> = {
   dock: 'nav.dock',
@@ -140,39 +147,15 @@ onMounted(async () => {
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
 
   /*
-    主窗口在 tauri.conf.json 里是 visible: false,什么时候亮相由这里说了算。
+    主窗口一建出来就显示(tauri.conf.json 里没有 visible:false)。
 
-    以前是一建出来就显示:窗口本身全透明(为了亚克力),设置还在从磁盘读、
-    材质还没贴上,这几百毫秒里用户看到的是「桌面透出来 + 几块有色组件浮着」,
-    等材质一贴上又整个闪一下。现在读完设置、贴好材质、画完第一帧再 show,
-    用户看到的第一眼就是完成态。
-
-    reveal 幂等,还挂了个 3 秒的保险 —— 中间任何一步抛异常,窗口也不能永远藏着。
+    曾经试过先藏着、读完设置贴好材质再亮相 —— 结果正式版里 DWM 对「创建时不可见、之后才 show」
+    的窗口不肯画云母,底下一片白,只有最小化再还原才救得回来,而那一下用户看得见。那条路作废。
+    回到一建出来就显示,启动那几百毫秒用一块黑布盖住(BootCloth):粒子汇聚成 Logo,
+    设置读完、材质贴好、首页画完之后散场淡出。
   */
-  /*
-    亮相之前 body 挂着 effect-pending:一块**不透明的主题底色**(见 style.css)。
-
-    窗口还藏着的时候贴上去的云母/亚克力,DWM 在它第一次显示时会按浅色重画一遍 ——
-    深色主题下看到的就是「底面怎么是白的」。所以 show 之后要**再贴一次**材质;
-    这几十毫秒里底色是不透明的,浅色材质透不上来,用户看不到那一下。
-  */
-  document.body.classList.add('effect-pending')
-  let revealed = false
-  const reveal = () => {
-    if (revealed) return
-    revealed = true
-    // 走 Rust 那边的 reveal_main:它会顺手把前台抢过来(见 tray.rs 的说明),
-    // 直接 win.show() 的话窗口可能显示在别的窗口底下。万一命令不在,退回 show。
-    const shown = invoke('reveal_main').catch(() => win.show().then(() => win.setFocus()))
-    void shown.then(async () => {
-      if (settings.blurKind !== 'none') await applyWindowEffect()
-      // DWM 时不时贴了材质也不画(尤其正式版第一次显示),只有最小化再还原才醒。
-      // reveal_main 里已经安排了显示后 350ms / 900ms 各踢一次(见 window_effects.rs 的
-      // kick_backdrop),这里把不透明底色留够一秒,踢的过程用户看不到
-      window.setTimeout(() => document.body.classList.remove('effect-pending'), 1100)
-    })
-  }
-  window.setTimeout(reveal, 3000)
+  const clothShownAt = performance.now()
+  window.setTimeout(() => { booting.value = false }, 6000)   // 无论中间出什么岔子,黑屏不能超过 6 秒
 
   await loadSettings()
   currentView.value = resolveStartPage()
@@ -188,10 +171,13 @@ onMounted(async () => {
     if (err) { console.error('恢复窗口特效失败:', err); settings.blurKind = 'none' }
   }
 
-  // 等 Vue 把首页渲染出来、再留一小截给 webview 真正画上去,然后才露脸。
-  // 不用 requestAnimationFrame:窗口还藏着的时候 WebView2 未必给你派帧。
+  // 首页画出来、材质贴好之后撤黑布;粒子至少要飞完成形(约 1.6s)
   await nextTick()
-  window.setTimeout(reveal, 60)
+  const clothWait = Math.max(1600 - (performance.now() - clothShownAt), 400)
+  window.setTimeout(async () => {
+    await bootCloth.value?.dismiss()
+    booting.value = false
+  }, clothWait)
 
   // 恢复按键显示窗口状态
   const store = new LazyStore('settings.json')
@@ -334,6 +320,9 @@ onMounted(async () => {
     <!-- 禅模式:整条顶栏(含右上角三颗控制点)让开 -->
     <TitleBar v-if="!zen.on" class="absolute top-2.5 left-2.5 right-2.5 z-50"
       :active="currentView === 'Home'" @logo="currentView = 'Home'" />
+
+    <!-- 启动黑布:粒子汇聚成 Logo,一切就绪后散场淡出(见 BootCloth.vue) -->
+    <BootCloth v-if="booting" ref="bootCloth" />
 
     <!--
       快捷键冲突提示:右下角浮空小卡片,不占布局(以前是插在顶栏下面把内容整体压下去)。

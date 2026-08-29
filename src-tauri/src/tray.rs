@@ -120,8 +120,6 @@ fn show_main(app: &tauri::AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
-        // 云母偶尔在显示之后几百毫秒才丢背景,延时踢两下把它叫醒,见 window_effects.rs
-        crate::window_effects::kick_backdrop_later(app, "main", &[350, 900]);
     }
 }
 
@@ -129,31 +127,6 @@ fn show_main(app: &tauri::AppHandle) {
 pub fn tray_show_main(app: tauri::AppHandle) {
     hide_tray_menu(app.clone());
     show_main(&app);
-}
-
-/// 主窗口的首次亮相。
-///
-/// 主窗口配置里是 `visible: false`,前端把设置读完、材质贴好之后才调这个。
-/// 和 `show_main` 的差别在**抢前台**:窗口是启动几秒之后才 show 的,这时候
-/// Windows 未必还认我们是「刚被用户启动的进程」,`SetForegroundWindow` 会被
-/// 拒绝,窗口显示出来却压在别的窗口底下。先模拟一次 Alt 按键再要焦点是
-/// 公认的解法(快捷键那边也在用同一招),系统就肯把前台给我们了。
-#[tauri::command]
-pub fn reveal_main(app: tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        #[cfg(windows)]
-        {
-            use winapi::um::winuser::{keybd_event, KEYEVENTF_KEYUP, VK_MENU};
-            unsafe {
-                keybd_event(VK_MENU as u8, 0, 0, 0);
-                keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
-            }
-        }
-        let _ = w.set_focus();
-        crate::window_effects::kick_backdrop_later(&app, "main", &[350, 900]);
-    }
 }
 
 /// 开/关启动台。

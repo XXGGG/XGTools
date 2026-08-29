@@ -200,17 +200,6 @@
    body 一旦有底色就会在圆角外面露出一个矩形,看着就是「四个角是尖的」。
    那两条规则在 @layer base 里,而这条在 layer 外面 —— 层叠规则在 !important
    参与时会反转,与其赌谁赢不如写清楚。 */
-/*
-  启动亮相前后那一小段:先用不透明的主题底色垫着。
-
-  材质是在窗口藏着的时候贴的,DWM 第一次显示窗口时会把它按浅色重画,
-  深色主题下就闪一下白底。App.vue 在 show 之后再贴一次,这个类撑住中间那几十毫秒。
-  选择器故意比下面 vibrancy 那条更具体(多一个 :not),不靠先后顺序也能压过它。
-*/
-body.effect-pending:not(.palette-window):not(.tray-window):not(.dock-window) {
-  background-color: var(--background) !important;
-}
-
 body.vibrancy:not(.palette-window):not(.tray-window) {
   background-color: color-mix(in srgb, var(--background) calc(var(--vibrancy-alpha, 40) * 1%), transparent) !important;
 
