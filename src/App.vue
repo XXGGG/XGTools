@@ -139,6 +139,8 @@ bindBrowserKeys()
 
 onMounted(async () => {
   const win = getCurrentWindow()
+  // 首帧那层不透明底只属于主窗口(index.html 已按窗口标签判断过,这里再兜一次底)
+  if (win.label !== 'main') document.documentElement.classList.remove('boot-base')
   if (win.label === 'key_visualizer') { isKeyVisualizer.value = true; return }
   if (win.label === 'dock') { isDockWindow.value = true; return }
   if (win.label === 'palette') { isPaletteWindow.value = true; return }
@@ -151,8 +153,12 @@ onMounted(async () => {
 
     曾经试过先藏着、读完设置贴好材质再亮相 —— 结果正式版里 DWM 对「创建时不可见、之后才 show」
     的窗口不肯画云母,底下一片白,只有最小化再还原才救得回来,而那一下用户看得见。那条路作废。
-    回到一建出来就显示,启动那几百毫秒用一块黑布盖住(BootCloth):粒子汇聚成 Logo,
-    设置读完、材质贴好、首页画完之后散场淡出。
+
+    现在的启动顺序:
+      1. 窗口一出来:不透明的主题底(html.boot-base,index.html 里按上次主题铺的)+ 同色黑/白布,
+         反色粒子从四面八方汇聚成 Logo(BootCloth);
+      2. 设置读完、组件起来、材质贴上 —— 这时才把不透明底摘掉,底面换成云母/亚克力;
+      3. 首页画完、粒子成形之后,粒子散出屏幕外,布淡出。
   */
   const clothShownAt = performance.now()
   window.setTimeout(() => { booting.value = false }, 6000)   // 无论中间出什么岔子,黑屏不能超过 6 秒
@@ -170,6 +176,8 @@ onMounted(async () => {
     const err = await applyWindowEffect()
     if (err) { console.error('恢复窗口特效失败:', err); settings.blurKind = 'none' }
   }
+  // 材质贴好了,不透明底退场,底面换成材质 —— 这一下发生在黑布底下,用户看不到
+  window.setTimeout(() => document.documentElement.classList.remove('boot-base'), 300)
 
   // 首页画出来、材质贴好之后撤黑布;粒子至少要飞完成形(约 1.6s)
   await nextTick()

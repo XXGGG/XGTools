@@ -336,7 +336,11 @@ export function isDarkNow(): boolean {
  * 就成了两个真相源,改一边另一边不知道。这里只认 settings.theme 一处。
  */
 export function applyTheme() {
-  document.documentElement.classList.toggle('dark', isDarkNow())
+  const dark = isDarkNow()
+  document.documentElement.classList.toggle('dark', dark)
+  // 给下次启动的第一帧留个提示(index.html 里那段内联脚本读):settings.json 还没读出来
+  // 的那几百毫秒,底和黑布也得是对的颜色。只是缓存,真相仍在 settings.json。
+  try { localStorage.setItem('xg-theme', dark ? 'dark' : 'light') } catch { /* 存不了就下次再说 */ }
   void applyWindowEffect()   // 材质的深浅属性要跟着主题走
 }
 

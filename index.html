@@ -13,6 +13,29 @@
     <link rel="stylesheet" href="/fonts/handwriting.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>XGTools</title>
+    <!--
+      启动第一眼:Vue 和样式都还没起来的时候,主窗口就得是一块**不透明的、按上次主题的**底
+      (深色黑底、浅色白底),不然透明窗口会先露一下桌面。主题从 localStorage 里的提示读
+      (applyTheme 每次都写一份,settings.json 仍是唯一真相,这里只是首帧用的缓存)。
+      boot-base 由 App.vue 在材质贴好之后摘掉,底面才换成云母/亚克力。
+      只对主窗口做:面板、托盘、启动台那些透明小窗一有底色就会在圆角外面露出方块。
+      颜色值和 style.css 里 --background 的两个取值保持一致。
+    -->
+    <style>
+      html.boot-base { background: oklch(1 0 0); }
+      html.boot-base.dark { background: oklch(0.145 0 0); }
+    </style>
+    <script>
+      try {
+        var label = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.metadata
+          && window.__TAURI_INTERNALS__.metadata.currentWindow
+          && window.__TAURI_INTERNALS__.metadata.currentWindow.label;
+        var hint = localStorage.getItem('xg-theme');
+        var dark = hint === 'dark' || (hint !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+        if (label === 'main') document.documentElement.classList.add('boot-base');
+      } catch (e) {}
+    </script>
   </head>
 
   <body>

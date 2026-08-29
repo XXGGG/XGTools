@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
- * 启动黑布:主窗口亮相时罩在最上面的一层不透明黑,白色粒子从四面八方汇聚成 Logo。
+ * 启动黑布:主窗口亮相时罩在最上面的一层不透明底(深色主题黑、浅色白),反色粒子从四面八方汇聚成 Logo。
  *
- * 为什么要有它:主窗口是透明窗 + 系统材质(云母)。正式版里页面加载极快,材质贴上去的时候
- * WebView2 还没合成,DWM 时不时就不画背景,底下露一片白;就算画了,贴材质那一下也会闪。
- * 黑布把整个启动过程盖住:底下爱怎么折腾怎么折腾,用户看到的只有粒子成形。
- * 等窗口、组件、材质全都就绪,外面调一次 dismiss():粒子向四周散出屏幕外,黑布淡出,然后卸掉。
+ * 为什么要有它:主窗口是透明窗 + 系统材质(云母),一建出来就显示。设置从磁盘读出来、材质贴上去
+ * 之前的几百毫秒,窗口底下是不透明的主题底(index.html 里铺的 boot-base);材质贴上、底摘掉那一下
+ * 会闪。布把整个启动过程盖住:底下爱怎么换怎么换,用户看到的只有粒子成形。
+ * 等窗口、组件、材质全都就绪,外面调一次 dismiss():粒子向四周散出屏幕外,布淡出,然后卸掉。
+ * (窗口不能先藏着再亮相:那样创建的窗口正式版里 DWM 不画云母,见 App.vue 的说明。)
  *
  * 粒子和 ParticleLogo 同源(同一个 lucide box 图标 + 同一款手写字),但这里不要鼠标交互,
  * 多了"散场"这一段,所以单独写,不往那个组件里塞状态机。
@@ -23,6 +24,9 @@ const props = withDefaults(defineProps<{
 const root = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const fading = ref(false)
+/** 深色主题黑布白粒子,浅色主题白布黑粒子。主题在 index.html 里就已经定好(见那段内联脚本) */
+const dark = document.documentElement.classList.contains('dark')
+const particleColor = dark ? '#fff' : '#111'
 
 // lucide "box",和侧栏 Logo 同一个图标
 const ICON_PATHS = [
@@ -124,7 +128,7 @@ function frame() {
     }
   }
   ctx.clearRect(0, 0, W, H)
-  ctx.fillStyle = '#fff'
+  ctx.fillStyle = particleColor
   ctx.beginPath()
   const sz = Math.max(1, Math.round(dpr))
   for (let i = 0; i < count; i++) ctx.rect(px[i], py[i], sz, sz)
@@ -170,8 +174,8 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
 </script>
 
 <template>
-  <div ref="root" class="fixed inset-0 z-[9999] bg-black transition-opacity duration-500 ease-out"
-    :class="fading ? 'opacity-0 pointer-events-none' : 'opacity-100'">
+  <div ref="root" class="fixed inset-0 z-[9999] transition-opacity duration-500 ease-out"
+    :class="[dark ? 'bg-black' : 'bg-white', fading ? 'opacity-0 pointer-events-none' : 'opacity-100']">
     <canvas ref="canvas" class="absolute inset-0 w-full h-full" />
   </div>
 </template>
