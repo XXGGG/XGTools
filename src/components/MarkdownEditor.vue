@@ -23,7 +23,7 @@
  * 语法解析要先于装饰、装饰要在主题之后、更新监听要在装饰之后。
  */
 import { shallowRef, onMounted, onBeforeUnmount, watch, computed } from 'vue'
-import { EditorState, Compartment, Annotation, Prec } from '@codemirror/state'
+import { EditorState, Compartment, Annotation, Prec, Transaction } from '@codemirror/state'
 import {
   EditorView, keymap, drawSelection, dropCursor, rectangularSelection,
   highlightActiveLine, highlightSpecialChars,
@@ -127,6 +127,15 @@ const roCompartment = new Compartment()
   文档本身一动不动。
 */
 const decoCompartment = new Compartment()
+/*
+  撤销历史单独一个隔间。
+
+  换笔记时**必须把它重配一次**(重配会把历史状态清空)。这个编辑器在切标签时
+  是复用的:同一个 EditorView 换一份文档。历史不清的话,撤到这篇最早那一步之后
+  再按 Ctrl+Z,撤的就是「把上一篇换成这一篇」那一步 —— 屏幕上当场变回上一篇的正文,
+  而标签、路径还是这一篇,再按一下又能撤到上上篇。用户看到的是「撤销把我的笔记换掉了」。
+*/
+const historyCompartment = new Compartment()
 
 /*
   这个库的浅色主题靠根元素上的 data-theme="light",而我们全局用的是
@@ -457,7 +466,7 @@ function decorations() {
 function extensions() {
   return [
     highlightSpecialChars(),
-    history(),
+    historyCompartment.of(history()),
     drawSelection(),
     dropCursor(),
     EditorState.allowMultipleSelections.of(true),
@@ -656,6 +665,14 @@ function restoreScroll() {
 watch(() => props.scrollKey, (_now, before) => {
   rememberScroll(before)
   restoreScroll()
+  /*
+    顺手把撤销历史清空 —— 重配隔间就等于新开一份历史。
+
+    换了一篇笔记,上一篇的编辑步骤就不该还能撤:在这篇里一路 Ctrl+Z 下去,
+    撤到头之后本该没反应,而不是接着去撤上一篇的东西(那些改动的位置在这篇里
+    根本对不上,撤出来是一团乱码般的混合体)。
+  */
+  view.value?.dispatch({ effects: historyCompartment.reconfigure(history()) })
 })
 
 /*
@@ -673,10 +690,15 @@ watch(() => props.modelValue, (v) => {
     跳到第一行第一个字符。夹到新文档长度之内 —— 新内容可能比原来短。
   */
   const keep = Math.min(ed.state.selection.main.head, v.length)
+  /*
+    整份替换这一步**不进撤销历史**。它不是用户的编辑,是外部同步(切标签、
+    别的程序改了文件)。进了历史的话,Ctrl+Z 会把这一步撤掉 —— 正文变回替换前的内容,
+    也就是上一篇笔记。addToHistory 只管这一条事务,用户自己敲的字照常能撤。
+  */
   ed.dispatch({
     changes: { from: 0, to: ed.state.doc.length, insert: v },
     selection: { anchor: keep },
-    annotations: fromProp.of(true),
+    annotations: [fromProp.of(true), Transaction.addToHistory.of(false)],
   })
 })
 
