@@ -6,9 +6,10 @@
   "scripts": {
     "bump": "node scripts/bump.mjs",
     "fonts": "node scripts/gen-hand-font-css.mjs",
-    "predev": "pnpm fonts",
+    "bergamot": "node scripts/copy-bergamot.mjs",
+    "predev": "pnpm fonts && pnpm bergamot",
     "dev": "vite",
-    "prebuild": "pnpm fonts",
+    "prebuild": "pnpm fonts && pnpm bergamot",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -17,6 +18,7 @@
   },
   "dependencies": {
     "@atomic-editor/editor": "^0.6.2",
+    "@browsermt/bergamot-translator": "^0.4.9",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.11.0",
     "@codemirror/lang-markdown": "^6.5.2",

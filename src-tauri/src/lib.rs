@@ -219,6 +219,7 @@ pub fn run() {
             window_detect::get_visible_windows,
             // Translate
             translate_commands::translate,
+            translate_commands::download_to_appdata,
             translate_commands::list_models,
             // Convert
             convert_commands::detect_file_type,

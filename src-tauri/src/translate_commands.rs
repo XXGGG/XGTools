@@ -899,3 +899,52 @@ async fn list_gemini_models(
 
     Ok(models)
 }
+
+// ─── 下载到应用数据目录 ──────────────────────────────
+
+#[derive(Clone, serde::Serialize)]
+pub struct DownloadProgress {
+    pub url: String,
+    pub loaded: u64,
+    pub total: u64,
+}
+
+/// 把一个 URL 下到 $APPDATA/<rel_path>,边下边发 download-progress 事件。
+///
+/// 离线翻译的模型放在 Mozilla 的 CDN 上,那边不给 CORS 头,网页里 fetch 直接
+/// "Failed to fetch";走 Rust 的 reqwest 没这回事。先写 .part,下完再改名,
+/// 中途断了不会留半个文件冒充下完了。
+#[tauri::command]
+pub async fn download_to_appdata(app: tauri::AppHandle, url: String, rel_path: String) -> Result<(), String> {
+    use tauri::{Emitter, Manager};
+    use tokio::io::AsyncWriteExt;
+
+    let dest = app.path().app_data_dir().map_err(|e| e.to_string())?.join(&rel_path);
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+    }
+    let tmp = dest.with_extension("part");
+
+    let mut resp = reqwest::get(&url).await.map_err(|e| format!("请求失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let total = resp.content_length().unwrap_or(0);
+    let mut file = tokio::fs::File::create(&tmp).await.map_err(|e| e.to_string())?;
+    let mut loaded = 0u64;
+    let mut last_emit = 0u64;
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载中断: {e}"))? {
+        file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+        loaded += chunk.len() as u64;
+        // 每 512KB 报一次就够画进度条了,按 chunk 报会有几千个事件
+        if loaded - last_emit >= 512 * 1024 {
+            last_emit = loaded;
+            let _ = app.emit("download-progress", DownloadProgress { url: url.clone(), loaded, total });
+        }
+    }
+    file.flush().await.map_err(|e| e.to_string())?;
+    drop(file);
+    tokio::fs::rename(&tmp, &dest).await.map_err(|e| e.to_string())?;
+    let _ = app.emit("download-progress", DownloadProgress { url, loaded, total });
+    Ok(())
+}

@@ -24,6 +24,8 @@ src-tauri/resources/ocr/
 # scripts/gen-hand-font-css.mjs 在 dev/build 前自动生成,不进仓库。
 public/excalidraw/
 public/fonts/handwriting.css
+# bergamot 离线翻译的 worker 三件套,scripts/copy-bergamot.mjs 从 node_modules 拷
+public/bergamot/
 
 # Build output
 release/
