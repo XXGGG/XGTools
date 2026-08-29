@@ -345,6 +345,41 @@ export const listBackspace: Command = (target) => {
   const me = rows[i]
 
   /*
+    **空项**上退格 = 把这一行整个删掉,光标回到上一行末尾。
+
+    以前是把标记剥掉、留一个空行在列表中间。空行在 markdown 里是列表的终止符:
+    后面那些项被当成一个新列表,连带子项的层级一起重排,画面上整片列表当场散架
+    (2026-08-29 踩过:删掉一个空的「2.」,下面十几条的缩进全没了)。
+    一个空项本来就没有内容可保留,删行是唯一不会动到别人的做法;序号顺手重排。
+  */
+  if (m && !me.text.trim() && line.number > 1) {
+    const prev = state.doc.line(line.number - 1)
+    if (i === 0) {
+      // 上一行不在这块列表里(空行或普通段落):直接把这行连换行一起删
+      target.dispatch(state.update({
+        changes: { from: prev.to, to: line.to },
+        selection: { anchor: prev.to },
+        scrollIntoView: true,
+        userEvent: 'delete.backward',
+      }))
+      return true
+    }
+    rows.splice(i, 1)
+    renumber(rows)
+    const text = rows.map(render)
+    const head = state.doc.line(a).from
+      + text.slice(0, i - 1).reduce((s, t) => s + t.length + 1, 0)
+      + text[i - 1].length
+    target.dispatch(state.update({
+      changes: { from: state.doc.line(a).from, to: state.doc.line(b).to, insert: text.join('\n') },
+      selection: { anchor: head },
+      scrollIntoView: true,
+      userEvent: 'delete.backward',
+    }))
+    return true
+  }
+
+  /*
     没有标记的行才动缩进。落点是**上面那些项的内容列里、比我浅的那一个** ——
     和缩进用的是同一把尺子,所以退回去的位置和当初 Tab 出来的位置分毫不差。
     往上找,第一个比我浅的就是我爹那一级。
