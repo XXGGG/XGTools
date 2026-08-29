@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { PixelSnap } from './pixelSnap'
 import { translateBlocks } from '@/lib/translateChain'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
@@ -42,6 +43,7 @@ const appWindow = getCurrentWindow()
 let selMgr: SelectionManager | null = null
 const annMgr = reactive(new AnnotationManager())
 const windowSnapMgr = new WindowSnapManager()
+const pixelSnap = new PixelSnap()
 
 // 设置 store（截图开关 + 背景投影设置）
 const settingsStore = new LazyStore('settings.json')
@@ -1712,6 +1714,10 @@ async function _doExecuteScreenshot() {
 
     const bgCtx = bgCanvas.getContext('2d')!
     bgCtx.putImageData(new ImageData(rgbaPixels, imgWidth, imgHeight), 0, 0)
+
+    // 像素级抓框:这一帧的边缘图,几十毫秒,截一次算一次
+    pixelSnap.setFrame(rgbaPixels, imgWidth, imgHeight)
+    windowSnapMgr.pixel = pixelSnap
 
     // 设置标注管理器的背景 canvas
     annMgr.bgCanvas = bgCanvas

@@ -66,6 +66,8 @@ pub struct WindowElement {
     pub element_rect: ElementRect,
     pub window_id: u32,
     pub corner_radius: f64,
+    /// z 序,0 = 最顶层。前端靠它只取鼠标点上没被遮住的那个窗口
+    pub z_order: u32,
 }
 
 // ─── ElementLevel ────────────────────────────────────────────────
@@ -820,6 +822,7 @@ fn hwnd_to_window_element(hwnd: HWND) -> Option<WindowElement> {
         },
         window_id: hwnd.0 as u32,
         corner_radius,
+        z_order: 0,
     })
 }
 
@@ -906,6 +909,11 @@ pub async fn get_visible_windows() -> Result<Vec<WindowElement>, String> {
                     result.push(elem);
                 }
             }
+        }
+
+        // EnumWindows 本来就是按 z 序从顶到底枚举的,顺序就是层级
+        for (i, r) in result.iter_mut().enumerate() {
+            r.z_order = i as u32;
         }
 
         Ok(result)

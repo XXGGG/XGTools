@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import Flatbush from 'flatbush'
+import type { PixelSnap, PxRect } from './pixelSnap'
 
 // ─── 类型定义（与 Rust 端一致，min/max 格式） ──────────
 
@@ -16,6 +17,8 @@ export interface WindowElement {
   element_rect: ElementRect
   window_id: number
   corner_radius: number
+  /** z 序,0 = 最顶层 */
+  z_order: number
 }
 
 /** 显示用矩形（CSS 像素，相对截图窗口） */
@@ -41,6 +44,14 @@ export class WindowSnapManager {
   private windowElements: ElementRect[] = []
   /** 窗口圆角半径列表（与 windowElements 平行） */
   private windowCornerRadii: number[] = []
+  /** 窗口 z 序（与 windowElements 平行,0 = 最顶层） */
+  private windowZ: number[] = []
+
+  /**
+   * 像素级抓框器,截屏后由外面喂好一帧再挂上来。
+   * 有它的时候,层级 = [元素, 容器, …, 窗口];没有就只有窗口。
+   */
+  pixel: PixelSnap | null = null
 
   /** 缩放因子 */
   private scaleFactor = 1
@@ -113,9 +124,11 @@ export class WindowSnapManager {
     // 2. 构建 Flatbush RTree
     this.windowElements = []
     this.windowCornerRadii = []
+    this.windowZ = []
     windowElements.forEach((we) => {
       this.windowElements.push(we.element_rect)
       this.windowCornerRadii.push(we.corner_radius)
+      this.windowZ.push(we.z_order)
     })
     if (this.windowElements.length > 0) {
       this.rTree = new Flatbush(this.windowElements.length)
@@ -134,21 +147,15 @@ export class WindowSnapManager {
   }
 
   /**
-   * Flatbush 窗口级命中检测
-   * 返回命中的窗口索引列表（面积小 = 优先级高，因为更具体）
+   * Flatbush 窗口级命中检测:返回鼠标点上**最顶层**那个窗口的索引。
+   * 被它盖住的窗口在这个点上根本看不见,截出来也是上面这个的内容,没必要当候选。
    */
-  private hitTestWindow(physX: number, physY: number): number[] {
-    if (!this.rTree) return []
+  private hitTestWindow(physX: number, physY: number): number | null {
+    if (!this.rTree) return null
     const indices = this.rTree.search(physX, physY, physX, physY)
-    // 按面积从小到大排：更具体的小窗口优先于全屏大窗口
-    indices.sort((a, b) => {
-      const ra = this.windowElements[a]
-      const rb = this.windowElements[b]
-      const areaA = (ra.max_x - ra.min_x) * (ra.max_y - ra.min_y)
-      const areaB = (rb.max_x - rb.min_x) * (rb.max_y - rb.min_y)
-      return areaA - areaB
-    })
-    return indices
+    if (!indices.length) return null
+    indices.sort((a, b) => this.windowZ[a] - this.windowZ[b])
+    return indices[0]
   }
 
   /** 物理像素 ElementRect → CSS 像素 SnapRect，裁剪到可视区域 */
@@ -199,21 +206,39 @@ export class WindowSnapManager {
       const physX = Math.round(cssX * this.scaleFactor + this.monitorX)
       const physY = Math.round(cssY * this.scaleFactor + this.monitorY)
 
-      // 1. Flatbush 窗口级命中
-      const windowIndices = this.hitTestWindow(physX, physY)
-      const windowLevels: SnapRect[] = []
-      const windowLevelIndices: number[] = []
-      for (const idx of windowIndices) {
-        const r = this.physToCSS(this.windowElements[idx])
-        if (r) {
-          windowLevels.push(r)
-          windowLevelIndices.push(idx)
+      // 1. 鼠标点上最顶层的窗口
+      const winIdx = this.hitTestWindow(physX, physY)
+      const levels: SnapRect[] = []
+      const levelWindowIndices: number[] = []
+      const winPhys = winIdx !== null ? this.windowElements[winIdx] : null
+      const winCss = winPhys ? this.physToCSS(winPhys) : null
+
+      // 2. 像素层:在这个窗口范围里,从鼠标处往外找 元素 → 容器 → …
+      //    像素坐标是截图坐标(显示器相对),窗口矩形是屏幕坐标,换算一下
+      if (this.pixel?.ready) {
+        const ix = physX - this.monitorX, iy = physY - this.monitorY
+        const bounds: PxRect = winPhys
+          ? { x0: winPhys.min_x - this.monitorX, y0: winPhys.min_y - this.monitorY, x1: winPhys.max_x - this.monitorX, y1: winPhys.max_y - this.monitorY }
+          : { x0: 0, y0: 0, x1: this.pixel.w, y1: this.pixel.h }
+        for (const r of this.pixel.findLevels(ix, iy, bounds)) {
+          const css = this.physToCSS({ min_x: r.x0 + this.monitorX, min_y: r.y0 + this.monitorY, max_x: r.x1 + this.monitorX, max_y: r.y1 + this.monitorY })
+          if (!css) continue
+          // 和窗口本身差不多大的就不单列了,免得滚轮切一档没变化
+          if (winCss && Math.abs(css.x - winCss.x) <= 2 && Math.abs(css.y - winCss.y) <= 2
+            && Math.abs(css.w - winCss.w) <= 4 && Math.abs(css.h - winCss.h) <= 4) continue
+          levels.push(css)
+          levelWindowIndices.push(-1)   // -1 = 像素层,没有圆角
         }
       }
 
-      // 只使用窗口级命中（Flatbush 预缓存数据，不实时调 UIAutomation）
-      this.elementLevels = windowLevels
-      this.elementLevelWindowIndices = windowLevelIndices
+      // 3. 最外层是窗口
+      if (winCss && winIdx !== null) {
+        levels.push(winCss)
+        levelWindowIndices.push(winIdx)
+      }
+
+      this.elementLevels = levels
+      this.elementLevelWindowIndices = levelWindowIndices
 
       // 保持层级索引有效
       if (this.currentLevel >= this.elementLevels.length) {
@@ -250,7 +275,7 @@ export class WindowSnapManager {
   private updateCornerRadius() {
     if (this.elementLevelWindowIndices.length > 0 && this.currentLevel < this.elementLevelWindowIndices.length) {
       const winIdx = this.elementLevelWindowIndices[this.currentLevel]
-      this.currentCornerRadius = this.windowCornerRadii[winIdx] ?? 0
+      this.currentCornerRadius = winIdx >= 0 ? (this.windowCornerRadii[winIdx] ?? 0) : 0
     } else {
       this.currentCornerRadius = 0
     }
@@ -261,7 +286,7 @@ export class WindowSnapManager {
     return this.currentCornerRadius
   }
 
-  /** 滚轮切换层级（向下滚=更底层窗口，向上滚=更顶层窗口） */
+  /** 滚轮切换层级（向下滚=往外一层,向上滚=往里一层） */
   cycleLevel(delta: number): boolean {
     if (this.elementLevels.length <= 1) return false
 
@@ -327,6 +352,7 @@ export class WindowSnapManager {
     this.rTree = undefined
     this.windowElements = []
     this.windowCornerRadii = []
+    this.windowZ = []
     this.snapRect = null
     this.animRect = null
     this.animStart = null
