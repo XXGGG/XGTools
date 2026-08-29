@@ -276,6 +276,8 @@ export const SELECTION_STYLE = {
   sizeLabelColor: '#ffffff',
   /** 尺寸标签字号 */
   sizeLabelFontSize: 12,
+  /** 选区右上角那个 W×H 像素标签。翻译截图不显示:用户是来翻字的,数字只会挡住要翻的内容 */
+  showSizeLabel: true,
 }
 
 /** 默认描边颜色 */
@@ -373,7 +375,12 @@ export const COLOR_PICKER_STYLE = {
 export const SELECTION_ACCENTS = { normal: '#7aa7e6', translate: '#e08a8a' } as const
 
 /** 换选区的主色。边框和控制点描边一起换,漏一个就是两种颜色混着 */
-export function setSelectionAccent(color: string) {
+export function setSelectionLook(kind: keyof typeof SELECTION_ACCENTS) {
+  const color = SELECTION_ACCENTS[kind]
   SELECTION_STYLE.borderColor = color
   SELECTION_STYLE.controlPointStroke = color
+  // 十字虚线跟着同一个色,只是淡一点 —— 翻译时整套都是淡红,不能框红线蓝
+  const r = parseInt(color.slice(1, 3), 16), g = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16)
+  SELECTION_STYLE.crosshairColor = `rgba(${r}, ${g}, ${b}, 0.6)`
+  SELECTION_STYLE.showSizeLabel = kind === 'normal'
 }

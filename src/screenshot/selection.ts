@@ -330,7 +330,7 @@ export class SelectionManager {
       this.drawControlPoints(ctx, px, py, pw, ph, sf)
 
       // 尺寸标签
-      this.drawSizeLabel(ctx, px, py, pw, ph, sf)
+      if (S.showSizeLabel) this.drawSizeLabel(ctx, px, py, pw, ph, sf)
     }
 
     // 十字辅助线 + 放大镜取色器（仅在 Idle 和 Creating 时显示，且需要有真实鼠标位置）

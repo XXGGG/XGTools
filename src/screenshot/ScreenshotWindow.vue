@@ -10,7 +10,7 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { SelectionManager } from './selection'
 import { AnnotationManager } from './annotations'
 import { WindowSnapManager } from './windowSnap'
-import { SelectState, DrawTool, STROKE_COLORS, FILL_COLORS, STROKE_WIDTH_PRESETS, FONT_SIZE_PRESETS, TEXT_BG_COLORS, TEXT_STROKE_COLORS, FONT_FAMILIES, FONT_SIZE_LABELS, TEXT_ALIGNS, BORDER_STYLES, LINE_STYLES, ARROW_TYPES, PEN_STYLES, CORNER_STYLES, SELECTION_ACCENTS, setSelectionAccent } from './types'
+import { SelectState, DrawTool, STROKE_COLORS, FILL_COLORS, STROKE_WIDTH_PRESETS, FONT_SIZE_PRESETS, TEXT_BG_COLORS, TEXT_STROKE_COLORS, FONT_FAMILIES, FONT_SIZE_LABELS, TEXT_ALIGNS, BORDER_STYLES, LINE_STYLES, ARROW_TYPES, PEN_STYLES, CORNER_STYLES, setSelectionLook } from './types'
 import type { Annotation, BorderStyle, LineStyle, ArrowType, EndpointStyle, PenStyle, CornerStyle } from './types'
 import { useI18n, applySavedLocale } from '@/i18n'
 
@@ -1823,7 +1823,7 @@ onMounted(async () => {
   // 监听截图事件（检查截图开关）
   await settingsStore.init()
   _unlistens.push(await listen('execute-screenshot', async () => {
-    setSelectionAccent(SELECTION_ACCENTS.normal)      // 普通截图:淡蓝框
+    setSelectionLook('normal')      // 普通截图:淡蓝框
     const enabled = (await settingsStore.get<boolean>('screenshot_enabled')) ?? true
     if (!enabled) return
     // 截图进行中再按快捷键 → 取消当前截图
@@ -1843,7 +1843,7 @@ onMounted(async () => {
       return
     }
     translateMode.value = true
-    setSelectionAccent(SELECTION_ACCENTS.translate)   // 翻译截图:淡红框
+    setSelectionLook('translate')   // 翻译截图:淡红框、十字线也淡红、不显示像素尺寸
     executeScreenshot()
   }))
 
