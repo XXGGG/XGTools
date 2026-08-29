@@ -52,3 +52,6 @@ _reference/wisp-particle-orb/
 
 # Rust 编译产物（另一处 target，之前漏挡进了历史）
 native/target/
+
+# 打包产物的取件口(scripts/collect-installer.mjs 拷进来的),上百 MB,只放本机
+安装包/

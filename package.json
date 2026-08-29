@@ -7,6 +7,7 @@
     "bump": "node scripts/bump.mjs",
     "fonts": "node scripts/gen-hand-font-css.mjs",
     "bergamot": "node scripts/copy-bergamot.mjs",
+    "dist": "pnpm tauri build && node scripts/collect-installer.mjs",
     "predev": "pnpm fonts && pnpm bergamot",
     "dev": "vite",
     "prebuild": "pnpm fonts && pnpm bergamot",
