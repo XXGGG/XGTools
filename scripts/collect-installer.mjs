@@ -1,12 +1,13 @@
 /*
-  把刚打好的安装包拷到项目根目录的 `安装包/` 下,方便找、方便发给别人。
+  把刚打好的安装包拷到项目根目录的 `installer/` 下,方便找、方便发给别人。
 
   Tauri 把产物埋在 `src-tauri/target/release/bundle/nsis/` 里 —— 路径深,
   而且那个目录里堆着历次版本(0.1.0、0.1.2…),每次要翻。这里只做一件事:
   把**当前 package.json 版本**的那个安装包拷出来,顺带按「XGTools_v0.2.0_安装.exe」
   重命名 —— 发给别人时对方一眼知道是什么、哪一版。
 
-  `安装包/` 不进仓库(见 .gitignore):安装包上百 MB,提交进去 .git 会一路胀大而且删不掉。
+  `installer/` 不进仓库(见 .gitignore):安装包上百 MB,提交进去 .git 会一路胀大而且删不掉。
+  目录名用英文而不是「安装包」:仓库里其它目录都是英文,而且中文路径在有些工具和控制台里会变成乱码。
   发版走 GitHub Releases,这个目录纯粹是本机的取件口。
 */
 import { copyFileSync, mkdirSync, readFileSync, existsSync, statSync } from 'node:fs'
@@ -16,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
-const outDir = join(root, '安装包')
+const outDir = join(root, 'installer')
 const jobs = [
   {
     from: join(root, `src-tauri/target/release/bundle/nsis/XGTools_${version}_x64-setup.exe`),

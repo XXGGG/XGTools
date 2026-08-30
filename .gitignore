@@ -54,4 +54,4 @@ _reference/wisp-particle-orb/
 native/target/
 
 # 打包产物的取件口(scripts/collect-installer.mjs 拷进来的),上百 MB,只放本机
-安装包/
+installer/
