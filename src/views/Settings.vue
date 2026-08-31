@@ -252,6 +252,16 @@ const ATTACH_MODES = [
 ] as const
 
 const pageWidthCount = computed(() => Object.keys(settings.vaultPageWidth).length)
+/** 单独设过宽度的笔记,按路径排一下,免得每次打开顺序都不一样 */
+const pageWidthList = computed(() =>
+  Object.entries(settings.vaultPageWidth).sort((a, b) => a[0].localeCompare(b[0])))
+/** 列表里主要显示文件名,完整路径放在下面一行和 title 里 */
+const pageWidthName = (path: string) => path.split('/').pop()?.replace(/\.md$/i, '') ?? path
+function clearPageWidth(path: string) {
+  const next = { ...settings.vaultPageWidth }
+  delete next[path]
+  settings.vaultPageWidth = next
+}
 /*
   快捷键总览。
 
@@ -654,7 +664,9 @@ onUnmounted(() => {
         <TabsContent value="vault" class="space-y-6">
           <p class="text-xs text-muted-foreground">{{ t('settings.vaultHint') }}</p>
 
-          <div class="rounded-xl border divide-y">
+          <section class="space-y-2">
+            <h3 class="text-sm font-medium">{{ t('settings.vaultSecLook') }}</h3>
+            <div class="rounded-xl border divide-y">
             <div class="px-4 py-3.5 space-y-3">
               <div class="flex items-center gap-4">
                 <span class="icon-[lucide--type] w-5 h-5 shrink-0 text-muted-foreground" />
@@ -691,14 +703,6 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <div class="flex items-center gap-4 px-4 py-3.5">
-              <span class="icon-[lucide--file-image] w-5 h-5 shrink-0 text-muted-foreground" />
-              <div class="flex-1 min-w-0">
-                <div class="text-sm">{{ t('settings.vaultWebp') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultWebpDesc') }}</div>
-              </div>
-              <Switch v-model="settings.vaultWebp" />
-            </div>
 
             <div class="flex items-center gap-4 px-4 py-3.5">
               <span class="icon-[lucide--spell-check] w-5 h-5 shrink-0 text-muted-foreground" />
@@ -746,49 +750,8 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <div class="flex items-center gap-4 px-4 py-3.5">
-              <span class="icon-[lucide--image] w-5 h-5 shrink-0 text-muted-foreground" />
-              <div class="flex-1 min-w-0">
-                <div class="text-sm">{{ t('settings.vaultAttach') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultAttachDesc') }}</div>
-              </div>
-              <!-- 「和笔记并排」不需要目录名,那个框跟着隐藏,免得填了没用还让人以为坏了 -->
-              <Input v-if="settings.vaultAttachMode !== 'note'" v-model="settings.vaultAttachDir"
-                class="w-40 h-9 shrink-0" :placeholder="t('settings.vaultAttachPlaceholder')" />
-            </div>
 
-            <div class="px-4 pb-3.5 -mt-1 pl-13">
-              <div class="grid grid-cols-3 gap-2">
-                <button v-for="m in ATTACH_MODES" :key="m.key" @click="settings.vaultAttachMode = m.key" :class="[
-                  'rounded-lg border px-3 py-2 text-sm transition-colors',
-                  settings.vaultAttachMode === m.key ? 'border-foreground/60 bg-muted/60' : 'hover:bg-muted/40'
-                ]">{{ t(m.labelKey) }}</button>
-              </div>
-            </div>
 
-            <div class="flex items-center gap-4 px-4 py-3.5">
-              <span class="icon-[lucide--eye-off] w-5 h-5 shrink-0 text-muted-foreground" />
-              <div class="flex-1 min-w-0">
-                <div class="text-sm">{{ t('settings.vaultHideAttach') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultHideAttachDesc') }}</div>
-              </div>
-              <Switch v-model="settings.vaultHideAttachDir"
-                :disabled="settings.vaultAttachMode === 'note'" />
-            </div>
-
-            <div class="flex items-center gap-4 px-4 py-3.5">
-              <span class="icon-[lucide--trash-2] w-5 h-5 shrink-0 text-muted-foreground" />
-              <div class="flex-1 min-w-0">
-                <div class="text-sm">{{ t('settings.vaultTrash') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultTrashDesc') }}</div>
-              </div>
-              <div class="flex items-center gap-1 rounded-lg border p-1 shrink-0">
-                <button v-for="o in [false, true]" :key="String(o)" @click="settings.vaultTrashToSystem = o" :class="[
-                  'px-3 py-1 rounded-md text-sm transition-colors',
-                  settings.vaultTrashToSystem === o ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
-                ]">{{ o ? t('settings.vaultTrashSystem') : t('settings.vaultTrashVault') }}</button>
-              </div>
-            </div>
 
             <div class="flex items-center gap-4 px-4 py-3.5">
               <span class="icon-[lucide--between-horizontal-start] w-5 h-5 shrink-0 text-muted-foreground" />
@@ -798,22 +761,109 @@ onUnmounted(() => {
               </div>
               <Switch v-model="settings.vaultFullWidth" />
             </div>
-          </div>
+            </div>
+          </section>
 
-          <!-- 单页覆盖攒在设置里,时间长了会积一堆指向已删除笔记的条目,给个出口清掉 -->
-          <div v-if="pageWidthCount > 0" class="rounded-xl border px-4 py-3.5 flex items-center gap-4">
-            <span class="icon-[lucide--brush-cleaning] w-5 h-5 shrink-0 text-muted-foreground" />
+          <section class="space-y-2">
+            <h3 class="text-sm font-medium">{{ t('settings.vaultSecImages') }}</h3>
+            <div class="rounded-xl border divide-y">
+          <!--
+            三个模式按钮和上面那行是**同一件事**,必须待在同一个格子里。
+            分成两个格子的话 divide-y 会在标题和它自己的选项之间划一道线,
+            看着像「图片存放」和一排来路不明的按钮各是一项。
+          -->
+          <div class="px-4 py-3.5 space-y-3">
+            <div class="flex items-center gap-4">
+              <span class="icon-[lucide--image] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.vaultAttach') }}</div>
+                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultAttachDesc') }}</div>
+              </div>
+              <!-- 「和笔记并排」不需要目录名,那个框跟着隐藏,免得填了没用还让人以为坏了 -->
+              <Input v-if="settings.vaultAttachMode !== 'note'" v-model="settings.vaultAttachDir"
+                class="w-40 h-9 shrink-0" :placeholder="t('settings.vaultAttachPlaceholder')" />
+            </div>
+            <!-- 缩进对齐上面那行的标题:图标 w-5 + gap-4 = pl-9 -->
+            <div class="grid grid-cols-3 gap-2 pl-9">
+              <button v-for="m in ATTACH_MODES" :key="m.key" @click="settings.vaultAttachMode = m.key" :class="[
+                'rounded-lg border px-3 py-2 text-sm transition-colors',
+                settings.vaultAttachMode === m.key ? 'border-foreground/60 bg-muted/60' : 'hover:bg-muted/40'
+              ]">{{ t(m.labelKey) }}</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-4 px-4 py-3.5">
+            <span class="icon-[lucide--eye-off] w-5 h-5 shrink-0 text-muted-foreground" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm">{{ t('settings.vaultResetPages') }}</div>
-              <div class="text-xs text-muted-foreground mt-0.5">
-                {{ t('settings.vaultResetPagesDesc', { n: pageWidthCount }) }}
+              <div class="text-sm">{{ t('settings.vaultHideAttach') }}</div>
+              <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultHideAttachDesc') }}</div>
+            </div>
+            <Switch v-model="settings.vaultHideAttachDir"
+              :disabled="settings.vaultAttachMode === 'note'" />
+          </div>
+          <div class="flex items-center gap-4 px-4 py-3.5">
+            <span class="icon-[lucide--file-image] w-5 h-5 shrink-0 text-muted-foreground" />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm">{{ t('settings.vaultWebp') }}</div>
+              <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultWebpDesc') }}</div>
+            </div>
+            <Switch v-model="settings.vaultWebp" />
+          </div>
+            </div>
+          </section>
+
+          <section class="space-y-2">
+            <h3 class="text-sm font-medium">{{ t('settings.vaultSecDelete') }}</h3>
+            <div class="rounded-xl border divide-y">
+          <div class="flex items-center gap-4 px-4 py-3.5">
+            <span class="icon-[lucide--trash-2] w-5 h-5 shrink-0 text-muted-foreground" />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm">{{ t('settings.vaultTrash') }}</div>
+              <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultTrashDesc') }}</div>
+            </div>
+            <div class="flex items-center gap-1 rounded-lg border p-1 shrink-0">
+              <button v-for="o in [false, true]" :key="String(o)" @click="settings.vaultTrashToSystem = o" :class="[
+                'px-3 py-1 rounded-md text-sm transition-colors',
+                settings.vaultTrashToSystem === o ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
+              ]">{{ o ? t('settings.vaultTrashSystem') : t('settings.vaultTrashVault') }}</button>
+            </div>
+          </div>
+            </div>
+          </section>
+
+          <!--
+            单页宽度:哪几篇笔记单独设过。
+
+            以前只有一颗「一键清除」—— 想留着其中一两篇就没辙了,只能全清再一篇篇设回去。
+            现在摊开成一份清单,每条自己一个 ×,底下再留一颗「全部清除」。
+            条目攒久了会指向已经删掉的笔记,所以还是要有那颗全清。
+          -->
+          <section v-if="pageWidthCount > 0" class="space-y-2">
+            <div class="flex items-baseline justify-between">
+              <h3 class="text-sm font-medium">{{ t('settings.vaultPageWidthTitle') }}</h3>
+              <button @click="settings.vaultPageWidth = {}"
+                class="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                {{ t('settings.vaultPageWidthClearAll') }}
+              </button>
+            </div>
+            <p class="text-xs text-muted-foreground">{{ t('settings.vaultPageWidthDesc', { n: pageWidthCount }) }}</p>
+            <div class="rounded-xl border divide-y max-h-64 overflow-y-auto">
+              <div v-for="[path, mode] in pageWidthList" :key="path"
+                class="flex items-center gap-3 px-4 py-2.5">
+                <span class="icon-[lucide--file-text] w-4 h-4 shrink-0 text-muted-foreground" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm truncate" :title="path">{{ pageWidthName(path) }}</div>
+                  <div class="text-xs text-muted-foreground truncate" :title="path">{{ path }}</div>
+                </div>
+                <span class="text-xs text-muted-foreground shrink-0">
+                  {{ mode === 'wide' ? t('settings.vaultPageWidthWide') : t('settings.vaultPageWidthNarrow') }}
+                </span>
+                <button @click="clearPageWidth(path)" :title="t('settings.vaultPageWidthClear')"
+                  class="size-7 shrink-0 rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground flex items-center justify-center">
+                  <span class="icon-[lucide--x] w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
-            <button @click="settings.vaultPageWidth = {}"
-              class="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted">
-              {{ t('settings.vaultResetPagesBtn') }}
-            </button>
-          </div>
+          </section>
         </TabsContent>
 
         <TabsContent value="dsh" class="space-y-6">
