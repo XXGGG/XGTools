@@ -18,6 +18,7 @@ import {
   snapshot, historyList, historyRead, historyClear, type Snapshot,
   attachBytes, attachFile, isHiddenEntry, findOrphanImages, type OrphanImage,
   search, type Entry, type Hit,
+  resolveConflictTakeDisk, resolveConflictKeepMine,
 } from '@/composables/useVault'
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
@@ -484,6 +485,39 @@ onBeforeUnmount(() => {
   if (zen.on) void toggleZen(false)
 })
 
+/*
+  大纲的配色:一眼分得出层级,而不是全靠缩进去数。
+
+  H1 给一块主题色的底(它是全篇的骨架,值得一块面积);H2 深主题色加粗;
+  H3 正常主题色;H4 浅一点;H5 就是正文色;H6 淡灰 —— 越往下越退到背景里去。
+  用 color-mix 从笔记主题色现算,换主题色时整条大纲跟着变,不用另外配一套。
+*/
+function outlineStyle(level: number): Record<string, string> {
+  const a = settings.vaultAccent
+  switch (level) {
+    case 1: return {
+      background: `color-mix(in srgb, ${a} 22%, transparent)`,
+      color: `color-mix(in srgb, ${a} 70%, var(--foreground))`,
+      fontWeight: '600',
+    }
+    case 2: return { color: `color-mix(in srgb, ${a} 78%, var(--foreground))`, fontWeight: '600' }
+    case 3: return { color: a }
+    case 4: return { color: `color-mix(in srgb, ${a} 55%, var(--muted-foreground))` }
+    case 5: return { color: 'var(--foreground)' }
+    default: return { color: 'color-mix(in srgb, var(--muted-foreground) 70%, transparent)' }
+  }
+}
+
+/** 右缘那一列短横线,颜色跟着同一套层级走,和面板对得上 */
+function outlineBarColor(level: number): string {
+  const a = settings.vaultAccent
+  if (level <= 2) return `color-mix(in srgb, ${a} 80%, var(--foreground))`
+  if (level === 3) return a
+  if (level === 4) return `color-mix(in srgb, ${a} 50%, var(--muted-foreground))`
+  if (level === 5) return 'color-mix(in srgb, var(--foreground) 45%, transparent)'
+  return 'color-mix(in srgb, var(--muted-foreground) 45%, transparent)'
+}
+
 /** 大纲里最浅的那一级。整篇都是 ## 开头时,不该让它们全部缩进一格 */
 const outlineBase = computed(() =>
   outline.value.length ? Math.min(...outline.value.map((h) => h.level)) : 1)
@@ -617,6 +651,52 @@ async function openHistory(path?: string) {
   if (tab) await snapshot(rel, tab.content)
   snapList.value = await historyList(rel)
   historyBusy.value = false
+}
+
+const historyCopied = ref(false)
+async function copyHistoryText() {
+  await putOnClipboard(historyText.value)
+}
+
+/*
+  刮选出来的那一段也要能复制。
+
+  「复制全文」只解决「我全都要」;更常见的是从旧版本里抠一句话贴回正文。
+  这个界面里 Ctrl+C 不一定顺手(弹窗里焦点在哪儿不好说),右键又不该弹浏览器
+  自带的那个菜单 —— 所以刮选之后就地长出一颗「复制选中」,选了什么它就拿什么,
+  再配一条 Ctrl+C 的兜底,两条路都通。
+*/
+const historyPre = useTemplateRef<HTMLElement>('historyPre')
+const historySel = ref('')
+
+function readHistorySelection() {
+  const sel = window.getSelection()
+  const text = sel && !sel.isCollapsed ? sel.toString() : ''
+  const inPreview = sel?.anchorNode && historyPre.value?.contains(sel.anchorNode)
+  historySel.value = text && inPreview ? text : ''
+}
+
+async function copyHistorySelection() {
+  await putOnClipboard(historySel.value)
+}
+
+/** Ctrl/Cmd+C 的兜底:有刮选就复制刮选的,没有就复制整份 */
+function onHistoryCopyKey(e: KeyboardEvent) {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'c') return
+  readHistorySelection()
+  e.preventDefault()
+  void putOnClipboard(historySel.value || historyText.value)
+}
+
+async function putOnClipboard(text: string) {
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    return // 剪贴板被拒就别显示「已复制」骗人
+  }
+  historyCopied.value = true
+  setTimeout(() => (historyCopied.value = false), 1500)
 }
 
 async function pickSnapshot(sn: Snapshot) {
@@ -1285,6 +1365,31 @@ async function newAt(kind: 'note' | 'folder' | 'base' | 'canvas') {
   return created(await createWithContent('', t('vault.newCanvasName'), CANVAS_TEMPLATE))
 }
 
+/*
+  「全展开」按钮要不要出现。
+
+  折叠状态在编辑器里(CM6 的 EditorState),Vue 这边看不见它的变化 —— 没有可 watch 的响应式源。
+  所以按定时轮询:只在开着 markdown 的时候每 700ms 问一句「有没有折起来的」。
+  一次 between 遍历而已,比给编辑器加一条对外的事件通道简单得多,也不会漏掉
+  「用户自己点把手折的」这种编辑器内部发生的变化。
+*/
+const anyFolded = ref(false)
+let foldPoll: number | undefined
+onMounted(() => {
+  foldPoll = window.setInterval(() => {
+    anyFolded.value = activeTab.value?.kind === 'markdown' && (editor.value?.hasFolds?.() ?? false)
+  }, 700)
+})
+onBeforeUnmount(() => { if (foldPoll) clearInterval(foldPoll) })
+
+function expandAllHeadings() {
+  editor.value?.unfoldAll?.()
+  anyFolded.value = false
+}
+
+/** 一次只问一篇,答完自动轮到下一篇 */
+const conflict = computed(() => vault.conflicts[0] ?? null)
+
 // ── 右侧智能体 ──
 const chatInput = ref('')
 const chatListEl = ref<HTMLElement | null>(null)
@@ -1711,6 +1816,16 @@ async function sendFromVault() {
               </template>
             </div>
 
+            <!--
+              全展开。**只有这一篇真有折起来的段落时才出现** —— 没折东西的时候
+              摆一颗按不出效果的按钮,只会让人怀疑自己点错了。
+              收了十几段之后一个个点回去太费事,这是那种情形的出口。
+            -->
+            <button v-if="anyFolded" @click="expandAllHeadings" :title="t('vault.expandFolds')"
+              class="tool-btn size-7">
+              <span class="icon-[lucide--unfold-vertical] w-4 h-4" />
+            </button>
+
             <button @click="toggleSide('chat')"
               :title="chatOpen ? t('vault.hideAssistant') : t('vault.showAssistant')"
               class="tool-btn size-7" :class="chatOpen ? 'text-foreground' : ''">
@@ -2069,10 +2184,9 @@ async function sendFromVault() {
                      max-h-[60vh] w-56 overflow-y-auto rounded-xl
                      border bg-popover shadow-lg py-2 px-1.5">
               <button v-for="(h, i) in outline" :key="i" @click="gotoHeading(h)"
-                :style="{ paddingLeft: ((h.level - outlineBase) * 12 + 10) + 'px' }"
+                :style="{ paddingLeft: ((h.level - outlineBase) * 12 + 10) + 'px', ...outlineStyle(h.level) }"
                 class="w-full text-left rounded-md py-1 pr-2 truncate transition-colors hover:bg-muted/60"
-                :class="h.level - outlineBase === 0
-                  ? 'text-[13px] font-medium' : 'text-[12px] text-muted-foreground'">
+                :class="h.level <= 2 ? 'text-[13px]' : 'text-[12px]'">
                 {{ h.text }}
               </button>
             </div>
@@ -2085,14 +2199,20 @@ async function sendFromVault() {
             右边留 10px 给滚动条:两者贴在一起时,鼠标一进来滚动条浮出来
             正好压在最短的那几条线段上,看着像线段被啃掉一截。
           -->
-          <div class="pointer-events-auto flex flex-col items-end gap-[10px] py-2 pl-3"
+          <!--
+            限高:标题多的长文里,这一列会一路铺到窗口上下边缘,压住顶部标签栏和
+            底部那块字数统计。给它一个 56vh 的活动范围,超出的部分自己滚
+            (滚动条藏掉 —— 这是一条装饰性的索引,不该冒出一根灰杆子)。
+          -->
+          <div class="pointer-events-auto flex flex-col items-end gap-[10px] py-2 pl-3
+                      max-h-[56vh] overflow-y-auto xg-no-scrollbar"
             :class="outlineHover ? '' : 'opacity-60'">
             <span v-for="(h, i) in outline" :key="i"
               :style="{
                 width: Math.max(20 - (h.level - outlineBase) * 2, 8) + 'px',
-                background: i === activeHeading ? settings.vaultAccent : undefined,
+                background: i === activeHeading ? settings.vaultAccent : outlineBarColor(h.level),
               }"
-              class="h-[2px] rounded-full bg-foreground/45 transition-colors" />
+              class="h-[2px] shrink-0 rounded-full transition-colors" />
           </div>
 
         </div>
@@ -2393,6 +2513,34 @@ async function sendFromVault() {
       文件恢复。左边列版本、右边预览那一版的正文 —— 光有时间戳选不出来,
       必须能看见内容才知道要哪一份。
     -->
+    <!--
+      外部改动。
+
+      磁盘上这一篇变了(别的机器同步过来、Obsidian 里改的、git pull),而我们正开着它。
+      以前是本地没改动就悄悄换成磁盘那份 —— 用户看到的是「我正看着的东西自己变了」,
+      而且万一那次外部改动本身是误操作,这边连挽回的机会都没有。现在两份都留着,问一句。
+      弹窗一次只问一篇,答完接着问下一篇。
+    -->
+    <AlertDialog :open="!!conflict">
+      <AlertDialogContent v-if="conflict">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ t('vault.conflictTitle') }}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {{ t('vault.conflictBody', { name: displayName(conflict.path) }) }}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <p class="text-xs text-muted-foreground font-mono wrap-break-word">{{ conflict.path }}</p>
+        <AlertDialogFooter>
+          <AlertDialogCancel @click="resolveConflictKeepMine(conflict.path)">
+            {{ t('vault.conflictKeepMine') }}
+          </AlertDialogCancel>
+          <AlertDialogAction @click="resolveConflictTakeDisk(conflict.path)">
+            {{ t('vault.conflictTakeDisk') }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
     <Dialog :open="historyOpen" @update:open="(v: boolean) => { historyOpen = v }">
       <DialogContent class="sm:max-w-3xl p-0 gap-0 overflow-hidden">
         <DialogHeader class="px-5 pt-5 pb-3">
@@ -2415,12 +2563,38 @@ async function sendFromVault() {
             </button>
           </div>
 
-          <div class="flex-1 min-w-0 overflow-auto p-4">
-            <pre v-if="historyPick" class="text-[12px] leading-relaxed whitespace-pre-wrap wrap-break-word
-                 font-mono text-muted-foreground">{{ historyText }}</pre>
-            <p v-else class="h-full flex items-center justify-center text-sm text-muted-foreground">
-              {{ t('vault.historyPick') }}
-            </p>
+          <!--
+            右边这块是**可以刮选、可以复制**的。
+
+            全局有一条 `* { user-select: none }`(整个界面按桌面应用的规矩来,免得到处误选中),
+            这块是例外:历史版本经常只想抠出中间一段贴回正文,不能只给「整份覆盖」这一个出口。
+            所以这里明确开 select-text,再配一颗「复制全文」按钮兜住「我全都要」那种情形。
+          -->
+          <div class="flex-1 min-w-0 flex flex-col">
+            <div v-if="historyPick" class="flex items-center justify-end gap-2 px-3 pt-2 shrink-0">
+              <button v-if="historySel" @click="copyHistorySelection"
+                class="h-7 px-2.5 rounded-lg border border-foreground/30 text-[11px] text-foreground
+                       transition-colors hover:bg-muted flex items-center gap-1">
+                <span class="icon-[lucide--text-cursor-input] w-3 h-3" />
+                {{ t('vault.historyCopySel') }}
+              </button>
+              <button @click="copyHistoryText"
+                class="h-7 px-2.5 rounded-lg border border-border text-[11px] text-muted-foreground
+                       transition-colors hover:bg-muted hover:text-foreground flex items-center gap-1">
+                <span :class="historyCopied ? 'icon-[lucide--check]' : 'icon-[lucide--copy]'" class="w-3 h-3" />
+                {{ historyCopied ? t('vault.historyCopied') : t('vault.historyCopy') }}
+              </button>
+            </div>
+            <div class="flex-1 min-w-0 overflow-auto px-4 pb-4 pt-2">
+              <pre v-if="historyPick" ref="historyPre" tabindex="0"
+                   @mouseup="readHistorySelection" @keyup="readHistorySelection"
+                   @keydown="onHistoryCopyKey"
+                   class="text-[12px] leading-relaxed whitespace-pre-wrap wrap-break-word outline-none
+                   font-mono text-muted-foreground select-text cursor-text">{{ historyText }}</pre>
+              <p v-else class="h-full flex items-center justify-center text-sm text-muted-foreground">
+                {{ t('vault.historyPick') }}
+              </p>
+            </div>
           </div>
         </div>
 

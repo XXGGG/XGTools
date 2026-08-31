@@ -58,6 +58,14 @@ export const vault = reactive<{
   searching: boolean
   error: string
   loading: boolean
+  /**
+   * 外部改动等你拍板的清单。
+   *
+   * 磁盘上这一篇变了(别的机器同步过来、Obsidian 里改的、git pull),而我们手上
+   * 开着它 —— 这时候替用户挑一边都是在替他丢字,所以只把两份内容摆在这儿,
+   * 由界面问一句「用磁盘的 / 保留我的」。
+   */
+  conflicts: { path: string; disk: string }[]
 }>({
   root: '',
   children: {},
@@ -68,6 +76,7 @@ export const vault = reactive<{
   query: '',
   hits: [],
   searching: false,
+  conflicts: [],
   error: '',
   loading: false,
 })
@@ -277,32 +286,81 @@ export async function bindVaultEvents() {
  */
 async function syncOpenTabs() {
   if (!vault.root) return
-  for (const t of vault.tabs) {
-    if (t.kind === 'other' || t.content !== t.saved) continue
+
+  /*
+    **并行读,不要挨个 await。**
+
+    以前是 for 循环里一篇篇读:开着十来个标签时,一次外部改动要串行等十来趟 IPC,
+    用户的感受就是「同步很慢」。这些读之间没有先后关系,一起发出去就好。
+  */
+  const targets = vault.tabs.filter((t) => t.kind !== 'other')
+  const reads = await Promise.all(targets.map(async (t) => {
     try {
-      const fresh = await invoke<string>('vault_read', { root: vault.root, rel: t.path })
-
-      /*
-        **await 回来之后必须重新判一次。**
-
-        读盘是异步的,这几十毫秒里用户完全可能又敲了几个字 —— 那时 t.content
-        已经变了,而手上这份 fresh 是旧的。照着写下去等于拿旧内容盖掉刚打的字,
-        而且换 modelValue 会让编辑器整篇重设,**光标当场跳回第一行第一个字符**。
-        这就是那个「偶尔莫名跳到开头」的真凶:它只在「打字 → 自动保存 →
-        监听回声」这个时间窗里发生,所以极难复现。
-      */
-      if (t.content !== t.saved) continue
-      if (fresh === t.content) continue
-
-      // 自己刚写下去的那一份被监听器回声回来了 —— 不是外部改动,别动
-      if (fresh === lastWritten.get(t.path)) continue
-
-      t.content = fresh
-      t.saved = fresh
+      return { t, fresh: await invoke<string>('vault_read', { root: vault.root, rel: t.path }) }
     } catch {
       // 读不出来多半是刚被删/正在被写,dropDeadTabs 那边会收拾
+      return null
     }
+  }))
+
+  for (const r of reads) {
+    if (!r) continue
+    const { t, fresh } = r
+
+    // 自己刚写下去的那一份被监听器回声回来了 —— 不是外部改动,别动
+    if (fresh === lastWritten.get(t.path)) continue
+    if (fresh === t.content) continue
+    // 这一版用户已经说过「保留我的」了,别反复问
+    if (fresh === dismissedDisk.get(t.path)) continue
+
+    /*
+      到这儿说明本地有没保存的改动,而磁盘上也变了 —— 两边都有新东西,
+      替他挑一边都是在替他丢字。两份都留着,由界面问「用磁盘的 / 保留我的」。
+    */
+    /*
+      **本地没动过的,直接换上,不问。**
+
+      问一句的意义只在「两边都有新东西、挑一边就得丢一边」。本地干干净净时
+      磁盘那份就是更新的那份 —— 这时候还弹窗,等于把「在 VS Code 里存一次盘」
+      「同步盘推一次」都变成一次打断;文件存得勤一点,弹窗就没完没了。
+    */
+    if (t.content === t.saved) {
+      t.content = fresh
+      t.saved = fresh
+      continue
+    }
+
+    const exist = vault.conflicts.find((x) => x.path === t.path)
+    if (exist) exist.disk = fresh
+    else vault.conflicts.push({ path: t.path, disk: fresh })
   }
+}
+
+/** 用户选了「保留我的」的那一版磁盘内容,记下来,免得同一份反复弹 */
+const dismissedDisk = new Map<string, string>()
+
+/** 冲突里选「用磁盘上的版本」 */
+export function resolveConflictTakeDisk(path: string) {
+  const c = vault.conflicts.find((x) => x.path === path)
+  const t = vault.tabs.find((x) => x.path === path)
+  if (c && t) {
+    t.content = c.disk
+    t.saved = c.disk
+    dismissedDisk.delete(path)
+  }
+  vault.conflicts = vault.conflicts.filter((x) => x.path !== path)
+}
+
+/**
+ * 冲突里选「保留我现在的」。
+ *
+ * 只是不接受磁盘那份,**不立刻回写** —— 用户可能只是想先看看再决定。
+ * 下一次正常保存自然会把磁盘那份盖掉,那时是他自己按的。
+ */
+export function resolveConflictKeepMine(path: string) {
+  const c = vault.conflicts.find((x) => x.path === path)
+  if (c) dismissedDisk.set(path, c.disk)
+  vault.conflicts = vault.conflicts.filter((x) => x.path !== path)
 }
 
 export async function refreshDir(rel: string) {
