@@ -666,7 +666,7 @@ function applyCornerRadiusClip(srcCanvas: HTMLCanvasElement, cornerRadius: numbe
 
 /** 如果开启了"自动添加背景与投影"，将截图画布包裹进带背景、圆角、多层阴影的新画布 */
 async function applyBgShadowIfEnabled(srcCanvas: HTMLCanvasElement, snapCornerRadius = 0): Promise<HTMLCanvasElement> {
-  // 工具条上那个开关只管这一次截图,不写回设置(见 bgOn)
+  // 背景开关(见 bgOn):它就是设置里那一项,工具条上按一下等于把设置改了
   if (!bgOn.value) return srcCanvas
 
   const bgColor = (await settingsStore.get<string>('screenshot_bg_color')) ?? 'transparent'
@@ -994,7 +994,26 @@ const ocrLoading = ref(false)
   「这张图要不要背景」是每张图各自的事,为了一张图去设置页里翻一遍开关、
   截完还得记得改回来,那才是麻烦。
 */
+/**
+ * 要不要给截图加背景 / 圆角 / 阴影。
+ *
+ * 工具条上那颗按钮是**切换键**:按一下就记住,下一张截图接着用这个状态。
+ * 以前是「只管这一次,下一张弹回设置里的默认」—— 想连着截十张带背景的图,
+ * 就得按十次,每次都得先想起来它已经弹回去了。现在它和设置页那一项是同一个值,
+ * 按钮改了设置也跟着改,不存在「界面上开着、设置里关着」这种对不上的状态。
+ */
 const bgOn = ref(false)
+
+async function toggleBg() {
+  bgOn.value = !bgOn.value
+  try {
+    await settingsStore.set('screenshot_auto_bg_shadow', bgOn.value)
+    await settingsStore.save()
+  } catch (e) {
+    // 存不下就只在这一次生效,不值得为它打断截图
+    console.error('[Screenshot] 背景开关存盘失败:', e)
+  }
+}
 
 const ocrMode = ref(false)
 let ocrInited = false
@@ -1328,10 +1347,15 @@ function updateCursor(x: number, y: number) {
 
 function onWheel(e: WheelEvent) {
   if (!selMgr) return
-  // Idle 状态：滚轮切换层级
+  /*
+    Idle 状态:滚轮切换抓框的层级。
+
+    **往上滚 = 往外一层**(元素 → 容器 → 窗口),往下滚 = 往里钻。
+    和"把镜头拉远"是一个手势方向:滚上去看到的东西更大、更完整。
+  */
   if (selMgr.state === SelectState.Idle) {
     e.preventDefault()
-    if (windowSnapMgr.cycleLevel(e.deltaY > 0 ? 1 : -1)) {
+    if (windowSnapMgr.cycleLevel(e.deltaY > 0 ? -1 : 1)) {
       redraw()
       if (windowSnapMgr.isAnimating()) {
         const animLoop = () => {
@@ -1353,10 +1377,22 @@ function exitOcrMode() {
   ocrMode.value = false
 }
 
+/**
+ * 退出翻译。
+ *
+ * **用快捷键直接进来的「截图翻译」,退出就是整个退出**;而在普通截图里点工具条上那颗
+ * 翻译按钮的,退出只是回到截图,工具条还在 —— 用户本来就在截图流程里。
+ *
+ * 以前不分这两种,一律只清翻译状态,capturing 却还留着:翻完按 Esc,屏幕上剩下一个
+ * 普通截图的选区和工具条 —— 从「截图翻译」莫名其妙变成了「截图」,得再按一次才退得掉。
+ */
 function exitTranslateMode() {
+  if (translateMode.value) {
+    cancelCapture()
+    return
+  }
   translateResults.value = []
   translateLoading.value = false
-  translateMode.value = false
 }
 
 function getTranslateBlockStyle(block: OcrTextBlock, translated: string) {
@@ -1465,8 +1501,10 @@ async function runScreenshotTranslate() {
 
     const blocks = result.text_blocks.filter(b => b.text_score > 0.3 && b.text.trim().length > 0)
     if (blocks.length === 0) {
+      // 框里一个字都没有:没什么可翻的,也没什么可留在屏幕上的。
+      // 快捷键进来的直接收工,别把人晾在一个"变成了普通截图"的选区里(见 exitTranslateMode)
       translateLoading.value = false
-      translateMode.value = false
+      exitTranslateMode()
       return
     }
 
@@ -1947,7 +1985,7 @@ const tools = [
         这一次要不要背景投影。改的是本次截图,不写回设置 ——
         为一张图去设置页翻开关、截完还得改回来,那才是麻烦。
       -->
-      <button class="tb" :class="{ active: bgOn }" :title="t('shot.bg')" @click="bgOn = !bgOn">
+      <button class="tb" :class="{ active: bgOn }" :title="t('shot.bg')" @click="toggleBg">
         <span class="tb-icon" :class="bgOn ? 'icon-[lucide--image]' : 'icon-[lucide--image-off]'" />
       </button>
       <button class="tb" :title="t('shot.pin')" @click="pinToScreen">
