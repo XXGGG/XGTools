@@ -182,6 +182,20 @@
   user-select: none;
 }
 
+/*
+  ……但标了 `select-text` 的地方要能刮选。
+
+  **这条必须写在这里,不能只靠 Tailwind 的 `select-text`。**
+  Tailwind v4 的工具类全在 `@layer utilities` 里,而上面那条 `*` 是层外规则 ——
+  层外无条件压过层内,跟谁的选择器更精确没关系。所以在组件上写 select-text
+  看着有样式、实际一点用没有:整个「文件恢复」的历史正文就是这么变得刮不动的。
+  这里补一条同样层外的,把它拉回来;后写的赢,选中的也就真能选了。
+*/
+.select-text,
+.select-text * {
+  user-select: text;
+}
+
 /* ============ 窗口特效开启时的表面体系 ============
    思路:窗口交给系统全透明,**底面和卡片一律由 CSS 画**,这样每一层都在我们手里。
    原因:Win11 build >= 22523 上 window_vibrancy 的 apply_acrylic/apply_mica 走 DWM 的
@@ -292,4 +306,42 @@ body.vibrancy .shadow-lg {
 button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]) {
   cursor: pointer;
+}
+
+/* 藏掉滚动条但保留滚动能力 —— 装饰性的索引列(悬浮大纲那一列短横线)用它，
+   冒出一根灰杆子会把「一列细线」这个观感破坏掉。 */
+.xg-no-scrollbar { scrollbar-width: none; }
+.xg-no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
+
+/*
+  笔记里写 <span style="color:blue"> 时用的那套颜色。
+  
+  纯 blue / red 这些 CSS 原生色是给白底定的,扔进暗色模式又暗又闷,正文上根本
+  看不清。所以颜色名不直接用,统一换成这里这一套:亮色下压深一点保证对比度,
+  暗色下提亮、降饱和,不刺眼也读得清。写十六进制的不动 —— 那是作者自己挑的。
+*/
+:root {
+  --xg-ink-red: #d92d20;
+  --xg-ink-orange: #c4600a;
+  --xg-ink-yellow: #a16207;
+  --xg-ink-green: #15803d;
+  --xg-ink-cyan: #0e7490;
+  --xg-ink-blue: #1d4ed8;
+  --xg-ink-purple: #7c3aed;
+  --xg-ink-pink: #db2777;
+  --xg-ink-brown: #92400e;
+  --xg-ink-gray: #6b7280;
+}
+
+.dark {
+  --xg-ink-red: #ff7b72;
+  --xg-ink-orange: #ffa657;
+  --xg-ink-yellow: #e3b341;
+  --xg-ink-green: #56d364;
+  --xg-ink-cyan: #56d4dd;
+  --xg-ink-blue: #79b8ff;
+  --xg-ink-purple: #d2a8ff;
+  --xg-ink-pink: #ff9bce;
+  --xg-ink-brown: #d3a06a;
+  --xg-ink-gray: #9ca3af;
 }

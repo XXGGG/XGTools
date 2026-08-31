@@ -22,7 +22,7 @@
  * 下面这份扩展清单是照它 React 组件里那份抄的,**顺序有讲究**:
  * 语法解析要先于装饰、装饰要在主题之后、更新监听要在装饰之后。
  */
-import { shallowRef, onMounted, onBeforeUnmount, watch, computed } from 'vue'
+import { shallowRef, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
 import { EditorState, Compartment, Annotation, Prec, Transaction } from '@codemirror/state'
 import {
   EditorView, keymap, drawSelection, dropCursor, rectangularSelection,
@@ -52,6 +52,11 @@ import { isDarkNow, settings, VAULT_FONT_STACK, type VaultFont } from '@/composa
 import { mathAndDiagrams, resetMermaidTheme } from './editor/mathBlocks'
 import { tableAffordances } from './editor/tableTools'
 import { listIndent, listBackspace, taskSpace } from './editor/listTools'
+import { codeAffordances, codeAffordanceTheme } from './editor/codeAffordances'
+import { inlineHtmlStyles } from './editor/inlineHtml'
+import { scrollMemory, foldMemory } from './editor/viewMemory'
+import { caretAfterInsert } from './editor/caretAfterInsert'
+import { useI18n } from '@/i18n'
 import { strictLists } from './editor/strictLists'
 import { listMarkers } from './editor/listMarkers'
 
@@ -106,11 +111,13 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
+const { t } = useI18n()
+
 /** 标记「这次改动是外面灌进来的」,用来区分真正的用户输入 */
 const fromProp = Annotation.define<boolean>()
 
 /** 路径 → 滚动位置。模块级,组件被拆掉也留着 */
-const scrollMemory = new Map<string, number>()
+
 
 const host = shallowRef<HTMLDivElement | null>(null)
 const view = shallowRef<EditorView | null>(null)
@@ -278,12 +285,86 @@ function toggleFoldAt(view: EditorView, pos: number) {
   })
   if (existing) {
     view.dispatch({ effects: unfoldEffect.of(existing) })
+    rememberFolds()
     return
   }
   const range = view.state.facet(foldService)
     .map((f) => f(view.state, line.from, line.to))
     .find(Boolean)
   if (range) view.dispatch({ effects: foldEffect.of(range) })
+  rememberFolds()
+}
+
+/*
+  折叠状态跨切标签、跨切页面记住。
+
+  编辑器在切标签时是复用的(同一个 EditorView 换一份文档),而 CM6 的折叠状态是
+  EditorState 的一部分 —— 文档一换,折起来的段落全弹开了。收了半天的长文,
+  切去别的标签看一眼再回来,又是全展开,得重收一遍。
+
+  # 记录的时机:折的那一刻,不是切走的那一刻
+
+  一开始是在「切标签」的 watcher 里顺手记一笔的,结果记出来永远是空的 ——
+  换标签时 modelValue(正文)比 scrollKey(路径)先到,轮到 watcher 跑的时候
+  编辑器里装的**已经是下一篇的正文**了,拿着上一篇的路径去读它的折叠,
+  当然什么都没有。谁先谁后是 Vue 的调度细节,不该拿它当地基。
+
+  所以改成:一折一展就地记一笔 —— 那个瞬间路径和正文一定是同一篇的。
+  切回来时只管恢复,不用再关心顺序。
+
+  记行号而不是字符偏移:别处改了字数偏移就全错位了,而行号在「切走再回来」
+  这种场景里稳定得多;对不上的(那一行已经不是标题了)恢复时直接丢掉。
+*/
+
+
+function rememberFolds(key = props.scrollKey) {
+  const ed = view.value
+  if (!ed || !key) return
+  const lines: number[] = []
+  foldedRanges(ed.state).between(0, ed.state.doc.length, (from) => {
+    lines.push(ed.state.doc.lineAt(from).number)
+    return undefined
+  })
+  if (lines.length) foldMemory.set(key, lines)
+  else foldMemory.delete(key)
+}
+
+function restoreFolds() {
+  const ed = view.value
+  const key = props.scrollKey
+  const lines = key ? foldMemory.get(key) : undefined
+  if (!ed || !lines?.length) return
+  const effects = []
+  for (const n of lines) {
+    if (n > ed.state.doc.lines) continue
+    const line = ed.state.doc.line(n)
+    if (!headingLevel(line.text)) continue      // 那一行已经不是标题了,这条记录作废
+    const range = ed.state.facet(foldService)
+      .map((f) => f(ed.state, line.from, line.to))
+      .find(Boolean)
+    if (range) effects.push(foldEffect.of(range))
+  }
+  if (effects.length) ed.dispatch({ effects })
+}
+
+/** 把这一篇里折起来的段落全部展开 —— 收多了一个个点回去太费事 */
+function unfoldAll() {
+  const ed = view.value
+  if (!ed) return
+  const ranges: { from: number, to: number }[] = []
+  foldedRanges(ed.state).between(0, ed.state.doc.length, (from, to) => { ranges.push({ from, to }) })
+  if (!ranges.length) return
+  ed.dispatch({ effects: ranges.map((r) => unfoldEffect.of(r)) })
+  if (props.scrollKey) foldMemory.delete(props.scrollKey)
+}
+
+/** 这一篇有没有折起来的段落(外面用它决定要不要显示「全展开」) */
+function hasFolds() {
+  const ed = view.value
+  if (!ed) return false
+  let any = false
+  foldedRanges(ed.state).between(0, ed.state.doc.length, () => { any = true })
+  return any
 }
 
 /** 给每个能折的标题行挂一个把手 */
@@ -455,6 +536,13 @@ function decorations() {
     // 排在前面的话行内那些装饰会先把 $...$ 里的字符啃掉
     mathAndDiagrams(isDarkNow),
     tableAffordances(),
+    // 代码块右上角的复制按钮(写了语言就显示语言名,点它同样是复制)
+    codeAffordances({ copy: t('vault.codeCopy'), copied: t('vault.codeCopied') }),
+    codeAffordanceTheme,
+    // 行内 HTML:<span style="color:blue"> 这类真的按样式画出来
+    inlineHtmlStyles,
+    // 输入法打出来的字,光标要落在它后面(空列表项里打全角标点会跑到前面)
+    caretAfterInsert,
     wikiLinks({
       suggest: props.wikiSuggest,
       onOpen: (t) => props.onOpenWiki?.(t),
@@ -634,6 +722,14 @@ onMounted(() => {
     state: EditorState.create({ doc: props.modelValue, extensions: extensions() }),
   })
   restoreScroll()
+  /*
+    折叠也要在这儿恢复一次。
+
+    切标签是同一个编辑器换文档,走下面那个 scrollKey 的 watcher;而**离开笔记页**
+    (去设置、去智能体)是整个组件卸载重建 —— 那条 watcher 根本不会触发。
+    收起来的段落就是在这条路上丢的:切标签回来好好的,去别的页面回来全展开了。
+  */
+  restoreFolds()
 })
 
 onBeforeUnmount(() => {
@@ -665,6 +761,8 @@ function restoreScroll() {
 watch(() => props.scrollKey, (_now, before) => {
   rememberScroll(before)
   restoreScroll()
+  // 等这一份文档真的换进来了再恢复折叠 —— modelValue 的 watcher 排在后面
+  nextTick(() => restoreFolds())
   /*
     顺手把撤销历史清空 —— 重配隔间就等于新开一份历史。
 
@@ -917,7 +1015,9 @@ const searchPanelTheme = EditorView.theme({
     alignItems: 'center',
     gap: '6px',
     maxWidth: 'min(40rem, 70vw)',
-    padding: '8px 10px',
+    // 右边空出来的一条是留给关闭按钮的:它是绝对定位的,不占位
+    padding: '8px 58px 8px 10px',
+    position: 'relative',
     fontSize: '12px',
     borderRadius: '14px',
     border: '1px solid color-mix(in srgb, var(--border) 70%, transparent)',
@@ -979,32 +1079,39 @@ const searchPanelTheme = EditorView.theme({
     background: 'color-mix(in srgb, var(--foreground) 14%, transparent)',
   },
   /*
-    关闭按钮做成 28×28 的方块,和旁边的按钮一样高。
+    关闭按钮:右边一颗圆角方块,淡红底,竖着居中。
 
-    CM6 原生只给它一个 `×` 字符加几像素内边距,点击范围就那么一丁点大,
-    要瞄准才点得到。可点的东西不该比它看起来更小。
+    CM6 原生只给它一个 `×` 字符加几像素内边距,点击范围就那么一丁点大,要瞄准才点得到 ——
+    可点的东西不该比它看起来更小。位置上它原本夹在一堆按钮中间,和「上一个/下一个/全部替换」
+    混在一起,手会点错。这里把它拎出流外:绝对定位钉在面板右侧、上下居中 ——
+    面板里带不带替换那一行、换不换行,它都在同一个地方,手是有肌肉记忆的。
+    红是「关掉」的通用语义,压着饱和度用,不喧宾夺主。
   */
   '.cm-panel.cm-search [name=close]': {
-    position: 'static',
+    position: 'absolute',
+    right: '10px',
+    top: '50%',
+    transform: 'translateY(-50%)',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '28px',
-    height: '28px',
-    marginLeft: '2px',
+    width: '38px',
+    height: '38px',
     padding: 0,
-    fontSize: '16px',
-    lineHeight: 1,
-    color: 'var(--muted-foreground)',
-    background: 'none',
-    border: 'none',
-    borderRadius: '9px',
+    margin: 0,
+    fontSize: '20px',
+    lineHeight: '1',
+    color: 'color-mix(in srgb, #ef4444 88%, var(--foreground))',
+    background: 'color-mix(in srgb, #ef4444 14%, transparent)',
+    border: '1px solid color-mix(in srgb, #ef4444 28%, transparent)',
+    borderRadius: '11px',
     cursor: 'pointer',
-    transition: 'background 150ms, color 150ms',
+    transition: 'background 150ms, color 150ms, border-color 150ms',
   },
   '.cm-panel.cm-search [name=close]:hover': {
-    background: 'color-mix(in srgb, var(--foreground) 8%, transparent)',
-    color: 'var(--foreground)',
+    background: 'color-mix(in srgb, #ef4444 26%, transparent)',
+    borderColor: 'color-mix(in srgb, #ef4444 45%, transparent)',
+    color: '#fff',
   },
   '.cm-searchMatch': {
     borderRadius: '3px',
@@ -1045,6 +1152,8 @@ function watchTableMenus() {
 }
 
 defineExpose({
+  unfoldAll,
+  hasFolds,
   focus: () => view.value?.focus(),
   /**
    * 视口正中间落在第几行(0 起)。大纲拿它高亮「正在看的那一节」。
