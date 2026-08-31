@@ -32,7 +32,7 @@ export const SHORTCUT_DEFAULTS: Record<ShortcutKey, string> = {
   screenshot: 'Ctrl+Alt+A',
   screenshot_translate: 'Ctrl+Alt+D',
   palette: 'Ctrl+Alt+Space',
-  palette_translate: 'Ctrl+Alt+T',
+  palette_translate: 'Ctrl+Alt+E',
 }
 
 type DockSettings = { shortcut: string; auto_start: boolean; [k: string]: unknown }
@@ -66,9 +66,11 @@ export async function readAllShortcuts(): Promise<ShortcutState[]> {
       enabled: paletteEnabled,
     },
     palette_translate: {
-      key: 'palette_translate', optional: true, ownSwitch: false,
+      // 和别的键一样有自己的开关(不用「清除」来表达「不要它」)。
+      // 但它和命令面板是同一个窗口,面板整个关掉时它也无从唤起 —— 所以两个都开着才算开。
+      key: 'palette_translate', optional: false, ownSwitch: true,
       shortcut: await get('palette_translate_shortcut', SHORTCUT_DEFAULTS.palette_translate),
-      enabled: paletteEnabled,
+      enabled: paletteEnabled && (await get('palette_translate_enabled', true)),
     },
   }
   return SHORTCUT_KEYS.map((k) => all[k])
@@ -93,7 +95,8 @@ export async function writeEnabled(key: ShortcutKey, on: boolean): Promise<void>
     return
   }
   await store.init()
-  const flag = key === 'palette' || key === 'palette_translate' ? 'palette_enabled' : `${key}_enabled`
+  // 命令面板那一项存在 palette_enabled 里(启动台页那个开关也读它);其余各存各的
+  const flag = key === 'palette' ? 'palette_enabled' : `${key}_enabled`
   await store.set(flag, on)
   await store.save()
 }

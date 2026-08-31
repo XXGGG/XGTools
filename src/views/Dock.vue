@@ -71,6 +71,8 @@ const paletteError = ref('')
 /** 翻译面板:同一个面板直接以翻译形态唤起。可选,空串 = 不注册 */
 const paletteTranslateShortcut = ref('')
 const paletteTranslateRecording = ref(false)
+/** 翻译面板这一项自己的开关(设置页快捷键那一栏在用) */
+const paletteTranslateEnabled = ref(true)
 
 /*
   文件搜索后端的状态。
@@ -209,7 +211,8 @@ async function syncAllShortcuts() {
     await screenshotStore.init()
     paletteEnabled.value = (await screenshotStore.get<boolean>('palette_enabled')) ?? true
     paletteShortcut.value = (await screenshotStore.get<string>('palette_shortcut')) ?? 'Ctrl+Alt+Space'
-    paletteTranslateShortcut.value = (await screenshotStore.get<string>('palette_translate_shortcut')) ?? 'Ctrl+Alt+T'
+    paletteTranslateShortcut.value = (await screenshotStore.get<string>('palette_translate_shortcut')) ?? 'Ctrl+Alt+E'
+    paletteTranslateEnabled.value = (await screenshotStore.get<boolean>('palette_translate_enabled')) ?? true
     const ssEnabled = (await screenshotStore.get<boolean>('screenshot_enabled')) ?? true
     const ssShortcut = (await screenshotStore.get<string>('screenshot_shortcut')) ?? 'Ctrl+Alt+A'
     const stEnabled = (await screenshotStore.get<boolean>('screenshot_translate_enabled')) ?? false
@@ -220,7 +223,8 @@ async function syncAllShortcuts() {
         screenshot_shortcut: ssEnabled ? ssShortcut : null,
         screenshot_translate_shortcut: stEnabled && stShortcut ? stShortcut : null,
         palette_shortcut: paletteEnabled.value ? paletteShortcut.value : null,
-        palette_translate_shortcut: paletteEnabled.value && paletteTranslateShortcut.value ? paletteTranslateShortcut.value : null,
+        palette_translate_shortcut: paletteEnabled.value && paletteTranslateEnabled.value && paletteTranslateShortcut.value
+          ? paletteTranslateShortcut.value : null,
       }
     })
   } catch (e) {

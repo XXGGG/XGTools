@@ -348,14 +348,18 @@ pub fn run() {
                 None
             };
 
-            // 翻译面板:同一个面板,唤起时直接进翻译形态。没配就不注册;
-            // 面板整个关掉时它也跟着关。
-            let palette_translate_shortcut = if palette_enabled {
-                // 从没设过 = 用默认 Ctrl+Alt+T;设过但清成空 = 用户明确不要,不注册
+            // 翻译面板:同一个面板,唤起时直接进翻译形态。
+            // 它有自己的开关,面板整个关掉时也跟着关(同一个窗口,面板没了它也无从唤起)。
+            let palette_translate_enabled = store_json.as_ref()
+                .and_then(|v| v.get("palette_translate_enabled"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let palette_translate_shortcut = if palette_enabled && palette_translate_enabled {
+                // 从没设过 = 用默认 Ctrl+Alt+E
                 let s = store_json.as_ref()
                     .and_then(|v| v.get("palette_translate_shortcut"))
                     .map(|v| v.as_str().unwrap_or("").to_string())
-                    .unwrap_or_else(|| "Ctrl+Alt+T".to_string());
+                    .unwrap_or_else(|| "Ctrl+Alt+E".to_string());
                 Some(s)
                     .filter(|s| !s.trim().is_empty())
                     .and_then(|s| dock_commands::parse_shortcut_str(&s).ok())
