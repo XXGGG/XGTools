@@ -819,7 +819,14 @@ export class AnnotationManager {
 
   // ============ 绘制 ============
 
-  drawAll(ctx: CanvasRenderingContext2D, sf: number) {
+  /**
+   * 把所有标注画一遍。
+   *
+   * withSelection 分开的是「画给人看」和「画进图里」两件事:选中框那圈虚线和
+   * 八个把手是**操作用的提示**,不是标注本身。出图时(复制 / 保存 / 贴屏)必须关掉 ——
+   * 否则最后画的那一个框会被原样烤进图片,截图上凭空多一圈蓝虚线和一堆小方块。
+   */
+  drawAll(ctx: CanvasRenderingContext2D, sf: number, withSelection = true) {
     for (const ann of this.annotations) {
       this.drawAnnotation(ctx, ann, sf)
     }
@@ -830,7 +837,7 @@ export class AnnotationManager {
       this.drawAnnotation(ctx, this.textPreview, sf)
     }
     // 绘制选中标注的选框
-    if (this.selectedId) {
+    if (withSelection && this.selectedId) {
       const sel = this.annotations.find(a => a.id === this.selectedId)
       if (sel) this.drawSelectionHandles(ctx, sel, sf)
     }

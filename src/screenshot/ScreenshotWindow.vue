@@ -803,7 +803,8 @@ async function copyToClipboard() {
   // 绘制标注层
   cropCtx.save()
   cropCtx.translate(-psx, -psy)
-  annMgr.drawAll(cropCtx, sf)
+  // 出图不要选中框:那圈虚线和把手是操作提示,不是标注
+  annMgr.drawAll(cropCtx, sf, false)
   cropCtx.restore()
 
   // 窗口圆角裁剪
@@ -870,7 +871,8 @@ async function saveToFile(fast = false) {
   // 绝对坐标系：裁剪画布原点在选区左上角，需偏移
   cropCtx.save()
   cropCtx.translate(-psx, -psy)
-  annMgr.drawAll(cropCtx, sf)
+  // 出图不要选中框:那圈虚线和把手是操作提示,不是标注
+  annMgr.drawAll(cropCtx, sf, false)
   cropCtx.restore()
 
   // 窗口圆角裁剪
@@ -937,7 +939,8 @@ async function pinToScreen() {
   // 绝对坐标系：裁剪画布原点在选区左上角，需偏移
   cropCtx.save()
   cropCtx.translate(-psx, -psy)
-  annMgr.drawAll(cropCtx, sf)
+  // 出图不要选中框:那圈虚线和把手是操作提示,不是标注
+  annMgr.drawAll(cropCtx, sf, false)
   cropCtx.restore()
 
   const dataUrl = cropCanvas.toDataURL('image/png')
