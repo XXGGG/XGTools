@@ -42,6 +42,11 @@ import PendingCard from '@/components/agent/PendingCard.vue'
 import RulesDialog from '@/components/agent/RulesDialog.vue'
 import { openRules } from '@/composables/useAgentRules'
 import {
+  projects, currentProject, grouped, categories,
+  loadProjects, addProject, updateProject, removeProject, toggleCategory,
+} from '@/composables/useProjects'
+import NewProjectDialog from '@/components/agent/NewProjectDialog.vue'
+import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
@@ -51,6 +56,7 @@ import { open as openExternal } from '@tauri-apps/plugin-shell'
 const { t } = useI18n()
 
 onMounted(async () => {
+  void loadProjects()
   await initDsh()
   if (dsh.state.phase === 'ready' && dsh.state.url) await connectChat(dsh.state.url)
 })
@@ -545,6 +551,46 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// ── 侧栏三页签 ────────────────────────────────────────
+//
+// 「聊天」随手聊、不归项目;「项目」挑一件要干的事;「当前项目」进去之后要用的东西。
+// 这三层就是工作台的骨架:先定范围,再干活。
+
+const SIDE_TABS = ['chat', 'projects', 'current'] as const
+const CUR_TABS = ['chat', 'files', 'settings'] as const
+
+const sideTab = ref<(typeof SIDE_TABS)[number]>('chat')
+const curTab = ref<(typeof CUR_TABS)[number]>('files')
+const newProjectOpen = ref(false)
+
+/** 进一个项目:记住它,并且直接跳到「当前项目」的文件页 —— 进来就是要看这个项目的东西 */
+function enterProject(id: string) {
+  projects.currentId = id
+  sideTab.value = 'current'
+  curTab.value = 'files'
+}
+
+/** 建好就直接进去 —— 人建项目就是为了开始干这件事,不该建完还停在列表上 */
+async function createProject(p: { name: string; category: string; icon: string }) {
+  const it = await addProject({ ...p, folder: '' })
+  enterProject(it.id)
+}
+
+/** 给这个项目挑一个文件夹。项目没有文件夹就只是个空壳 */
+async function pickFolder() {
+  const cur = currentProject.value
+  if (!cur) return
+  const picked = await openFileDialog({ directory: true, multiple: false })
+  if (typeof picked === 'string') await updateProject(cur.id, { folder: picked })
+}
+
+async function removeCurrentProject() {
+  const cur = currentProject.value
+  if (!cur) return
+  await removeProject(cur.id)
+  sideTab.value = 'projects'
+}
+
 /** 刚复制过的那条消息。用来把按钮短暂换成「已复制」 */
 const copiedId = ref('')
 
@@ -578,15 +624,34 @@ function clearThread() {
     <aside :style="{ width: settings.agentSidebarWidth + 'px' }"
       class="float-card shrink-0 rounded-[14px] border bg-card flex flex-col overflow-hidden">
 
-      <div class="p-2.5">
+      <!--
+        侧栏顶上这三个页签是工作台的骨架:
+        「聊天」随手聊、不归任何项目;「项目」挑一件要干的事;
+        「当前项目」进去之后这件事要用的全部东西。
+        新会话按钮挪进了「聊天」那一页 —— 它本来就只对随手聊有意义,
+        项目里的新会话在项目自己那一页。
+      -->
+      <div class="p-2 pb-1">
+        <div class="flex gap-1 p-1 rounded-xl bg-muted/40">
+          <button v-for="tb in SIDE_TABS" :key="tb"
+            :disabled="tb === 'current' && !currentProject"
+            @click="sideTab = tb" :class="[
+              'flex-1 h-7 rounded-lg text-[12.5px] transition-colors disabled:opacity-40',
+              sideTab === tb ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            ]">{{ t('agent.side_' + tb) }}</button>
+        </div>
+      </div>
+
+      <div v-if="sideTab === 'chat'" class="px-2.5 pt-1.5">
         <button @click="newSession()" :disabled="!chatReady"
-          class="w-full h-10 rounded-xl border border-border bg-muted/50 flex items-center justify-center gap-2
+          class="w-full h-9 rounded-xl border border-border bg-muted/50 flex items-center justify-center gap-2
                  text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50">
           <span class="icon-[lucide--circle-plus] w-4 h-4" />
           {{ t('agent.newChat') }}
         </button>
       </div>
 
+      <template v-if="sideTab === 'chat'">
       <div class="px-3.5 pb-1 flex items-center gap-1">
         <span class="text-xs text-muted-foreground mr-auto">{{ t('agent.workspace') }}</span>
         <button @click="loadSessions" :title="t('agent.refreshSessions')" :disabled="sessions.loading"
@@ -681,6 +746,102 @@ function clearThread() {
           <p class="mt-1 text-xs text-muted-foreground/70 leading-relaxed">{{ t('agent.noSessionsHint') }}</p>
         </div>
         </template>
+      </div>
+      </template>
+
+      <!-- ═══ 项目：大类折叠 → 项目 ═══ -->
+      <div v-else-if="sideTab === 'projects'" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2.5">
+        <p v-if="!projects.items.length" class="mt-6 px-2 text-center text-[13px] text-muted-foreground leading-relaxed">
+          {{ t('agent.noProjects') }}
+        </p>
+        <template v-for="g in grouped" :key="g.category || '_'">
+          <button v-if="g.category" @click="toggleCategory(g.category)"
+            class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[12px] text-muted-foreground
+                   transition-colors hover:bg-muted/50">
+            <span class="w-3 h-3 shrink-0"
+              :class="projects.collapsed[g.category] ? 'icon-[lucide--chevron-right]' : 'icon-[lucide--chevron-down]'" />
+            {{ g.category }}
+          </button>
+          <template v-if="!g.category || !projects.collapsed[g.category]">
+            <button v-for="pr in g.items" :key="pr.id" @click="enterProject(pr.id)" :class="[
+              'w-full flex items-center gap-2 py-1.5 rounded-lg text-[13px] transition-colors',
+              g.category ? 'pl-6 pr-2' : 'px-2',
+              projects.currentId === pr.id ? 'bg-muted text-foreground' : 'hover:bg-muted/60'
+            ]">
+              <span class="shrink-0">{{ pr.icon || '📁' }}</span>
+              <span class="truncate">{{ pr.name }}</span>
+            </button>
+          </template>
+        </template>
+
+        <button @click="newProjectOpen = true"
+          class="w-full mt-2 h-8 rounded-lg border border-dashed border-border text-[12.5px]
+                 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+          ＋ {{ t('agent.newProject') }}
+        </button>
+      </div>
+
+      <!-- ═══ 当前项目：会话 / 文件 / 设置 ═══ -->
+      <div v-else-if="sideTab === 'current' && currentProject" class="flex-1 min-h-0 flex flex-col">
+        <div class="px-2.5 pb-1 flex items-center gap-2 text-[13px]">
+          <span>{{ currentProject.icon || '📁' }}</span>
+          <span class="truncate font-medium">{{ currentProject.name }}</span>
+        </div>
+        <div class="px-2 pb-1">
+          <div class="flex gap-1 p-1 rounded-xl bg-muted/40">
+            <button v-for="sb in CUR_TABS" :key="sb" @click="curTab = sb" :class="[
+              'flex-1 h-7 rounded-lg text-[12px] transition-colors',
+              curTab === sb ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            ]">{{ t('agent.cur_' + sb) }}</button>
+          </div>
+        </div>
+
+        <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-2.5">
+          <!-- 会话：这个项目下的对话。第二步接真数据,先把位置留出来 -->
+          <template v-if="curTab === 'chat'">
+            <button @click="newSession(currentProject.folder || undefined)" :disabled="!chatReady"
+              class="w-full h-8 rounded-lg border border-dashed border-border text-[12.5px]
+                     text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-40">
+              ＋ {{ t('agent.newChat') }}
+            </button>
+            <p class="mt-3 px-1 text-[12px] text-muted-foreground leading-relaxed">
+              {{ t('agent.curChatHint') }}
+            </p>
+          </template>
+
+          <!-- 文件：项目文件夹的树。第二步做 -->
+          <template v-else-if="curTab === 'files'">
+            <p v-if="!currentProject.folder" class="mt-3 px-1 text-[12px] text-muted-foreground leading-relaxed">
+              {{ t('agent.noFolder') }}
+            </p>
+            <p v-else class="mt-3 px-1 text-[12px] text-muted-foreground font-mono wrap-break-word">
+              {{ currentProject.folder }}
+            </p>
+          </template>
+
+          <!-- 设置：这个项目自己的东西 -->
+          <template v-else>
+            <button @click="openRules(currentProject.folder)"
+              class="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-[13px] transition-colors hover:bg-muted/60">
+              <span class="icon-[lucide--scroll-text] w-3.5 h-3.5 text-muted-foreground" />
+              {{ t('agent.rules') }}
+            </button>
+            <button @click="pickFolder"
+              class="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-[13px] transition-colors hover:bg-muted/60">
+              <span class="icon-[lucide--folder-open] w-3.5 h-3.5 text-muted-foreground" />
+              <span class="flex-1 text-left truncate">{{ t('agent.projFolder') }}</span>
+              <span class="text-[11px] text-muted-foreground truncate max-w-[7rem]">
+                {{ currentProject.folder ? currentProject.folder.split(/[\/]/).pop() : t('agent.notSet') }}
+              </span>
+            </button>
+            <button @click="removeCurrentProject"
+              class="w-full flex items-center gap-2 px-2 py-2 mt-1 rounded-lg text-[13px] text-destructive
+                     transition-colors hover:bg-destructive/10">
+              <span class="icon-[lucide--trash-2] w-3.5 h-3.5" />
+              {{ t('agent.delProject') }}
+            </button>
+          </template>
+        </div>
       </div>
 
       <!--
@@ -1268,6 +1429,7 @@ function clearThread() {
     </AlertDialog>
 
     <RulesDialog />
+    <NewProjectDialog v-model:open="newProjectOpen" :categories="categories" @create="createProject" />
   </div>
 </template>
 
