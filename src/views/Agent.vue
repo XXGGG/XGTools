@@ -280,6 +280,110 @@ function autoScroll() {
 watch(() => chat.items.map((i) => (i.kind === 'assistant' ? i.text.length : 1)).join(),
   () => nextTick(autoScroll))
 
+/*
+  ── 每篇会话看到哪儿了 ──
+
+  两件事,规矩不一样:
+
+  · **头一回打开一篇**:落到最底下。聊天是从上往下长的,最新那句在最末尾 ——
+    打开停在开头,等于让人从头翻到尾才看得到刚聊到哪儿。
+  · **看过之后又切回来**:回到上次停的地方。人离开时正盯着中间某一段,
+    回来被扔到别处,那一段就得重新找。
+
+  **存的是「离底部多远」,不是绝对位置。** 存绝对位置踩过坑:切会话的一瞬间内容
+  还没渲染出来,量到的 scrollTop 是 0,存下来之后每次回来都被送回顶部 ——
+  而「0」在这套算法里恰好又是合法值,看不出是坏数据。离底部的距离没这个毛病:
+  内容没渲染时距离是 0,而 0 的含义正好是「贴着底」,和我们想要的默认一致。
+
+  表放在模块级(不是组件里):离开笔记页再回来时整个组件会重建,
+  存在组件里的东西那时候就没了。
+*/
+const chatScroll = new Map<string, number>()
+
+/*
+  **只记「他自己滚过」的那些会话。**
+
+  一开始是不管三七二十一都记,结果掉进一个自我循环:某次定位没成功、停在了顶部,
+  这个「顶部」被当成他的意愿记了下来,以后每次回来都送他去顶部,再记一次顶部……
+  越陷越深,而且从数据上看不出是坏的 —— 顶部本来就是合法位置。
+
+  分辨的办法很简单:滚轮、触摸、按键翻页才算「他自己滚的」;我们代码里设的
+  scrollTop 不触发这些。没滚过就说明他没表达过意愿,那就按默认来 —— 落到最新那条。
+*/
+const userScrolled = new Set<string>()
+
+/** 离底部还有多远。贴着底就是 0 */
+function bottomGap(el: HTMLElement) {
+  return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)
+}
+
+function rememberChatScroll() {
+  const el = listEl.value
+  if (el && chat.sessionId && userScrolled.has(chat.sessionId)) {
+    chatScroll.set(chat.sessionId, bottomGap(el))
+  }
+}
+
+/** 他自己动手滚了。记下来,以后回到这一篇就还他这个位置 */
+function onUserScroll() {
+  if (chat.sessionId) userScrolled.add(chat.sessionId)
+}
+
+/**
+ * 换会话之后落到该落的位置。
+ *
+ * **要多试几次。** 消息是分批渲染出来的:先出骨架,markdown 排完版之后高度还会再长。
+ * 只在第一帧设一次的话,那时候 scrollHeight 还是个小数字,设了等于没设。
+ * 中途用户自己滚了就立刻收手 —— 他已经知道要看哪儿了,再抢就是跟他打架。
+ */
+function restoreChatScroll(sessionId: string) {
+  const gap = chatScroll.get(sessionId) ?? 0
+  let last = -1
+  let userMoved = false
+  const onWheel = () => { userMoved = true }
+
+  const step = (attempt: number) => {
+    if (chat.sessionId !== sessionId || userMoved) return
+    const el = listEl.value
+    /*
+      这一栏可能还没挂上来:切会话的一瞬间界面处在「空态」那一支,
+      滚动容器根本不存在。这时候不能直接放弃,等下一轮再来。
+    */
+    if (!el) {
+      if (attempt < 8) setTimeout(() => step(attempt + 1), 120)
+      return
+    }
+    el.addEventListener('wheel', onWheel, { passive: true, once: true })
+    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - gap)
+    if (attempt < 6 && el.scrollHeight !== last) {
+      last = el.scrollHeight
+      setTimeout(() => step(attempt + 1), attempt === 0 ? 60 : 160)
+    } else {
+      el.removeEventListener('wheel', onWheel)
+    }
+  }
+  requestAnimationFrame(() => step(0))
+}
+
+/*
+  会话一换就记下旧的、定位新的。
+  用 watch 而不是写在点击处理里:会话也可能从别处被切走(命令面板、新建),
+  盯着值本身才不会漏。
+*/
+watch(() => chat.sessionId, (now, before) => {
+  const el = listEl.value
+  if (el && before && userScrolled.has(before)) chatScroll.set(before, bottomGap(el))
+  if (now) restoreChatScroll(now)
+})
+
+// 读完历史内容才真的铺开,这时候再定位一次才准
+watch(() => chat.loadingHistory, (loading) => {
+  if (!loading && chat.sessionId) restoreChatScroll(chat.sessionId)
+})
+
+// 离开这一页时也记一笔 —— 切去笔记页再回来,位置还在
+onBeforeUnmount(rememberChatScroll)
+
 async function send() {
   const text = input.value.trim()
   if (!text && !drafts.value.length) return
@@ -1305,7 +1409,8 @@ async function copyMessage(id: string, text: string) {
       <!-- 对话态 -->
       <template v-else>
         <!-- pt-16:给右上角那三颗控制点让位,否则第一条消息会钻到它们底下 -->
-        <div ref="listEl" class="flex-1 min-h-0 overflow-y-auto px-6 pb-6 pt-16">
+        <div ref="listEl" @wheel="onUserScroll" @touchmove="onUserScroll" @keydown="onUserScroll"
+          class="flex-1 min-h-0 overflow-y-auto px-6 pb-6 pt-16">
           <div class="max-w-2xl mx-auto flex flex-col gap-5">
             <!-- 拉历史的等待态:大会话要等一两秒,不给反馈像卡死 -->
             <div v-if="chat.loadingHistory && !chat.items.length"
