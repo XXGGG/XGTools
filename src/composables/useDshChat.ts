@@ -257,8 +257,24 @@ function handleFrame(raw: string) {
  * `HistoryEntry.event` 跟事件流里的 event 是同一套结构,所以「翻出旧会话」
  * 和「正在对话」走的是完全相同的渲染路径,不会出现两边长得不一样。
  */
-function applyEvent(ev: any) {
+function applyEvent(ev: any, replay = false) {
   const data = ev?.data ?? {}
+
+  /*
+    翻历史时把流式片段整个跳过。
+
+    模型每吐几个字就记一条 `assistant/chunk`。实测一个只问了 10 句话的会话,
+    日志里 176676 条记录,其中 176359 条是这种碎片 —— 占 99.8%。
+    照单全收地重放,等于把当初那句话「一个字一个字」再打一遍:
+    每一片都改一次响应式字符串,每一次都触发一遍 markdown 重排,界面当场冻住。
+    用户看到的就是「点了没反应、堵住了」。
+
+    而完整那句话另有记录:`assistant/message`(40 条,和步数对得上)。
+    翻历史只认它就行 —— 一次成型,不用重演打字过程。
+    实时对话照旧走 chunk,那时候「一个字一个字出来」正是我们要的效果。
+  */
+  if (replay && ev?.type === 'assistant/chunk') return
+
   switch (String(ev?.type ?? '')) {
     case 'turn/start':
       chat.busy = true
@@ -506,6 +522,10 @@ const MAX_RENDER = 200
 const historyCache = new Map<string, ChatItem[]>()
 
 export async function openSession(sessionId: string) {
+  // 走之前把这一篇现在的样子存下来 —— 刚聊出来的几句也算数,
+  // 不存的话切回来看到的是「上次读历史那一刻」,少了后面聊的
+  if (chat.sessionId && chat.items.length) historyCache.set(chat.sessionId, [...chat.items])
+
   chat.sessionId = sessionId
   chat.pending = null
   chat.error = ''
@@ -526,7 +546,7 @@ export async function openSession(sessionId: string) {
     if (chat.sessionId !== sessionId) return
     chat.items = []
     for (const entry of v?.events ?? []) {
-      if (entry?.event) applyEvent(entry.event)
+      if (entry?.event) applyEvent(entry.event, true)
     }
     if (chat.items.length > MAX_RENDER) {
       const dropped = chat.items.length - MAX_RENDER
