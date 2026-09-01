@@ -255,6 +255,18 @@ const kilo = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 const currentPermission = computed(() => permission.preset || 'workspace-write')
 const permissionLabel = computed(() => t('agent.perm_' + currentPermission.value))
 
+/*
+  权限图标要跟着档位变。
+
+  窄的时候这颗药丸**只剩一个图标**,图标再不变就完全看不出现在是哪一档 ——
+  「只读」和「完全访问」长一个样,那是危险的:用户以为自己在只读里,
+  其实它能改任何文件。眼睛 = 只读,盾牌 = 工作区可写,带感叹号的盾 = 完全访问。
+*/
+const permIcon = computed(() =>
+  currentPermission.value === 'read-only' ? 'icon-[lucide--eye]'
+  : currentPermission.value === 'workspace-write' ? 'icon-[lucide--shield-check]'
+  : 'icon-[lucide--shield-alert]')
+
 /**
  * 只在用户本来就贴着底部时才自动滚。
  * 无条件滚会把正在往上翻历史的人一把拽回底部 —— 长回复流式输出时尤其难受。
@@ -582,6 +594,18 @@ function onKeydown(e: KeyboardEvent) {
 //
 // 「聊天」随手聊、不归项目;「项目」挑一件要干的事;「当前项目」进去之后要用的东西。
 // 这三层就是工作台的骨架:先定范围,再干活。
+
+/*
+  下拉的开合自己管。
+
+  选完一项之后菜单该收起来 —— 这是所有下拉的常识,但组件库默认不收
+  (它不知道你这一项算不算「选完了」)。所以每个下拉挂一个开关,
+  点了就关。空态和会话态那两套下拉不会同时存在,可以共用同一个开关。
+*/
+const wsOpen = ref(false)
+const presetOpen = ref(false)
+const permOpen = ref(false)
+const modelOpen = ref(false)
 
 const SIDE_TABS = ['chat', 'projects', 'current'] as const
 const CUR_TABS = ['chat', 'files', 'settings'] as const
@@ -1080,7 +1104,7 @@ async function copyMessage(id: string, text: string) {
                不是输入框里的一个开关,视觉上分开更说得通。 -->
           <div class="flex items-center gap-1 mb-2 px-1">
             <!-- 工作区:决定新会话建在哪个目录。空态选好,第一句话生效 -->
-            <Popover>
+            <Popover v-model:open="wsOpen">
               <PopoverTrigger as-child>
                 <button class="pill">
                   <span class="icon-[lucide--folder] w-3.5 h-3.5" />
@@ -1090,7 +1114,7 @@ async function copyMessage(id: string, text: string) {
               </PopoverTrigger>
               <PopoverContent align="start" class="w-72 p-1">
                 <button v-for="w in workspaces.items" :key="w.workspaceId"
-                  @click="workspaces.pendingId = w.workspaceId" :class="[
+                  @click="workspaces.pendingId = w.workspaceId; wsOpen = false" :class="[
                     'w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors',
                     workspaces.pendingId === w.workspaceId ? 'bg-muted' : 'hover:bg-muted/60'
                   ]">
@@ -1116,7 +1140,7 @@ async function copyMessage(id: string, text: string) {
             </button>
 
             <!-- 模式:DSH 的 agent preset(标准/PTC/极简/创造),空态选好开局生效 -->
-            <Popover>
+            <Popover v-model:open="presetOpen">
               <PopoverTrigger as-child>
                 <button class="pill">
                   <span class="icon-[lucide--git-branch] w-3.5 h-3.5" />
@@ -1126,7 +1150,7 @@ async function copyMessage(id: string, text: string) {
               </PopoverTrigger>
               <PopoverContent align="start" class="w-80 p-1">
                 <button v-for="pr in presets.options" :key="pr.id"
-                  @click="selectPreset(pr.id)" :class="[
+                  @click="selectPreset(pr.id); presetOpen = false" :class="[
                     'w-full text-left rounded-md px-2.5 py-2 transition-colors',
                     presets.current === pr.id ? 'bg-muted' : 'hover:bg-muted/60'
                   ]">
@@ -1196,17 +1220,17 @@ async function copyMessage(id: string, text: string) {
                 {{ t('agent.planMode') }}
               </button>
               <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
-              <Popover>
+              <Popover v-model:open="permOpen">
                 <PopoverTrigger as-child>
                   <button class="pill">
-                    <span class="icon-[lucide--shield-check] w-3.5 h-3.5" />
+                    <span class="w-3.5 h-3.5" :class="permIcon" />
                     {{ permissionLabel }}
                     <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
                   </button>
                 </PopoverTrigger>
                 <PopoverContent align="start" class="w-56 p-1">
                   <button v-for="pp in PERMISSION_PRESETS" :key="pp"
-                    @click="selectPermission(pp)" :class="[
+                    @click="selectPermission(pp); permOpen = false" :class="[
                       'w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors flex items-center gap-2',
                       currentPermission === pp ? 'bg-muted' : 'hover:bg-muted/60'
                     ]">
@@ -1220,7 +1244,7 @@ async function copyMessage(id: string, text: string) {
                   </button>
                 </PopoverContent>
               </Popover>
-              <Popover>
+              <Popover v-model:open="modelOpen">
                 <PopoverTrigger as-child>
                   <button class="pill ml-auto" @click="loadModels">
                     <span :class="models.routable ? '' : 'text-amber-500'">{{ currentModelLabel }}</span>
@@ -1238,7 +1262,7 @@ async function copyMessage(id: string, text: string) {
                     {{ models.loading ? '…' : t('agent.noModels') }}
                   </p>
                   <button v-for="m in models.options" :key="m.provider + '/' + m.model"
-                    @click="selectModel(m.provider, m.model)" :class="[
+                    @click="selectModel(m.provider, m.model); modelOpen = false" :class="[
                       'group w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors',
                       m.provider === models.current?.provider && m.model === models.current?.model
                         ? 'bg-muted' : 'hover:bg-muted/60'
@@ -1426,17 +1450,17 @@ async function copyMessage(id: string, text: string) {
                   <span class="hidden @[30rem]:inline">{{ t('agent.planMode') }}</span>
                 </button>
                 <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
-                <Popover>
+                <Popover v-model:open="permOpen">
                   <PopoverTrigger as-child>
                     <button class="pill" :title="permissionLabel">
-                      <span class="icon-[lucide--shield-check] w-3.5 h-3.5" />
+                      <span class="w-3.5 h-3.5" :class="permIcon" />
                       <span class="hidden @[30rem]:inline">{{ permissionLabel }}</span>
                       <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="start" class="w-56 p-1">
                     <button v-for="pp in PERMISSION_PRESETS" :key="pp"
-                      @click="selectPermission(pp)" :class="[
+                      @click="selectPermission(pp); permOpen = false" :class="[
                         'w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors flex items-center gap-2',
                         currentPermission === pp ? 'bg-muted' : 'hover:bg-muted/60'
                       ]">
@@ -1469,7 +1493,7 @@ async function copyMessage(id: string, text: string) {
                     </p>
                   </PopoverContent>
                 </Popover>
-                <Popover>
+                <Popover v-model:open="modelOpen">
                   <PopoverTrigger as-child>
                     <button class="pill min-w-0" :class="ctx ? '' : 'ml-auto'" @click="loadModels"
                       :title="currentModelLabel">
@@ -1491,7 +1515,7 @@ async function copyMessage(id: string, text: string) {
                       {{ models.loading ? '…' : t('agent.noModels') }}
                     </p>
                     <button v-for="m in models.options" :key="m.provider + '/' + m.model"
-                      @click="selectModel(m.provider, m.model)" :class="[
+                      @click="selectModel(m.provider, m.model); modelOpen = false" :class="[
                         'group w-full text-left rounded-md px-2.5 py-2 text-sm transition-colors',
                         m.provider === models.current?.provider && m.model === models.current?.model
                           ? 'bg-muted' : 'hover:bg-muted/60'
