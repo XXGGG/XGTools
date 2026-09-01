@@ -55,6 +55,7 @@ import { listIndent, listBackspace, taskSpace } from './editor/listTools'
 import { codeAffordances, codeAffordanceTheme } from './editor/codeAffordances'
 import { inlineHtmlStyles } from './editor/inlineHtml'
 import { scrollMemory, foldMemory } from './editor/viewMemory'
+import { htmlPasteToMarkdown } from './editor/htmlPaste'
 import { caretAfterInsert } from './editor/caretAfterInsert'
 import { useI18n } from '@/i18n'
 import { strictLists } from './editor/strictLists'
@@ -684,19 +685,42 @@ function extensions() {
     */
     EditorView.domEventHandlers({
       paste(e, view) {
+        if (!e.clipboardData) return false
+
         const handler = props.onPasteImage
-        if (!handler || !e.clipboardData) return false
         const file = [...e.clipboardData.files].find((f) => f.type.startsWith('image/'))
-        if (!file) return false
+        if (handler && file) {
+          e.preventDefault()
+          const at = view.state.selection.main
+          void handler(file).then((md) => {
+            if (!md) return
+            view.dispatch({
+              changes: { from: at.from, to: at.to, insert: md },
+              selection: { anchor: at.from + md.length },
+            })
+            view.focus()
+          })
+          return true
+        }
+
+        /*
+          带表格的富文本:自己转成 markdown 表格再插。
+
+          剪贴板里 HTML 和纯文本各有一份,默认插的是纯文本那份 —— 而浏览器给的
+          纯文本会把单元格首尾相接,粘完读不出哪一格是哪一格。别的内容一律放行,
+          走原来的纯文本粘贴(见 htmlPaste.ts 里的取舍)。
+        */
+        const md = htmlPasteToMarkdown(e.clipboardData.getData('text/html'))
+        if (!md) return false
         e.preventDefault()
         const at = view.state.selection.main
-        void handler(file).then((md) => {
-          if (!md) return
-          view.dispatch({
-            changes: { from: at.from, to: at.to, insert: md },
-            selection: { anchor: at.from + md.length },
-          })
-          view.focus()
+        // 表格必须自己独占几行:光标停在半行上时先空一行,后面也留一行
+        const before = view.state.doc.sliceString(view.state.doc.lineAt(at.from).from, at.from)
+        const insert = `${before.trim() ? '\n\n' : ''}${md}\n`
+        view.dispatch({
+          changes: { from: at.from, to: at.to, insert },
+          selection: { anchor: at.from + insert.length },
+          userEvent: 'input.paste',
         })
         return true
       },
