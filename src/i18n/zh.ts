@@ -167,6 +167,9 @@ export const zh = {
     keysRestartShotDone: '截图窗口已重载，再按一次快捷键试试',
   },
   agent: {
+    docSave: '保存',
+    swapPanes: '换边：正文和对话对调',
+    filesHint: '单击 = 插进输入框让 AI 去看；双击 = 自己打开来看',
     side_chat: '聊天',
     side_projects: '项目',
     side_current: '当前项目',

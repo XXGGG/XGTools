@@ -36,9 +36,11 @@ import {
   draftFromBytes, mediaTypeOf, IMAGE_EXTS,
   type FileCandidate, type Draft,
 } from '@/composables/dshCompose'
+import { invoke } from '@tauri-apps/api/core'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { readFile } from '@tauri-apps/plugin-fs'
 import PendingCard from '@/components/agent/PendingCard.vue'
+import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import RulesDialog from '@/components/agent/RulesDialog.vue'
 import { openRules } from '@/composables/useAgentRules'
 import {
@@ -46,6 +48,7 @@ import {
   loadProjects, addProject, updateProject, removeProject, toggleCategory,
 } from '@/composables/useProjects'
 import NewProjectDialog from '@/components/agent/NewProjectDialog.vue'
+import ProjectFiles from '@/components/agent/ProjectFiles.vue'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -570,6 +573,62 @@ function enterProject(id: string) {
   curTab.value = 'files'
 }
 
+// ── 正文栏 ────────────────────────────────────────────
+//
+// 工作台是「AI 干活、我看结果」,所以正文和对话并排。哪个在中间由用户定 ——
+// 有人想盯着文件改,有人几乎只说话。
+
+/** 当前在正文栏里打开的文件(项目内相对路径),空 = 还没开 */
+const docPath = ref('')
+const docText = ref('')
+const docSaving = ref(false)
+
+/** 正文在中间还是对话在中间。项目里定了就听项目的,没定跟全局 */
+const docCenter = computed(() =>
+  (currentProject.value?.layout ?? settings.agentLayout) === 'doc-center')
+
+function swapPanes() {
+  const next = docCenter.value ? 'chat-center' : 'doc-center'
+  const cur = currentProject.value
+  // 在项目里改就只改这个项目;不在项目里就改全局默认
+  if (cur) void updateProject(cur.id, { layout: next })
+  else settings.agentLayout = next
+}
+
+/** 单击文件:把它插进输入框,变成一句 @引用 —— 不用自己去找路径 */
+function mentionFile(rel: string) {
+  const mention = /\s/.test(rel) ? `@"${rel}"` : `@${rel}`
+  const cur = input.value
+  input.value = cur && !cur.endsWith(' ') ? `${cur} ${mention} ` : `${cur}${mention} `
+  nextTick(() => composerEl.value?.focus())
+}
+
+/** 双击文件:在正文栏打开 */
+async function openProjectFile(rel: string) {
+  const root = currentProject.value?.folder
+  if (!root) return
+  try {
+    docText.value = await invoke<string>('vault_read', { root, rel })
+    docPath.value = rel
+  } catch (e) {
+    chat.items.push({ kind: 'notice', id: `d${Date.now()}`, text: String(e) })
+  }
+}
+
+/** 正文改了就存回去。这一栏是能改的 —— 看见不对随手就改,不用切去笔记页 */
+async function saveDoc() {
+  const root = currentProject.value?.folder
+  if (!root || !docPath.value) return
+  docSaving.value = true
+  try {
+    await invoke('vault_write', { root, rel: docPath.value, content: docText.value })
+  } catch (e) {
+    chat.items.push({ kind: 'notice', id: `d${Date.now()}`, text: String(e) })
+  } finally {
+    docSaving.value = false
+  }
+}
+
 /** 建好就直接进去 —— 人建项目就是为了开始干这件事,不该建完还停在列表上 */
 async function createProject(p: { name: string; category: string; icon: string }) {
   const it = await addProject({ ...p, folder: '' })
@@ -809,14 +868,20 @@ function clearThread() {
             </p>
           </template>
 
-          <!-- 文件：项目文件夹的树。第二步做 -->
+          <!-- 文件：项目文件夹的树。单击插引用,双击打开 -->
           <template v-else-if="curTab === 'files'">
-            <p v-if="!currentProject.folder" class="mt-3 px-1 text-[12px] text-muted-foreground leading-relaxed">
+            <button v-if="!currentProject.folder" @click="pickFolder"
+              class="w-full mt-2 px-2 py-3 rounded-lg border border-dashed border-border text-[12.5px]
+                     text-muted-foreground leading-relaxed transition-colors hover:bg-muted/50 hover:text-foreground">
               {{ t('agent.noFolder') }}
-            </p>
-            <p v-else class="mt-3 px-1 text-[12px] text-muted-foreground font-mono wrap-break-word">
-              {{ currentProject.folder }}
-            </p>
+            </button>
+            <template v-else>
+              <ProjectFiles :root="currentProject.folder"
+                @mention="mentionFile" @open="openProjectFile" />
+              <p class="mt-2 px-1 text-[11px] text-muted-foreground leading-relaxed">
+                {{ t('agent.filesHint') }}
+              </p>
+            </template>
           </template>
 
           <!-- 设置：这个项目自己的东西 -->
@@ -868,8 +933,51 @@ function clearThread() {
         :class="dragging ? 'bg-foreground/60' : ''" />
     </div>
 
+
+    <!--
+      ═══════ 正文栏 ═══════
+
+      只在「项目里而且开着一个文件」时出现 —— 随手聊的时候它没有内容可显示,
+      占着地方只会把对话挤窄。
+
+      order 决定它和对话谁在中间:工作台是「AI 干活、我看结果」,
+      两栏并排,哪个当主角由人定(项目里定了听项目的,没定跟全局)。
+    -->
+    <section v-if="docPath" class="flex flex-col overflow-hidden float-card rounded-[14px] border bg-card"
+      :style="{ order: docCenter ? 1 : 3, flex: docCenter ? '1 1 0%' : '0 0 28rem' }">
+      <div class="h-11 shrink-0 px-3 flex items-center gap-2 border-b border-border">
+        <span class="icon-[lucide--file-text] w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+        <span class="text-[13px] truncate">{{ docPath }}</span>
+        <button @click="saveDoc" :disabled="docSaving"
+          class="ml-auto h-7 px-2.5 rounded-lg border border-border text-[12px] text-muted-foreground
+                 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40">
+          {{ t('agent.docSave') }}
+        </button>
+        <button @click="swapPanes" :title="t('agent.swapPanes')"
+          class="size-7 rounded-lg flex items-center justify-center text-muted-foreground
+                 transition-colors hover:bg-muted hover:text-foreground">
+          <span class="icon-[lucide--arrow-left-right] w-3.5 h-3.5" />
+        </button>
+        <button @click="docPath = ''" :title="t('convert.cancel')"
+          class="size-7 rounded-lg flex items-center justify-center text-muted-foreground
+                 transition-colors hover:bg-muted hover:text-foreground">
+          <span class="icon-[lucide--x] w-3.5 h-3.5" />
+        </button>
+      </div>
+      <!-- 用的就是笔记页那个编辑器 —— 同一套渲染,不做第二份 -->
+      <div class="flex-1 min-h-0 overflow-hidden">
+        <MarkdownEditor v-model="docText" :scroll-key="docPath"
+          :accent="settings.vaultAccent" :font="settings.vaultFont"
+          :font-size="settings.vaultFontSize" :color-headings="settings.vaultColorHeadings" />
+      </div>
+    </section>
+
+    <div v-if="docPath" class="w-2.5 shrink-0" :style="{ order: 2 }" />
+
     <!-- ═══════ 聊天区 ═══════ -->
-    <section class="flex-1 min-w-0 flex flex-col overflow-hidden relative"
+    <section class="min-w-0 flex flex-col overflow-hidden relative"
+      :style="{ order: docPath ? (docCenter ? 3 : 1) : 2,
+                flex: docPath && docCenter ? '0 0 28rem' : '1 1 0%' }"
       :class="flat ? '' : 'float-card rounded-[14px] border bg-card'">
 
       <!--

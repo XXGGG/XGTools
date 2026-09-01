@@ -38,6 +38,8 @@ export type AppSettings = {
   // ── 智能体页 ──
   /** 会话侧栏宽度(px)。用户可以拖,写回这里。范围由 AGENT_SIDEBAR 约束。 */
   agentSidebarWidth: number
+  /** 工作台里正文栏放中间还是对话放中间。项目可以单独覆盖 */
+  agentLayout: 'doc-center' | 'chat-center'
   /** 空态那句招呼语。留空就用当前语言的默认文案 —— 存空串而不是存默认值,
    *  否则切语言时会被钉死在设置那天的那个语种上。 */
   agentGreeting: string
@@ -190,6 +192,7 @@ const DEFAULTS: AppSettings = {
   startPage: '',
   sidebarGroups: {},
   agentSidebarWidth: 240,
+  agentLayout: 'doc-center',
   agentGreeting: '',
   agentChatSurface: 'card',
   vaultTreeWidth: 260,

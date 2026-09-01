@@ -173,6 +173,9 @@ export const en: Messages = {
     keysRestartShotDone: 'Capture window reloaded — try the hotkey again',
   },
   agent: {
+    docSave: 'Save',
+    swapPanes: 'Swap: document and chat',
+    filesHint: 'Click = mention it to the agent; double-click = open it here',
     side_chat: 'Chat',
     side_projects: 'Projects',
     side_current: 'Current',
