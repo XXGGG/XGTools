@@ -151,6 +151,41 @@ pub async fn dsh_respond(
     Ok(())
 }
 
+/// 取一段会话历史,**把流式碎片扔掉再回给前端**。
+///
+/// 为什么要单开一个命令,而不是让前端自己调 `session.history`:
+/// 那份日志里 99.8% 是 `assistant/chunk` —— 模型每吐几个字记一条。实测一个只问了
+/// 10 句话的会话,日志 17 万条,其中 16 万条是碎片;哪怕只要「最近 40 条消息」,
+/// 服务端回的仍然是 16 万条(它数的是消息,不是记录)。
+///
+/// 这 16 万条要一路穿过 IPC 变成 JS 对象,光这一步就够界面卡住好几秒 ——
+/// 而它们**一条都用不上**:完整的那句话另有 `assistant/message`。
+/// 所以在这儿就地筛掉,前端只收到几百条。
+#[tauri::command]
+pub async fn dsh_history(
+    app: AppHandle,
+    session_id: String,
+    max_messages: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    let mut payload = serde_json::json!({ "sessionId": session_id });
+    if let Some(m) = max_messages {
+        payload["maxMessages"] = serde_json::json!(m);
+    }
+    let mut value = dsh_rpc(app, "session.history".into(), payload).await?;
+
+    if let Some(events) = value.get_mut("events").and_then(|e| e.as_array_mut()) {
+        events.retain(|entry| {
+            entry
+                .get("event")
+                .and_then(|e| e.get("type"))
+                .and_then(|t| t.as_str())
+                .map(|t| t != "assistant/chunk")
+                .unwrap_or(true)
+        });
+    }
+    Ok(value)
+}
+
 /// 把 `http://127.0.0.1:1234` 变成 `ws://127.0.0.1:1234/api/events.mux`
 fn ws_url(base: &str, stream: &str) -> String {
     let b = base.trim_end_matches('/');

@@ -135,6 +135,7 @@ pub fn run() {
             // DSH 通信桥:一元 RPC + 两条事件流
             dsh_bridge::dsh_rpc,
             dsh_bridge::dsh_respond,
+            dsh_bridge::dsh_history,
             dsh_bridge::dsh_connect,
             dsh_bridge::dsh_disconnect,
             // 托盘菜单(自绘窗口,不是系统原生菜单 —— 见 tray.rs 顶部)

@@ -304,6 +304,35 @@ function applyEvent(ev: any, replay = false) {
       break
     }
 
+    /*
+      你自己说的那句话。
+
+      以前压根没处理这一类 —— 界面上能看见,纯粹是因为 sendPrompt 发出去的时候
+      顺手在本地插了一条。所以**翻旧会话只看得见它的回答,看不见自己问了什么**,
+      对话像是从半截开始的。
+
+      只认 `source.kind === 'user'`:同一类记录里还混着注入的东西 ——
+      工作区规矩(agent-instructions)、运行环境快照(plugin)、技能清单
+      (skill-catalog)。那些是给模型看的,不是你说的话,画出来只会满屏噪音。
+    */
+    case 'user/message': {
+      if (data?.source?.kind !== 'user') break
+      const text = (data?.content ?? [])
+        .map((c: any) => (c?.type === 'text' ? c.text : ''))
+        .join('')
+        .trim()
+      if (!text) break
+      /*
+        实时对话时这条会**来两遍**:发出去的一瞬间我们在本地插了一条(不插的话
+        你按完回车得等一个来回才看见自己说的话,像卡了),随后事件流又把它送回来。
+        同一句话不能显示两遍 —— 最后一条要是同一句,就当它已经在了。
+      */
+      const last = [...chat.items].reverse().find((i) => i.kind === 'user')
+      if (last && last.kind === 'user' && last.text === text) break
+      chat.items.push({ kind: 'user', id: String(data?.id ?? nextId()), text })
+      break
+    }
+
     case 'assistant/message': {
       const full = (data?.content ?? []).map((x: any) => (x?.type === 'text' ? x.text : '')).join('')
       const cur = streamingAssistant()
@@ -537,11 +566,12 @@ export async function openSession(sessionId: string) {
   chat.loadingHistory = !cached
 
   try {
-    const v = await invoke<any>('dsh_rpc', {
-      method: 'session.history',
-      // 数的是「消息」不是事件:一轮里塞满工具调用时,40 条消息也能有上千条事件
-      payload: { sessionId, maxMessages: 40 },
-    })
+    /*
+      走 dsh_history 而不是直接调 session.history:碎片在 Rust 那层就筛掉了,
+      不然 16 万条要一路穿过 IPC 变成 JS 对象,光这一步就卡好几秒。
+      筛完只剩几百条,maxMessages 也就可以给得宽松些,历史看得更全。
+    */
+    const v = await invoke<any>('dsh_history', { sessionId, maxMessages: 60 })
     // 中途点开了别的会话:这份回来晚了,别把人家的界面覆盖掉
     if (chat.sessionId !== sessionId) return
     chat.items = []
