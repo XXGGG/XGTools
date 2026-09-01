@@ -334,7 +334,19 @@ function applyEvent(ev: any, replay = false) {
     }
 
     case 'assistant/message': {
-      const full = (data?.content ?? []).map((x: any) => (x?.type === 'text' ? x.text : '')).join('')
+      /*
+        内容在 `data.message.content` 里,不是 `data.content`。
+
+        踩过:照 `data.content` 读永远是空的,于是**翻旧会话只看得见自己问的话,
+        它的回答一句都没有** —— 而实时对话没事,因为那条路走的是 chunk。
+        两处形状确实不一样,user/message 是平的、assistant/message 套了一层 message。
+
+        块还分两种:`text` 是给你看的正文,`reasoning` 是它自己的推演过程。
+        这里只取正文 —— 推演动辄几千字,一股脑铺出来正文反而找不着了。
+        (以后做「思考过程可折叠」时再把它接回来。)
+      */
+      const blocks = data?.message?.content ?? data?.content ?? []
+      const full = blocks.map((x: any) => (x?.type === 'text' ? x.text : '')).join('')
       const cur = streamingAssistant()
       if (cur) { if (full.length > cur.text.length) cur.text = full; cur.streaming = false }
       else if (full) chat.items.push({ kind: 'assistant', id: nextId(), text: full, streaming: false })
