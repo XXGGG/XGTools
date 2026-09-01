@@ -180,7 +180,15 @@ onBeforeUnmount(() => window.removeEventListener('resize', clampToWindow))
 const input = ref('')
 const listEl = ref<HTMLElement | null>(null)
 
-const empty = computed(() => chat.items.length === 0)
+/*
+  空态 = 真的没有消息,**不包括「正在把历史读回来」那几百毫秒**。
+
+  以前把「正在读」也算成空态,于是点一条旧会话会看见:
+  居中的大招呼语 + 摆在正中间的输入框 → 一瞬间又变成消息列表 + 输入框沉到底。
+  整个页面「跳」一下 —— 因为这是两套完全不同的排版。
+  正在读的时候维持正常排版,输入框待在它该在的地方,消息淡入就行。
+*/
+const empty = computed(() => chat.items.length === 0 && !chat.loadingHistory)
 
 /**
  * 启动屏该不该盖着聊天区。
@@ -284,6 +292,7 @@ async function send() {
   input.value = ''
   drafts.value = []
   closeMentions()
+  nextTick(autoGrow)
   await sendPrompt(text, images)
   await nextTick()
   autoScroll()
@@ -356,9 +365,24 @@ function applySlash(c: { name: string; hint: string }) {
 
 const mentionHint = ref('')
 
+/*
+  输入框跟着内容长高。
+
+  textarea 不会自己长,得每次先把高度清零、再按 scrollHeight 撑起来 ——
+  不清零的话它只会越来越高,删字不回缩。上限 200px:再高就把对话挤没了,
+  超过就自己滚。
+*/
+function autoGrow() {
+  const el = composerEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+}
+
 async function onComposerInput() {
   const el = composerEl.value
   if (!el) return
+  autoGrow()
   if (updateSlashes()) { mentions.value = []; mentionHint.value = ''; return }
   if (input.value.startsWith('/')) { closeMentions(); return }
   const tok = activeAtToken(input.value, el.selectionStart ?? input.value.length)
@@ -663,10 +687,6 @@ async function copyMessage(id: string, text: string) {
   setTimeout(() => { if (copiedId.value === id) copiedId.value = '' }, 1400)
 }
 
-/** 开新会话:不是清屏,是真的让 DSH 建一个新 session */
-function clearThread() {
-  newSession()
-}
 </script>
 
 <template>
@@ -1269,7 +1289,14 @@ function clearThread() {
               {{ t('agent.loadingHistory') }}
             </div>
 
-            <div v-for="m in chat.items" :key="m.id">
+            <!--
+              读完了整段淡入。
+
+              历史是一次性灌进来的:不淡入的话就是「空白 → 啪一下满屏文字」,
+              眼睛得重新找一遍看到哪儿了。淡入 + 轻微上移只要 200ms,
+              但足够让人知道「刚才那块是新出现的」。
+            -->
+            <div v-for="m in chat.items" :key="m.id" class="msg-in">
 
               <!-- 用户:右侧气泡 -->
               <div v-if="m.kind === 'user'" class="flex justify-end">
@@ -1388,10 +1415,6 @@ function clearThread() {
                 </button>
                 <!-- 和 DSH 一致:这是「开一段新的」,不是「把界面擦干净」——
                      旧会话仍在左边列表里,随时点回去 -->
-                <button @click="clearThread" class="pill">
-                  <span class="icon-[lucide--message-square-plus] w-3.5 h-3.5" />
-                  {{ t('agent.newChat') }}
-                </button>
                 <!--
                   计划模式:开着的时候它先出方案、等你点头才动手。
                   做成常驻开关而不是藏进菜单 —— 这是「这一轮怎么跟我配合」,
@@ -1400,14 +1423,14 @@ function clearThread() {
                 <button class="pill" :class="planOn ? 'pill-on' : ''"
                   :title="planOn ? t('agent.planModeOn') : t('agent.planModeOff')" @click="togglePlan">
                   <span class="icon-[lucide--list-checks] w-3.5 h-3.5" />
-                  {{ t('agent.planMode') }}
+                  <span class="hidden @[30rem]:inline">{{ t('agent.planMode') }}</span>
                 </button>
                 <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
                 <Popover>
                   <PopoverTrigger as-child>
-                    <button class="pill">
+                    <button class="pill" :title="permissionLabel">
                       <span class="icon-[lucide--shield-check] w-3.5 h-3.5" />
-                      {{ permissionLabel }}
+                      <span class="hidden @[30rem]:inline">{{ permissionLabel }}</span>
                       <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
                     </button>
                   </PopoverTrigger>
@@ -1448,12 +1471,16 @@ function clearThread() {
                 </Popover>
                 <Popover>
                   <PopoverTrigger as-child>
-                    <button class="pill" :class="ctx ? '' : 'ml-auto'" @click="loadModels">
-                      <span :class="models.routable ? '' : 'text-amber-500'">{{ currentModelLabel }}</span>
-                      <span v-if="models.current?.reasoningEffort" class="text-muted-foreground">
+                    <button class="pill min-w-0" :class="ctx ? '' : 'ml-auto'" @click="loadModels"
+                      :title="currentModelLabel">
+                      <span class="truncate max-w-[9rem]" :class="models.routable ? '' : 'text-amber-500'">
+                        {{ currentModelLabel }}
+                      </span>
+                      <span v-if="models.current?.reasoningEffort"
+                        class="hidden @[34rem]:inline text-muted-foreground">
                         {{ models.current.reasoningEffort }}
                       </span>
-                      <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60" />
+                      <span class="icon-[lucide--chevron-down] w-3 h-3 opacity-60 shrink-0" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="end" class="w-72 p-1 max-h-80 overflow-y-auto">
@@ -1554,18 +1581,37 @@ function clearThread() {
 }
 .composer:focus-within { border-color: color-mix(in srgb, var(--foreground) 24%, transparent); }
 
+/*
+  这一条按钮带里的响应式按**它自己的宽度**算,不是窗口宽度 ——
+  正文栏一开,聊天区就窄了一半,窗口却没变。容器查询才是对的尺子。
+*/
 .composer-bar {
+  container-type: inline-size;
   display: flex;
   align-items: center;
   gap: 0.375rem;
   padding: 0.375rem 0.5rem 0.5rem;
+  /* 不许换行:一换行就会把「工作区可写」竖着码成一列 */
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
+
+@keyframes xg-msg-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.msg-in { animation: xg-msg-in 200ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { .msg-in { animation: none; } }
 
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   height: 1.875rem;
+  /* 挤不下时先缩自己,别把别人顶出去 */
+  min-width: 0;
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 0 0.625rem;
   border-radius: 0.625rem;
   font-size: 12.5px;
