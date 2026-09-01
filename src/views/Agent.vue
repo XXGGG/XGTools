@@ -17,11 +17,12 @@ import { settings, AGENT_SIDEBAR } from '@/composables/useAppSettings'
 import { renderChatMd, onChatLinkClick } from '@/composables/useChatMarkdown'
 import { dsh, dshUsable, initDsh, installDsh, startDsh, refreshDsh } from '@/composables/useDsh'
 import {
-  chat, chatReady, connectChat, newSession, sendPrompt, respondPending,
+  chat, chatReady, connectChat, newSession, sendPrompt,
   sessions, loadSessions, openSession, pinned, togglePin, renameSession, archiveSession,
   sessionSearch, searchSessions,
   models, loadModels, selectModel, setDefaultModel, currentModelLabel, type SessionRow,
   presets, loadPresets, selectPreset,
+  projections, togglePlan,
   workspaces, loadWorkspaces, addWorkspace,
   permission, selectPermission, PERMISSION_PRESETS,
 } from '@/composables/useDshChat'
@@ -30,6 +31,7 @@ import {
 } from '@/components/ui/context-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import DshBoot from '@/components/DshBoot.vue'
+import PendingCard from '@/components/agent/PendingCard.vue'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -193,6 +195,33 @@ const currentPresetLabel = computed(() => {
 })
 
 /** 会话里显示事件流折出来的档位;空态显示待用的;都没有就当默认档 */
+const planOn = computed(() => projections.plan.active)
+
+/*
+  上下文用量。
+
+  DSH 一直在算,只是以前没地方看 —— 而「快压缩了」是必须有感知的事:
+  压缩会把前面的对话揉成摘要,正在追一个长任务的时候突然被揉一次,
+  模型的记性会明显变差。提前看得见,就能自己决定要不要开新会话。
+
+  分母是模型的上下文窗口,分子优先用 projectedTokens(host 估的下一次请求量),
+  没有就退回 pressureTokens(上一次请求的真实用量)。
+*/
+const ctx = computed(() => {
+  const p = projections.pressure as { pressureTokens?: number; contextWindow?: number; projectedTokens?: number }
+  const used = p.projectedTokens ?? p.pressureTokens
+  const total = p.contextWindow
+  if (!used || !total) return null
+  return { used, total, pct: Math.min(100, Math.round((used / total) * 100)) }
+})
+
+const ctxTone = computed(() => {
+  const pct = ctx.value?.pct ?? 0
+  return pct >= 90 ? 'text-red-500' : pct >= 70 ? 'text-amber-500' : 'text-muted-foreground'
+})
+
+/** 12345 → 12.3k。用量表看的是量级,精确到个位没意义还占地方 */
+const kilo = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 const currentPermission = computed(() => permission.preset || 'workspace-write')
 const permissionLabel = computed(() => t('agent.perm_' + currentPermission.value))
 
@@ -588,6 +617,16 @@ function clearThread() {
               <button :title="t('agent.attach')" class="pill-icon">
                 <span class="icon-[lucide--plus] w-4 h-4" />
               </button>
+              <!--
+                计划模式:开着的时候它先出方案、等你点头才动手。
+                做成常驻开关而不是藏进菜单 —— 这是「这一轮怎么跟我配合」,
+                和权限、模型一样每次都要一眼看得见。
+              -->
+              <button class="pill" :class="planOn ? 'pill-on' : ''"
+                :title="planOn ? t('agent.planModeOn') : t('agent.planModeOff')" @click="togglePlan">
+                <span class="icon-[lucide--list-checks] w-3.5 h-3.5" />
+                {{ t('agent.planMode') }}
+              </button>
               <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
               <Popover>
                 <PopoverTrigger as-child>
@@ -736,24 +775,7 @@ function clearThread() {
           不回应的话那次工具调用会一直挂着,所以这块必须显眼。
         -->
         <div v-if="chat.pending" class="px-6 pb-3">
-          <div class="max-w-2xl mx-auto rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
-            <div class="flex items-start gap-2.5">
-              <span class="icon-[lucide--hand] w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-medium">{{ chat.pending.title }}</p>
-                <p v-if="chat.pending.detail"
-                  class="mt-1 text-xs font-mono leading-relaxed text-muted-foreground wrap-break-word max-h-24 overflow-auto">
-                  {{ chat.pending.detail }}
-                </p>
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <button v-for="o in chat.pending.options" :key="o.id" @click="respondPending(o.id)"
-                    class="h-8 px-3.5 rounded-lg border border-border text-sm transition-colors hover:bg-muted">
-                    {{ o.label }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <div class="max-w-2xl mx-auto"><PendingCard /></div>
         </div>
 
         <div class="px-6 pb-5">
@@ -771,6 +793,16 @@ function clearThread() {
                 <button @click="clearThread" class="pill">
                   <span class="icon-[lucide--message-square-plus] w-3.5 h-3.5" />
                   {{ t('agent.newChat') }}
+                </button>
+                <!--
+                  计划模式:开着的时候它先出方案、等你点头才动手。
+                  做成常驻开关而不是藏进菜单 —— 这是「这一轮怎么跟我配合」,
+                  和权限、模型一样每次都要一眼看得见。
+                -->
+                <button class="pill" :class="planOn ? 'pill-on' : ''"
+                  :title="planOn ? t('agent.planModeOn') : t('agent.planModeOff')" @click="togglePlan">
+                  <span class="icon-[lucide--list-checks] w-3.5 h-3.5" />
+                  {{ t('agent.planMode') }}
                 </button>
                 <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
                 <Popover>
@@ -797,9 +829,28 @@ function clearThread() {
                     </button>
                   </PopoverContent>
                 </Popover>
+                <!-- 上下文用量:有窗口大小才显示,不然一个没分母的数字没意义 -->
+                <Popover v-if="ctx">
+                  <PopoverTrigger as-child>
+                    <button class="pill ml-auto" :class="ctxTone">
+                      <span class="ctx-bar"><i :style="{ width: ctx.pct + '%' }" /></span>
+                      {{ ctx.pct }}%
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" class="w-64 p-3">
+                    <p class="text-xs font-medium">{{ t('agent.ctxUsed') }} {{ kilo(ctx.used) }} / {{ kilo(ctx.total) }}</p>
+                    <p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                      {{ t('agent.ctxDetail', {
+                        sys: kilo(projections.breakdown.systemTokens),
+                        tools: kilo(projections.breakdown.toolsTokens),
+                        msg: kilo(projections.breakdown.messageTokens),
+                      }) }}
+                    </p>
+                  </PopoverContent>
+                </Popover>
                 <Popover>
                   <PopoverTrigger as-child>
-                    <button class="pill ml-auto" @click="loadModels">
+                    <button class="pill" :class="ctx ? '' : 'ml-auto'" @click="loadModels">
                       <span :class="models.routable ? '' : 'text-amber-500'">{{ currentModelLabel }}</span>
                       <span v-if="models.current?.reasoningEffort" class="text-muted-foreground">
                         {{ models.current.reasoningEffort }}
@@ -921,6 +972,30 @@ function clearThread() {
   transition: background-color 140ms ease;
 }
 .pill:hover { background: color-mix(in srgb, var(--foreground) 7%, transparent); }
+/* 开着的开关要一眼看出来:实心底色,和旁边那几个「点开才知道选了什么」的下拉区分开 */
+.pill-on {
+  background: color-mix(in srgb, var(--atomic-editor-accent, var(--foreground)) 16%, transparent);
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--atomic-editor-accent, var(--foreground)) 40%, transparent);
+}
+.pill-on:hover { background: color-mix(in srgb, var(--atomic-editor-accent, var(--foreground)) 24%, transparent); }
+
+/* 用量条:细细一根,和百分比并排。不用环形 —— 这一行里都是矮胖的药丸,圆环会显得突兀 */
+.ctx-bar {
+  display: inline-block;
+  width: 26px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 15%, transparent);
+  overflow: hidden;
+}
+.ctx-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+  transition: width 200ms;
+}
 
 .pill-icon {
   display: inline-flex;

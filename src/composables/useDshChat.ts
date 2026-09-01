@@ -20,14 +20,38 @@ export type ChatItem =
   | { kind: 'tool'; id: string; name: string; status: 'running' | 'done' | 'failed'; detail: string }
   | { kind: 'notice'; id: string; text: string }
 
-/** 需要用户拍板的事:权限审批 / 向用户提问。挂着不回,那次工具调用就永远卡住。 */
-export type Pending = {
-  rpcId: string
-  kind: 'approval' | 'question'
-  title: string
-  detail: string
-  options: { id: string; label: string }[]
+/** 提给用户的一个选项。`description` 是给有能力的界面用的补充说明。 */
+export type QuestionOption = { label: string; description?: string }
+
+/**
+ * 一个提给用户的问题。
+ *
+ * `intent` 是**呈现意图**:调用方声明「这个问题本质上是哪一类决定」,认得的界面
+ * 就按那类决定去画,不认得的照常画成一串选项 —— 两种画法回给模型的答案一模一样。
+ * 目前只有 `plan-review`(评审一份计划),`approve` 指名哪个选项代表批准
+ * (指名而不是靠顺序,免得界面从选项排序里猜错结论)。
+ */
+export type QuestionItem = {
+  id: string
+  question: string
+  header?: string
+  detail?: string
+  options?: QuestionOption[]
+  multiSelect?: boolean
+  intent?: { kind: 'plan-review'; approve: string }
 }
+
+/**
+ * 需要用户拍板的事。挂着不回,那次工具调用就永远卡住。
+ *
+ * 两类的**回法完全不同**,所以分开建模而不是塞进一个泛化的「选项列表」:
+ *  · 审批回 `{ sessionId, approvalId, outcome }`
+ *  · 提问回 `{ answers: [{ id, selected: [选项文字] }] }` —— 注意 selected 里是
+ *    **选项的文字**,不是下标也不是 id
+ */
+export type Pending =
+  | { kind: 'approval'; rpcId: string; sessionId: string; approvalId: string; toolName: string; reason?: string }
+  | { kind: 'question'; rpcId: string; sessionId: string; questions: QuestionItem[] }
 
 export const chat = reactive<{
   sessionId: string
@@ -47,6 +71,63 @@ export const chat = reactive<{
   loadingHistory: false,
   error: '',
 })
+
+/**
+ * 会话的**当前值**,不是消息流。
+ *
+ * DSH 把这类东西叫「投影」:它们由日志回放折叠而来,所以刷新、换机器、冷启动都能
+ * 只凭日志恢复。两条来路,缺一不可:
+ *  · 打开会话时 `session.history` 的尾页带一份全量(`projections.values`)
+ *  · 之后每变一次推一帧 `session/projection`,只带变了的那一个 key
+ */
+export const projections = reactive({
+  /** 计划模式:active 是已记录的状态,pending 是「选了但还没到生效时机」 */
+  plan: { active: false, pending: false },
+  /** 这一轮上下文吃了多少 token */
+  tokens: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+  /** 上下文由哪几块构成(系统提示词 / 工具 schema / 消息) */
+  breakdown: { systemTokens: 0, toolsTokens: 0, messageTokens: 0 },
+  /** 离压缩还有多远。字段由上游定,原样存着给界面挑 */
+  pressure: {} as Record<string, unknown>,
+})
+
+/** 换会话时清干净 —— 上一篇的用量和计划状态不能挂在新会话头上 */
+function resetProjections() {
+  // 空态选过计划模式的,别在建会话的一瞬间把开关闪回去
+  projections.plan.active = planWanted ?? false
+  projections.plan.pending = false
+  projections.tokens = { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+  projections.breakdown = { systemTokens: 0, toolsTokens: 0, messageTokens: 0 }
+  projections.pressure = {}
+}
+
+function applyProjection(key: string, value: any) {
+  if (value == null) return
+  switch (key) {
+    case 'plan':
+      projections.plan.active = !!value.active
+      projections.plan.pending = !!value.pending
+      break
+    case 'tokenUsage':
+      Object.assign(projections.tokens, value)
+      break
+    case 'contextBreakdown':
+      Object.assign(projections.breakdown, value)
+      break
+    case 'contextPressure':
+      projections.pressure = value
+      break
+    default:
+      break   // 别的 key(todos、subagent…)以后要用再接
+  }
+}
+
+/** 打开会话时把尾页带来的那一份全量投影铺进去 */
+function applyProjectionBlock(block: any) {
+  const values = block?.values
+  if (!values || typeof values !== 'object') return
+  for (const [k, v] of Object.entries(values)) applyProjection(k, v)
+}
 
 let wired = false
 let seq = 0
@@ -108,23 +189,60 @@ function handleFrame(raw: string) {
 
   const method = String(frame.method ?? '')
 
-  // 需要人拍板的:审批 / 提问。只有这一类才回 rpcId。
-  if (method.includes('approval') || method.includes('permission') || method.includes('question')) {
-    const p = frame.payload ?? {}
-    const isQuestion = method.includes('question')
+  const p = frame.payload ?? {}
+
+  /*
+    需要人拍板的两类。**只有这两类才回 rpcId** —— 给通知回 /api/respond
+    会拿到 not-pending,无害但纯属白跑。
+  */
+  if (method === 'approval/requested') {
     chat.pending = {
+      kind: 'approval',
       rpcId: frame.rpcId,
-      kind: isQuestion ? 'question' : 'approval',
-      title: isQuestion ? (textOf(p.question) || '智能体想问你一件事') : '需要你批准',
-      detail: textOf(p) || JSON.stringify(p).slice(0, 300),
-      options: Array.isArray(p.options) && p.options.length
-        ? p.options.map((o: any, i: number) => ({ id: String(o?.id ?? i), label: String(o?.label ?? o ?? '') }))
-        : [{ id: 'allow', label: '允许' }, { id: 'deny', label: '拒绝' }],
+      sessionId: String(p.sessionId ?? ''),
+      approvalId: String(p.approvalId ?? ''),
+      toolName: String(p.toolName ?? '工具'),
+      reason: p.reason ? String(p.reason) : undefined,
     }
     return
   }
 
-  if (method !== 'session/event') return   // projection / queue 等暂不渲染
+  if (method === 'question/requested') {
+    const qs = (Array.isArray(p.questions) ? p.questions : []).map((q: any): QuestionItem => ({
+      id: String(q?.id ?? ''),
+      question: String(q?.question ?? ''),
+      header: q?.header ? String(q.header) : undefined,
+      detail: q?.detail ? String(q.detail) : undefined,
+      options: Array.isArray(q?.options)
+        ? q.options.map((o: any) => ({ label: String(o?.label ?? ''), description: o?.description ? String(o.description) : undefined }))
+        : undefined,
+      multiSelect: !!q?.multiSelect,
+      intent: q?.intent?.kind === 'plan-review'
+        ? { kind: 'plan-review', approve: String(q.intent.approve ?? '') }
+        : undefined,
+    }))
+    if (qs.length) {
+      chat.pending = { kind: 'question', rpcId: frame.rpcId, sessionId: String(p.sessionId ?? ''), questions: qs }
+    }
+    return
+  }
+
+  // 别处答了、或者被取消了 —— 我们这边的卡片要跟着收掉,不能一直杵着
+  if (method === 'approval/resolved' || method === 'question/resolved') {
+    chat.pending = null
+    return
+  }
+
+  /*
+    投影帧:token 用量、plan 状态这些**不是消息**,是会话的当前值。
+    每次只推变了的那一个 key,所以这里按 key 覆盖,不整份替换。
+  */
+  if (method === 'session/projection') {
+    applyProjection(String(p.key ?? ''), p.value)
+    return
+  }
+
+  if (method !== 'session/event') return   // queue / jobs 等暂不渲染
 
   const ev = frame.payload?.event ?? frame.payload
   const sid = String(frame.payload?.sessionId ?? ev?.sessionId ?? '')
@@ -208,6 +326,12 @@ function applyEvent(ev: any) {
       }
       break
     }
+
+    case 'plan/mode':
+      // 计划模式是会话事件:命令改的、工具退出改的,都从这里跟上
+      projections.plan.active = !!data?.active
+      projections.plan.pending = false
+      break
 
     case 'permission/preset':
       // 权限档位是会话事件,谁改的(命令、别的客户端)这里都能跟上
@@ -363,6 +487,7 @@ export async function openSession(sessionId: string) {
   chat.items = []
   chat.pending = null
   chat.error = ''
+  resetProjections()
   chat.loadingHistory = true
   try {
     const v = await invoke<any>('dsh_rpc', {
@@ -375,6 +500,9 @@ export async function openSession(sessionId: string) {
       if (entry?.event) applyEvent(entry.event)
     }
     sealAssistant()   // 历史里最后一段不该留着流式光标
+    // 计划模式、token 用量这些不在事件里,在尾页的投影块里
+    applyProjectionBlock(v?.projections)
+    void loadCommands()
   } catch (e) {
     chat.error = String(e)
   } finally {
@@ -386,6 +514,7 @@ export async function newSession(cwd?: string) {
   chat.items = []
   chat.pending = null
   chat.error = ''
+  resetProjections()
   try {
     // 签名:create({ workspaceId?, cwd?, sessionId?, agentPreset? }) -> { sessionId }
     // workspaceId 和 cwd 互斥,协议规定只能给一个
@@ -399,6 +528,10 @@ export async function newSession(cwd?: string) {
     })
     chat.sessionId = String(v?.sessionId ?? '')
     if (!chat.sessionId) chat.error = '创建会话没有返回 sessionId'
+    if (chat.sessionId) {
+      void loadCommands()
+      void applyPlanWanted()
+    }
     // 空态时选过模型的话,现在有会话了,补交上去
     if (chat.sessionId && pendingSelection) {
       const sel = pendingSelection
@@ -458,6 +591,85 @@ export async function sendPrompt(text: string) {
   setTimeout(loadSessions, 2500)
 }
 
+/**
+ * 斜杠命令。
+ *
+ * **不要写成 `session.prompt` 里发一句 `/plan`。** 那条路是「用户说了句话」,
+ * DSH 会拿它去生成会话标题(整条会话叫「Read-only mode set」就是这么来的),
+ * 而且它得先经过一轮模型。命令有自己的通道:直接执行、立刻回结果、不进对话。
+ *
+ * 参数形状是 `{ args: { … } }` —— 这一层信封省不掉,少了它 DSH 回
+ * 「Remote payload must contain exactly one plain-object args field」。
+ */
+export const commands = reactive<{
+  list: { name: string; description: string; input?: { hint: string; images?: boolean } }[]
+}>({ list: [] })
+
+export async function loadCommands() {
+  if (!chat.sessionId) return
+  try {
+    const v = await invoke<any[]>('dsh_rpc', {
+      method: 'commands/list',
+      payload: { args: { agentId: chat.sessionId } },
+    })
+    commands.list = Array.isArray(v) ? v : []
+  } catch {
+    commands.list = []   // 拿不到命令表不该拦住别的事
+  }
+}
+
+/** 跑一条命令。回的是它的执行结果,成功失败都在里面 */
+export async function runCommand(line: string): Promise<{ kind: string; text: string } | null> {
+  if (!chat.sessionId) return null
+  try {
+    const v = await invoke<any>('dsh_rpc', {
+      method: 'commands/execute',
+      payload: { args: { agentId: chat.sessionId, line, images: [] } },
+    })
+    const r = v?.result ?? {}
+    return { kind: String(r.kind ?? 'success'), text: String(r.text ?? '') }
+  } catch (e) {
+    chat.items.push({ kind: 'notice', id: nextId(), text: String(e) })
+    return null
+  }
+}
+
+/**
+ * 开关计划模式。
+ *
+ * 先把界面翻过去(乐观),真实状态随后由 `plan/mode` 事件盖回来 —— 命令要走一趟
+ * 后端,不先翻的话按下去半秒没反应,像没点上。
+ */
+export async function togglePlan() {
+  const want = !projections.plan.active
+  projections.plan.active = want
+
+  /*
+    空态还没有会话,命令没地方发。记着,等会话建出来立刻补上 ——
+    和「先选好权限再说第一句」一个道理:用户是先定好怎么配合,再开口的。
+  */
+  if (!chat.sessionId) {
+    planWanted = want
+    return
+  }
+
+  const r = await runCommand(want ? '/plan' : '/plan off')
+  if (!r || r.kind === 'error') projections.plan.active = !want
+  else if (r.text) chat.items.push({ kind: 'notice', id: nextId(), text: r.text })
+}
+
+/** 空态选过的计划模式,等会话建出来再补发 */
+let planWanted: boolean | null = null
+
+async function applyPlanWanted() {
+  if (planWanted === null || !chat.sessionId) return
+  const want = planWanted
+  planWanted = null
+  // 命令不是对话内容,不会被拿去起标题,所以建完会话立刻补就行
+  const r = await runCommand(want ? '/plan' : '/plan off')
+  if (!r || r.kind === 'error') projections.plan.active = !want
+}
+
 /** 打断正在跑的那一轮 */
 export async function cancelTurn() {
   if (!chat.sessionId) return
@@ -469,14 +681,34 @@ export async function cancelTurn() {
   }
 }
 
-/** 回应审批 / 提问。不回的话那次工具调用会一直挂着。 */
-export async function respondPending(optionId: string) {
+/** 批准 / 拒绝一次工具调用 */
+export async function answerApproval(allow: boolean) {
   const p = chat.pending
-  if (!p) return
+  if (p?.kind !== 'approval') return
   chat.pending = null
+  await respond(p.rpcId, {
+    sessionId: p.sessionId,
+    approvalId: p.approvalId,
+    outcome: allow ? 'allowed-once' : 'rejected',
+  })
+}
+
+/**
+ * 回答一组问题。
+ *
+ * `selected` 里放的是**选项的文字**,不是 id 也不是下标 —— 协议就这么定的,
+ * 模型那边读到的也是这几个字。自由输入走 `custom`,可以和选项并存。
+ */
+export async function answerQuestions(answers: { id: string; selected: string[]; custom?: string }[]) {
+  const p = chat.pending
+  if (p?.kind !== 'question') return
+  chat.pending = null
+  await respond(p.rpcId, { answers })
+}
+
+async function respond(rpcId: string, value: unknown) {
   try {
-    const value = p.kind === 'approval' ? { decision: optionId } : { answer: optionId }
-    await invoke('dsh_respond', { rpcId: p.rpcId, value })
+    await invoke('dsh_respond', { rpcId, value })
   } catch (e) {
     chat.items.push({ kind: 'notice', id: nextId(), text: `回应失败：${e}` })
   }
@@ -763,20 +995,13 @@ export async function selectPermission(name: string) {
     permission.preset = name
     return
   }
-  try {
-    await invoke('dsh_rpc', {
-      method: 'session.prompt',
-      payload: {
-        sessionId: chat.sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text: `/permission ${name}` }],
-        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      },
-    })
-    permission.preset = name
-  } catch (e) {
-    chat.items.push({ kind: 'notice', id: nextId(), text: String(e) })
-  }
+  /*
+    走命令通道,不再伪装成一句用户发言。
+    以前是 session.prompt 发 `/permission x`:那条路会被 DSH 当成对话内容,
+    抢在用户第一句前面时整条会话会被命名成「Read-only mode set」。
+  */
+  const r = await runCommand(`/permission ${name}`)
+  if (r && r.kind !== 'error') permission.preset = name
 }
 
 // ── 会话管理 ──────────────────────────────────────────

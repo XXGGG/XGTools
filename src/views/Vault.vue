@@ -83,7 +83,8 @@ const ExcalidrawCanvas = defineAsyncComponent(() => import('@/components/Excalid
 import { parseCanvas, updateCanvas, isCanvasContent } from '@/composables/useExcalidraw'
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { open as openExternal } from '@tauri-apps/plugin-shell'
-import { chat, chatReady, sendPrompt, respondPending } from '@/composables/useDshChat'
+import { chat, chatReady, sendPrompt } from '@/composables/useDshChat'
+import PendingCard from '@/components/agent/PendingCard.vue'
 
 const { t } = useI18n()
 
@@ -2305,13 +2306,7 @@ async function sendFromVault() {
             </div>
 
             <!-- 审批也要能在这儿回,否则智能体一要权限,这一栏就永远卡住 -->
-            <div v-if="chat.pending" class="mx-3 mb-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-2.5">
-              <p class="text-[12px] font-medium">{{ chat.pending.title }}</p>
-              <div class="mt-2 flex flex-wrap gap-1.5">
-                <button v-for="o in chat.pending.options" :key="o.id" @click="respondPending(o.id)"
-                  class="h-7 px-2.5 rounded-md border border-border text-[12px] hover:bg-muted">{{ o.label }}</button>
-              </div>
-            </div>
+            <div v-if="chat.pending" class="mx-3 mb-2"><PendingCard compact /></div>
 
             <div class="p-2.5 border-t border-border">
               <!-- 带上下文:把当前打开的文件路径一起发过去,不然「这份笔记」它不知道指哪份 -->
