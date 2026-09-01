@@ -173,6 +173,8 @@ export const en: Messages = {
     keysRestartShotDone: 'Capture window reloaded — try the hotkey again',
   },
   agent: {
+    copy: 'Copy',
+    copied: 'Copied',
     mentionNone: 'No match in this workspace (is the workspace right?)',
     mentionNeedSession: 'Say something first — @ needs a workspace to search',
     approveTitle: '"{tool}" needs your approval',

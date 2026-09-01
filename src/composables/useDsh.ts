@@ -58,12 +58,54 @@ let initPromise: Promise<void> | null = null
 export function initDsh(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      await listen<DshState>('dsh://state', (e) => { dsh.state = e.payload })
+      await listen<DshState>('dsh://state', (e) => {
+        const before = dsh.state.phase
+        dsh.state = e.payload
+        // 本来跑得好好的,突然没了 —— 自己拉起来,别让人对着「连接被拒绝」干瞪眼
+        if (before === 'ready' && e.payload.phase === 'stopped') void reviveDsh()
+      })
       await listen<string>('dsh://install-log', (e) => { dsh.installLine = e.payload })
       await refreshDsh()
     })()
   }
   return initPromise
+}
+
+/*
+  边车自愈。
+
+  DSH 是个独立进程,崩了、被任务管理器结束了、开发时被 kill 了,都会留下同一个
+  现象:界面还在,但每一次说话都回「由于目标计算机积极拒绝,无法连接」,
+  而且**怎么点都好不了**,只能重启整个应用 —— 因为没人再去把它拉起来。
+
+  这里做的事很简单:发现它没了就重新起一次。但要有节制:
+   · 起不来就退一步再试(1s → 3s → 9s),不是死循环撞墙
+   · 撞满三次就停手,把话说清楚让人自己决定 —— 一直重试会把真正的错因刷掉
+   · 用户自己按了「启动」就把计数清零,那是一次全新的开始
+*/
+let reviveTries = 0
+let reviving = false
+
+export function resetRevive() {
+  reviveTries = 0
+}
+
+async function reviveDsh() {
+  if (reviving || !dshUsable.value) return
+  if (reviveTries >= 3) {
+    dsh.state = { ...dsh.state, phase: 'failed', message: '边车反复退出，已停止自动重启。点「启动」再试一次。' }
+    return
+  }
+  reviving = true
+  const wait = [1000, 3000, 9000][reviveTries] ?? 9000
+  reviveTries += 1
+  await new Promise((r) => setTimeout(r, wait))
+  try {
+    await startDsh()
+    if (dsh.state.phase === 'ready') reviveTries = 0
+  } finally {
+    reviving = false
+  }
 }
 
 export async function refreshDsh() {

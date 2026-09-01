@@ -378,6 +378,14 @@ export const chatReady = computed(() =>
 
 export async function connectChat(url: string) {
   await initChat()
+  /*
+    换了个地址重连,上一轮的报错就是历史了。
+
+    不清的话现象很怪:边车自己重启好了、绿灯也亮了,底下却一直挂着
+    「连接被拒绝」—— 那句话是边车没了的时候某次请求留下的,
+    没人再去擦掉它。用户看到绿灯配红字,只会以为还没好。
+  */
+  chat.error = ''
   await invoke('dsh_connect', { url })
 }
 

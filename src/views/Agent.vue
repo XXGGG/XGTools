@@ -15,14 +15,14 @@ import { ref, nextTick, computed, onBeforeUnmount, onMounted, watch, useTemplate
 import { useI18n } from '@/i18n'
 import { settings, AGENT_SIDEBAR } from '@/composables/useAppSettings'
 import { renderChatMd, onChatLinkClick } from '@/composables/useChatMarkdown'
-import { dsh, dshUsable, initDsh, installDsh, startDsh, refreshDsh } from '@/composables/useDsh'
+import { dsh, dshUsable, initDsh, installDsh, startDsh, refreshDsh, resetRevive } from '@/composables/useDsh'
 import {
   chat, chatReady, connectChat, newSession, sendPrompt,
   sessions, loadSessions, openSession, pinned, togglePin, renameSession, archiveSession,
   sessionSearch, searchSessions,
   models, loadModels, selectModel, setDefaultModel, currentModelLabel, type SessionRow,
   presets, loadPresets, selectPreset,
-  projections, togglePlan,
+  projections, togglePlan, commands, runCommand,
   workspaces, loadWorkspaces, addWorkspace,
   permission, selectPermission, PERMISSION_PRESETS,
 } from '@/composables/useDshChat'
@@ -96,7 +96,7 @@ const canStart = computed(() =>
   dshUsable.value && (dsh.state.phase === 'stopped' || dsh.state.phase === 'failed'))
 
 function onStateClick() {
-  if (canStart.value) startDsh()
+  if (canStart.value) (resetRevive(), startDsh())
 }
 
 const refresh = () => refreshDsh()
@@ -248,6 +248,23 @@ watch(() => chat.items.map((i) => (i.kind === 'assistant' ? i.text.length : 1)).
 async function send() {
   const text = input.value.trim()
   if (!text && !drafts.value.length) return
+
+  /*
+    斜杠开头的当命令跑,不当话说。
+
+    命令和聊天走的是两条路:命令直接执行、立刻回结果、不经过模型,也不会被
+    拿去当会话标题。以前没有入口,像 /compact(压缩上下文)、/export(导出记录)
+    这些能力就一直够不着。
+  */
+  if (text.startsWith('/')) {
+    input.value = ''
+    closeMentions()
+    const r = await runCommand(text)
+    if (r?.text) chat.items.push({ kind: 'notice', id: `c${Date.now()}`, text: r.text })
+    await nextTick()
+    autoScroll()
+    return
+  }
   const images = drafts.value.map((d) => ({ mediaType: d.mediaType, data: d.data }))
   input.value = ''
   drafts.value = []
@@ -265,15 +282,61 @@ async function send() {
 
 const composerEl = useTemplateRef<HTMLTextAreaElement>('composerEl')
 const mentions = ref<FileCandidate[]>([])
+/** 斜杠命令的候选。和 @ 共用同一个面板,同一时刻只会有一种 */
+const slashes = ref<{ name: string; description: string; hint: string }[]>([])
 const mentionAt = ref(-1)     // 那个 @ 在输入里的位置;-1 表示没在补全
 const mentionPick = ref(0)
 let mentionSeq = 0
 
 function closeMentions() {
   mentions.value = []
+  slashes.value = []
   mentionHint.value = ''
   mentionAt.value = -1
   mentionPick.value = 0
+}
+
+/*
+  命令的说明由 DSH 给,是英文。常用的这几条自己翻一遍 ——
+  这是给人看的菜单,一行英文摆在中文界面里,等于让人自己猜。
+  翻不到的照原样显示,上游新增命令也不会漏掉。
+*/
+const CMD_ZH: Record<string, string> = {
+  compact: '把前面聊过的压缩成摘要，腾出记忆额度',
+  export: '把这段对话打包下载下来',
+  feedback: '给这次会话留一句反馈',
+  goal: '给这个长任务定一个目标（也能查看、暂停、清掉）',
+  permission: '换一档权限（能改哪些文件、什么时候要问你）',
+  plan: '进入或退出计划模式',
+}
+
+/** 打字时看看要不要弹命令菜单。只认「整句从 / 开头、还没打空格」 */
+function updateSlashes() {
+  const v = input.value
+  if (!v.startsWith('/') || /\s/.test(v)) { slashes.value = []; return false }
+  const q = v.slice(1).toLowerCase()
+  slashes.value = commands.list
+    .filter((c) => c.name.toLowerCase().startsWith(q))
+    .map((c) => ({
+      name: c.name,
+      description: CMD_ZH[c.name] ?? c.description,
+      hint: c.input?.hint ?? '',
+    }))
+  mentionPick.value = 0
+  return slashes.value.length > 0
+}
+
+/** 选中一条命令:要参数的补个空格等你写,不要参数的直接跑 */
+function applySlash(c: { name: string; hint: string }) {
+  if (c.hint) {
+    input.value = `/${c.name} `
+    slashes.value = []
+    nextTick(() => composerEl.value?.focus())
+  } else {
+    input.value = `/${c.name}`
+    slashes.value = []
+    void send()
+  }
 }
 
 const mentionHint = ref('')
@@ -281,6 +344,8 @@ const mentionHint = ref('')
 async function onComposerInput() {
   const el = composerEl.value
   if (!el) return
+  if (updateSlashes()) { mentions.value = []; mentionHint.value = ''; return }
+  if (input.value.startsWith('/')) { closeMentions(); return }
   const tok = activeAtToken(input.value, el.selectionStart ?? input.value.length)
   if (!tok) { closeMentions(); return }
 
@@ -429,6 +494,26 @@ function relTime(ms: number): string {
 
 /** 回车发送,Shift+回车换行 —— 聊天框的通用约定 */
 function onKeydown(e: KeyboardEvent) {
+  // 命令菜单开着时,同样归它
+  if (slashes.value.length) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      mentionPick.value = (mentionPick.value + 1) % slashes.value.length
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      mentionPick.value = (mentionPick.value - 1 + slashes.value.length) % slashes.value.length
+      return
+    }
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.isComposing) {
+      e.preventDefault()
+      applySlash(slashes.value[mentionPick.value])
+      return
+    }
+    if (e.key === 'Escape') { e.preventDefault(); closeMentions(); return }
+  }
+
   // 候选面板开着时,方向键和回车归它 —— 否则「选一个文件」会变成「把消息发出去」
   if (mentions.value.length) {
     if (e.key === 'ArrowDown') {
@@ -452,6 +537,19 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     send()
   }
+}
+
+/** 刚复制过的那条消息。用来把按钮短暂换成「已复制」 */
+const copiedId = ref('')
+
+async function copyMessage(id: string, text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    return   // 剪贴板被拒就别显示「已复制」骗人
+  }
+  copiedId.value = id
+  setTimeout(() => { if (copiedId.value === id) copiedId.value = '' }, 1400)
 }
 
 /** 开新会话:不是清屏,是真的让 DSH 建一个新 session */
@@ -741,10 +839,18 @@ function clearThread() {
               @ 引用的候选面板。贴着输入框上沿开,不挡正在打的字。
               它只负责把路径写成规范的引用 —— 文件内容不在这里读,模型自己去 read。
             -->
-            <div v-if="mentions.length || mentionHint"
+            <div v-if="mentions.length || mentionHint || slashes.length"
               class="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-border bg-popover
                      shadow-lg overflow-hidden z-20">
               <p v-if="mentionHint" class="px-3 py-2 text-[12px] text-muted-foreground">{{ mentionHint }}</p>
+  <!-- 斜杠命令:名字 + 一句人话说明,要参数的把参数提示也写出来 -->
+  <button v-for="(c, i) in slashes" :key="c.name" @mousedown.prevent="applySlash(c)"
+    :class="['w-full text-left px-3 py-2 flex items-baseline gap-2 text-[13px] transition-colors',
+             i === mentionPick ? 'bg-muted' : 'hover:bg-muted/60']">
+    <span class="font-mono shrink-0">/{{ c.name }}</span>
+    <span v-if="c.hint" class="font-mono text-[11px] text-muted-foreground shrink-0">{{ c.hint }}</span>
+    <span class="truncate text-muted-foreground">{{ c.description }}</span>
+  </button>
   <button v-for="(c, i) in mentions" :key="c.path" @mousedown.prevent="applyMention(c)"
                 :class="['w-full text-left px-3 py-2 flex items-center gap-2 text-[13px] transition-colors',
                          i === mentionPick ? 'bg-muted' : 'hover:bg-muted/60']">
@@ -888,7 +994,7 @@ function clearThread() {
               </div>
 
               <!-- 助手:左侧全宽,不用气泡 —— 回复常常很长,气泡会把行宽压到难读 -->
-              <div v-else-if="m.kind === 'assistant'" class="flex gap-3">
+              <div v-else-if="m.kind === 'assistant'" class="group/msg flex gap-3">
                 <span class="icon-[ri--deepseek-line] w-5 h-5 mt-0.5 shrink-0 text-muted-foreground" />
                 <div class="min-w-0 flex-1">
                   <!--
@@ -900,6 +1006,18 @@ function clearThread() {
                     @click="onChatLinkClick" v-html="renderChatMd(m.text)" />
                   <!-- 流式光标:让「还在写」和「写完了」一眼可辨 -->
                   <span v-if="m.streaming" class="inline-block w-1.5 h-4 align-text-bottom bg-foreground/60 animate-pulse ml-0.5" />
+                  <!--
+                    复制这段回复。写完了才出现 —— 还在写的时候复制到的是半截,
+                    给了反而误事。鼠标移到这条消息上才显形,不占版面。
+                  -->
+                  <button v-if="!m.streaming" @click="copyMessage(m.id, m.text)"
+                    class="mt-1.5 h-6 px-2 rounded-md border border-border text-[11px] text-muted-foreground
+                           opacity-0 group-hover/msg:opacity-100 transition-opacity
+                           hover:bg-muted hover:text-foreground inline-flex items-center gap-1">
+                    <span :class="copiedId === m.id ? 'icon-[lucide--check]' : 'icon-[lucide--copy]'"
+                      class="w-3 h-3" />
+                    {{ copiedId === m.id ? t('agent.copied') : t('agent.copy') }}
+                  </button>
                 </div>
               </div>
 
@@ -942,10 +1060,18 @@ function clearThread() {
                 @ 引用的候选面板。贴着输入框上沿开,不挡正在打的字。
                 它只负责把路径写成规范的引用 —— 文件内容不在这里读,模型自己去 read。
               -->
-              <div v-if="mentions.length || mentionHint"
+              <div v-if="mentions.length || mentionHint || slashes.length"
                 class="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-border bg-popover
                        shadow-lg overflow-hidden z-20">
                 <p v-if="mentionHint" class="px-3 py-2 text-[12px] text-muted-foreground">{{ mentionHint }}</p>
+  <!-- 斜杠命令:名字 + 一句人话说明,要参数的把参数提示也写出来 -->
+  <button v-for="(c, i) in slashes" :key="c.name" @mousedown.prevent="applySlash(c)"
+    :class="['w-full text-left px-3 py-2 flex items-baseline gap-2 text-[13px] transition-colors',
+             i === mentionPick ? 'bg-muted' : 'hover:bg-muted/60']">
+    <span class="font-mono shrink-0">/{{ c.name }}</span>
+    <span v-if="c.hint" class="font-mono text-[11px] text-muted-foreground shrink-0">{{ c.hint }}</span>
+    <span class="truncate text-muted-foreground">{{ c.description }}</span>
+  </button>
   <button v-for="(c, i) in mentions" :key="c.path" @mousedown.prevent="applyMention(c)"
                   :class="['w-full text-left px-3 py-2 flex items-center gap-2 text-[13px] transition-colors',
                            i === mentionPick ? 'bg-muted' : 'hover:bg-muted/60']">
