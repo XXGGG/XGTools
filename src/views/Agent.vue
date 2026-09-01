@@ -39,6 +39,8 @@ import {
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { readFile } from '@tauri-apps/plugin-fs'
 import PendingCard from '@/components/agent/PendingCard.vue'
+import RulesDialog from '@/components/agent/RulesDialog.vue'
+import { openRules } from '@/composables/useAgentRules'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -203,6 +205,10 @@ const currentPresetLabel = computed(() => {
 
 /** 会话里显示事件流折出来的档位;空态显示待用的;都没有就当默认档 */
 const planOn = computed(() => projections.plan.active)
+
+/** 当前工作区的路径。规矩要写进这个文件夹,没选工作区就只能写全局那份 */
+const currentWorkspacePath = computed(() =>
+  workspaces.items.find((w) => w.workspaceId === workspaces.pendingId)?.path ?? '')
 
 /*
   上下文用量。
@@ -810,6 +816,16 @@ function clearThread() {
               </PopoverContent>
             </Popover>
 
+            <!--
+              规矩:写给它看的一份说明(你是谁、这个文件夹干嘛的、产出往哪儿放)。
+              挨着工作区放 —— 项目规矩是跟着文件夹走的,这两件事本来就是一回事。
+            -->
+            <button class="pill" :title="t('agent.rulesHint')"
+              @click="openRules(currentWorkspacePath)">
+              <span class="icon-[lucide--scroll-text] w-3.5 h-3.5" />
+              {{ t('agent.rules') }}
+            </button>
+
             <!-- 模式:DSH 的 agent preset(标准/PTC/极简/创造),空态选好开局生效 -->
             <Popover>
               <PopoverTrigger as-child>
@@ -1250,6 +1266,8 @@ function clearThread() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    <RulesDialog />
   </div>
 </template>
 
