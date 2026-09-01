@@ -490,26 +490,55 @@ export function searchSessions(q: string) {
 }
 
 /** 打开一条旧会话:拉历史并按同一套渲染器回放 */
+/**
+ * 一次最多渲染多少条。
+ *
+ * 卡的不是网络也不是 DSH —— 实测最大的那个会话 2377 条事件 461ms 就回来了。
+ * 卡的是**我们自己把 2377 条全画出来**:每条助手消息都要过一遍 markdown 渲染,
+ * 几千个 DOM 节点一次性挂上去,界面就冻在那儿,看着像「切不出来、堵住了」。
+ *
+ * 聊天窗口本来就是看最近这段的,更早的要翻自己会去翻。截住尾巴那 200 条,
+ * 前面的用一行字交代。
+ */
+const MAX_RENDER = 200
+
+/** 每个会话上次渲染出来的样子。切回来先拿这份顶上,不至于对着空白等 */
+const historyCache = new Map<string, ChatItem[]>()
+
 export async function openSession(sessionId: string) {
   chat.sessionId = sessionId
-  chat.items = []
   chat.pending = null
   chat.error = ''
   resetProjections()
-  chat.loadingHistory = true
+
+  // 有缓存就先画上,人一眼能看到内容;新的读回来再换
+  const cached = historyCache.get(sessionId)
+  chat.items = cached ? [...cached] : []
+  chat.loadingHistory = !cached
+
   try {
     const v = await invoke<any>('dsh_rpc', {
       method: 'session.history',
-      payload: { sessionId, maxMessages: 100 },
+      // 数的是「消息」不是事件:一轮里塞满工具调用时,40 条消息也能有上千条事件
+      payload: { sessionId, maxMessages: 40 },
     })
     // 中途点开了别的会话:这份回来晚了,别把人家的界面覆盖掉
     if (chat.sessionId !== sessionId) return
+    chat.items = []
     for (const entry of v?.events ?? []) {
       if (entry?.event) applyEvent(entry.event)
+    }
+    if (chat.items.length > MAX_RENDER) {
+      const dropped = chat.items.length - MAX_RENDER
+      chat.items = [
+        { kind: 'notice', id: nextId(), text: `更早的 ${dropped} 条没有显示` },
+        ...chat.items.slice(-MAX_RENDER),
+      ]
     }
     sealAssistant()   // 历史里最后一段不该留着流式光标
     // 计划模式、token 用量这些不在事件里,在尾页的投影块里
     applyProjectionBlock(v?.projections)
+    historyCache.set(sessionId, [...chat.items])
     void loadCommands()
   } catch (e) {
     chat.error = String(e)

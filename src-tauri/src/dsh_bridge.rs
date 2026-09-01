@@ -32,12 +32,26 @@ pub struct DshBridge {
     generation: Mutex<u64>,
 }
 
+/// 一元 RPC 共用一个 HTTP 客户端(clone 很便宜,内部是 Arc)。
+///
+/// 每次现建一个的话连接池也跟着现建现扔 —— 回环上每次都要重新握手,
+/// 而这些调用很密:切一次会话就是好几发。
+///
+/// **超时必须有。** 边车卡住时不给超时,前端那句「正在读取这段对话…」会一直转下去,
+/// 用户看到的是「点了没反应、堵住了」,而且永远不会变成一句能看懂的错误。
+/// 宁可 30 秒后说一句超时,也不要转到天荒地老。
 fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    if let Some(c) = CLIENT.get() {
+        return Ok(c.clone());
+    }
+    let built = reqwest::Client::builder()
         // 本机回环,不需要代理;走系统代理反而会被某些加速器截胡
         .no_proxy()
+        .timeout(std::time::Duration::from_secs(30))
         .build()
-        .map_err(|e| format!("建 HTTP 客户端失败: {e}"))
+        .map_err(|e| format!("建 HTTP 客户端失败: {e}"))?;
+    Ok(CLIENT.get_or_init(|| built).clone())
 }
 
 /// 调 DSH 的一元 RPC。

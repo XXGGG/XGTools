@@ -1216,7 +1216,8 @@ async function copyMessage(id: string, text: string) {
               -->
               <button class="pill" :class="planOn ? 'pill-on' : ''"
                 :title="planOn ? t('agent.planModeOn') : t('agent.planModeOff')" @click="togglePlan">
-                <span class="icon-[lucide--list-checks] w-3.5 h-3.5" />
+                <span class="w-3.5 h-3.5"
+                  :class="planOn ? 'icon-[lucide--clipboard-check]' : 'icon-[lucide--list-checks]'" />
                 {{ t('agent.planMode') }}
               </button>
               <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
@@ -1446,7 +1447,8 @@ async function copyMessage(id: string, text: string) {
                 -->
                 <button class="pill" :class="planOn ? 'pill-on' : ''"
                   :title="planOn ? t('agent.planModeOn') : t('agent.planModeOff')" @click="togglePlan">
-                  <span class="icon-[lucide--list-checks] w-3.5 h-3.5" />
+                  <span class="w-3.5 h-3.5"
+                    :class="planOn ? 'icon-[lucide--clipboard-check]' : 'icon-[lucide--list-checks]'" />
                   <span class="hidden @[30rem]:inline">{{ t('agent.planMode') }}</span>
                 </button>
                 <!-- 访问权限:原版的「工作区可写」下拉,背后是 /permission 命令 -->
@@ -1643,13 +1645,23 @@ async function copyMessage(id: string, text: string) {
   transition: background-color 140ms ease;
 }
 .pill:hover { background: color-mix(in srgb, var(--foreground) 7%, transparent); }
-/* 开着的开关要一眼看出来:实心底色,和旁边那几个「点开才知道选了什么」的下拉区分开 */
+/*
+  开着的开关要一眼看出来 —— 而且是**隔着一米也看得出来**。
+
+  上一版用的是 `--atomic-editor-accent` 加 16% 的淡底:那个变量只在笔记编辑器里
+  有定义,这儿退回成了前景色,染出来就是一层灰 —— 和默认态、和悬停态都几乎一样,
+  等于白设。窄屏下这颗只剩一个图标,那就彻底看不出开没开了。
+
+  换成实心反色:底和字对调。这是整个界面里最重的一种强调,平时不该乱用,
+  但「计划模式」改的是它接下来怎么跟你配合(先出方案,还是直接动手),
+  值得这个分量。图标也跟着换 —— 只剩图标的时候,颜色和形状都得说话。
+*/
 .pill-on {
-  background: color-mix(in srgb, var(--atomic-editor-accent, var(--foreground)) 16%, transparent);
-  color: var(--foreground);
-  border-color: color-mix(in srgb, var(--atomic-editor-accent, var(--foreground)) 40%, transparent);
+  background: var(--foreground);
+  color: var(--background);
+  border-color: transparent;
 }
-.pill-on:hover { background: color-mix(in srgb, var(--atomic-editor-accent, var(--foreground)) 24%, transparent); }
+.pill-on:hover { background: color-mix(in srgb, var(--foreground) 85%, transparent); }
 
 /* 用量条:细细一根,和百分比并排。不用环形 —— 这一行里都是矮胖的药丸,圆环会显得突兀 */
 .ctx-bar {
