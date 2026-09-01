@@ -543,12 +543,16 @@ export async function newSession(cwd?: string) {
   }
 }
 
-export async function sendPrompt(text: string) {
-  if (!text.trim()) return
+export async function sendPrompt(text: string, images: { mediaType: string; data: string }[] = []) {
+  if (!text.trim() && !images.length) return
   if (!chat.sessionId) await newSession()
   if (!chat.sessionId) return
 
-  chat.items.push({ kind: 'user', id: nextId(), text })
+  chat.items.push({
+    kind: 'user',
+    id: nextId(),
+    text: images.length ? `${text}${text ? ' ' : ''}[${images.length} 张图]` : text,
+  })
   chat.busy = true
   try {
     /*
@@ -564,13 +568,31 @@ export async function sendPrompt(text: string) {
       payload: {
         sessionId: chat.sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text }],
+        /*
+          图片和文字并排放在 content 里,不是消息之外的挂件。
+          放在文字**后面**:先说要干什么,再给材料,和人说话的顺序一致。
+        */
+        content: [
+          ...(text.trim() ? [{ type: 'text', text }] : []),
+          ...images.map((im) => ({ type: 'image', mediaType: im.mediaType, data: im.data })),
+        ],
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     })
   } catch (e) {
     chat.busy = false
-    chat.items.push({ kind: 'notice', id: nextId(), text: String(e) })
+    /*
+      模型不认图片是最常撞的一种:换个会看图的模型就好,
+      但原文是英文的 MODEL_DOES_NOT_SUPPORT_IMAGES,得翻出来说。
+    */
+    const msg = String(e)
+    chat.items.push({
+      kind: 'notice',
+      id: nextId(),
+      text: /DOES_NOT_SUPPORT_IMAGES|does not support image/i.test(msg)
+        ? '这个模型看不了图片，换一个支持看图的模型再发。'
+        : msg,
+    })
   }
 
   /*

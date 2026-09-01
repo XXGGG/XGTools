@@ -11,7 +11,7 @@
  *   pl-[4.875rem] = 10(外缩) + 58(导航栏卡片宽) + 10(间距),和 App.vue 里的 pl- 同一个值。
  *   58 是浮空卡片的厚度,横竖通用;四边外缩一律 10px。改一个要三处一起改。
  */
-import { ref, nextTick, computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { ref, nextTick, computed, onBeforeUnmount, onMounted, watch, useTemplateRef } from 'vue'
 import { useI18n } from '@/i18n'
 import { settings, AGENT_SIDEBAR } from '@/composables/useAppSettings'
 import { renderChatMd, onChatLinkClick } from '@/composables/useChatMarkdown'
@@ -31,6 +31,13 @@ import {
 } from '@/components/ui/context-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import DshBoot from '@/components/DshBoot.vue'
+import {
+  activeAtToken, formatFileMention, listFileReferences,
+  draftFromBytes, mediaTypeOf, IMAGE_EXTS,
+  type FileCandidate, type Draft,
+} from '@/composables/dshCompose'
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
+import { readFile } from '@tauri-apps/plugin-fs'
 import PendingCard from '@/components/agent/PendingCard.vue'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -240,11 +247,112 @@ watch(() => chat.items.map((i) => (i.kind === 'assistant' ? i.text.length : 1)).
 
 async function send() {
   const text = input.value.trim()
-  if (!text) return
+  if (!text && !drafts.value.length) return
+  const images = drafts.value.map((d) => ({ mediaType: d.mediaType, data: d.data }))
   input.value = ''
-  await sendPrompt(text)
+  drafts.value = []
+  closeMentions()
+  await sendPrompt(text, images)
   await nextTick()
   autoScroll()
+}
+
+// ── @ 引用文件 ────────────────────────────────────────
+//
+// 打 `@` 就地弹候选,选中插进去。**它不读文件** —— 插进去的只是一句规范的
+// 提及,内容要模型自己调 read 去看。这一点和「附件」是两回事:附件是把东西
+// 塞进这条消息,引用只是告诉它「去看这个」。
+
+const composerEl = useTemplateRef<HTMLTextAreaElement>('composerEl')
+const mentions = ref<FileCandidate[]>([])
+const mentionAt = ref(-1)     // 那个 @ 在输入里的位置;-1 表示没在补全
+const mentionPick = ref(0)
+let mentionSeq = 0
+
+function closeMentions() {
+  mentions.value = []
+  mentionHint.value = ''
+  mentionAt.value = -1
+  mentionPick.value = 0
+}
+
+const mentionHint = ref('')
+
+async function onComposerInput() {
+  const el = composerEl.value
+  if (!el) return
+  const tok = activeAtToken(input.value, el.selectionStart ?? input.value.length)
+  if (!tok) { closeMentions(); return }
+
+  /*
+    还没有会话就没有工作区,DSH 无从找起。这时候弹一个空面板最让人困惑 ——
+    直接说清楚:先说一句话,这个 @ 才知道去哪儿找。
+  */
+  if (!chat.sessionId) {
+    mentions.value = []
+    mentionHint.value = t('agent.mentionNeedSession')
+    mentionAt.value = tok.from
+    return
+  }
+  mentionHint.value = ''
+  mentionAt.value = tok.from
+  // 打字很快时候补会乱序回来,只认最后一次发出的那一趟
+  const seq = ++mentionSeq
+  const rows = await listFileReferences(chat.sessionId, tok.query)
+  if (seq !== mentionSeq || mentionAt.value !== tok.from) return
+  mentions.value = rows.slice(0, 8)
+  mentionHint.value = rows.length ? '' : t('agent.mentionNone')
+  mentionPick.value = 0
+}
+
+function applyMention(c: FileCandidate) {
+  const el = composerEl.value
+  const caret = el?.selectionStart ?? input.value.length
+  const text = formatFileMention(c.path, c.kind)
+  if (text === null || mentionAt.value < 0) { closeMentions(); return }
+
+  // 目录后面不补空格:多半还要接着往下选子路径
+  const tail = c.kind === 'directory' ? '' : ' '
+  const next = input.value.slice(0, mentionAt.value) + text + tail + input.value.slice(caret)
+  const at = mentionAt.value + text.length + tail.length
+  input.value = next
+  closeMentions()
+  nextTick(() => {
+    el?.focus()
+    el?.setSelectionRange(at, at)
+    // 目录选完立刻再弹一层,接着往下钻
+    if (c.kind === 'directory') void onComposerInput()
+  })
+}
+
+// ── 图片附件 ──────────────────────────────────────────
+
+const drafts = ref<Draft[]>([])
+
+async function pickImages() {
+  const picked = await openFileDialog({
+    multiple: true,
+    filters: [{ name: '图片', extensions: IMAGE_EXTS }],
+  })
+  const paths = Array.isArray(picked) ? picked : picked ? [picked] : []
+  for (const path of paths) {
+    const name = path.split(/[\/]/).pop() ?? 'image'
+    const d = draftFromBytes(name, await readFile(path))
+    if (d) drafts.value = [...drafts.value, d]
+  }
+}
+
+/** 从剪贴板粘图。截了图直接 Ctrl+V 是最顺手的一条路 */
+async function onComposerPaste(e: ClipboardEvent) {
+  const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
+  if (!files.length) return
+  e.preventDefault()
+  for (const f of files) {
+    const name = f.name || `pasted.${(f.type.split('/')[1] ?? 'png')}`
+    if (!mediaTypeOf(name)) continue
+    const d = draftFromBytes(name, new Uint8Array(await f.arrayBuffer()))
+    if (d) drafts.value = [...drafts.value, d]
+  }
 }
 
 // ── 搜索与筛选 ──
@@ -321,6 +429,25 @@ function relTime(ms: number): string {
 
 /** 回车发送,Shift+回车换行 —— 聊天框的通用约定 */
 function onKeydown(e: KeyboardEvent) {
+  // 候选面板开着时,方向键和回车归它 —— 否则「选一个文件」会变成「把消息发出去」
+  if (mentions.value.length) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      mentionPick.value = (mentionPick.value + 1) % mentions.value.length
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      mentionPick.value = (mentionPick.value - 1 + mentions.value.length) % mentions.value.length
+      return
+    }
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.isComposing) {
+      e.preventDefault()
+      applyMention(mentions.value[mentionPick.value])
+      return
+    }
+    if (e.key === 'Escape') { e.preventDefault(); closeMentions(); return }
+  }
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault()
     send()
@@ -609,12 +736,42 @@ function clearThread() {
               </PopoverContent>
             </Popover>
           </div>
-          <div class="composer">
-            <textarea v-model="input" @keydown="onKeydown" rows="2" :placeholder="t('agent.placeholder')"
+          <div class="composer relative">
+            <!--
+              @ 引用的候选面板。贴着输入框上沿开,不挡正在打的字。
+              它只负责把路径写成规范的引用 —— 文件内容不在这里读,模型自己去 read。
+            -->
+            <div v-if="mentions.length || mentionHint"
+              class="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-border bg-popover
+                     shadow-lg overflow-hidden z-20">
+              <p v-if="mentionHint" class="px-3 py-2 text-[12px] text-muted-foreground">{{ mentionHint }}</p>
+  <button v-for="(c, i) in mentions" :key="c.path" @mousedown.prevent="applyMention(c)"
+                :class="['w-full text-left px-3 py-2 flex items-center gap-2 text-[13px] transition-colors',
+                         i === mentionPick ? 'bg-muted' : 'hover:bg-muted/60']">
+                <span :class="['w-3.5 h-3.5 shrink-0 text-muted-foreground',
+                               c.kind === 'directory' ? 'icon-[lucide--folder]' : 'icon-[lucide--file-text]']" />
+                <span class="truncate">{{ c.path }}</span>
+              </button>
+            </div>
+
+            <!-- 待发送的图片:发出去之前一直摆在这儿,点 × 撤掉 -->
+            <div v-if="drafts.length" class="flex flex-wrap gap-2 px-4 pt-3">
+              <div v-for="(d, k) in drafts" :key="k" class="relative">
+                <img :src="d.url" :alt="d.name" :title="d.name"
+                  class="w-14 h-14 rounded-lg object-cover border border-border" />
+                <button @click="drafts = drafts.filter((_, n) => n !== k)"
+                  class="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-background border border-border
+                         flex items-center justify-center hover:bg-muted">
+                  <span class="icon-[lucide--x] w-3 h-3" />
+                </button>
+              </div>
+            </div>
+            <textarea ref="composerEl" v-model="input" @keydown="onKeydown" @input="onComposerInput"
+              @paste="onComposerPaste" rows="2" :placeholder="t('agent.placeholder')"
               class="w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed
                      placeholder:text-muted-foreground/60 focus:outline-none" />
             <div class="composer-bar">
-              <button :title="t('agent.attach')" class="pill-icon">
+              <button :title="t('agent.attach')" class="pill-icon" @click="pickImages">
                 <span class="icon-[lucide--plus] w-4 h-4" />
               </button>
               <!--
@@ -780,12 +937,42 @@ function clearThread() {
 
         <div class="px-6 pb-5">
           <div class="max-w-2xl mx-auto">
-            <div class="composer">
-              <textarea v-model="input" @keydown="onKeydown" rows="1" :placeholder="t('agent.placeholder')"
+            <div class="composer relative">
+              <!--
+                @ 引用的候选面板。贴着输入框上沿开,不挡正在打的字。
+                它只负责把路径写成规范的引用 —— 文件内容不在这里读,模型自己去 read。
+              -->
+              <div v-if="mentions.length || mentionHint"
+                class="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-border bg-popover
+                       shadow-lg overflow-hidden z-20">
+                <p v-if="mentionHint" class="px-3 py-2 text-[12px] text-muted-foreground">{{ mentionHint }}</p>
+  <button v-for="(c, i) in mentions" :key="c.path" @mousedown.prevent="applyMention(c)"
+                  :class="['w-full text-left px-3 py-2 flex items-center gap-2 text-[13px] transition-colors',
+                           i === mentionPick ? 'bg-muted' : 'hover:bg-muted/60']">
+                  <span :class="['w-3.5 h-3.5 shrink-0 text-muted-foreground',
+                                 c.kind === 'directory' ? 'icon-[lucide--folder]' : 'icon-[lucide--file-text]']" />
+                  <span class="truncate">{{ c.path }}</span>
+                </button>
+              </div>
+
+              <!-- 待发送的图片:发出去之前一直摆在这儿,点 × 撤掉 -->
+              <div v-if="drafts.length" class="flex flex-wrap gap-2 px-4 pt-3">
+                <div v-for="(d, k) in drafts" :key="k" class="relative">
+                  <img :src="d.url" :alt="d.name" :title="d.name"
+                    class="w-14 h-14 rounded-lg object-cover border border-border" />
+                  <button @click="drafts = drafts.filter((_, n) => n !== k)"
+                    class="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-background border border-border
+                           flex items-center justify-center hover:bg-muted">
+                    <span class="icon-[lucide--x] w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              <textarea ref="composerEl" v-model="input" @keydown="onKeydown" @input="onComposerInput"
+                @paste="onComposerPaste" rows="1" :placeholder="t('agent.placeholder')"
                 class="w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed
                        placeholder:text-muted-foreground/60 focus:outline-none" />
               <div class="composer-bar">
-                <button :title="t('agent.attach')" class="pill-icon">
+                <button :title="t('agent.attach')" class="pill-icon" @click="pickImages">
                   <span class="icon-[lucide--plus] w-4 h-4" />
                 </button>
                 <!-- 和 DSH 一致:这是「开一段新的」,不是「把界面擦干净」——

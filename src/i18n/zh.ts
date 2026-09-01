@@ -167,6 +167,8 @@ export const zh = {
     keysRestartShotDone: '截图窗口已重载，再按一次快捷键试试',
   },
   agent: {
+    mentionNone: '工作区里没有匹配的文件（工作区选对了吗？）',
+    mentionNeedSession: '先说一句话，@ 才知道去哪个工作区里找文件',
     approveTitle: '「{tool}」要你批准一次',
     approveAllow: '批准这一次',
     approveDeny: '拒绝',
