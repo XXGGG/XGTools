@@ -327,7 +327,8 @@ onMounted(async () => {
 
     <!-- 禅模式:整条顶栏(含右上角三颗控制点)让开 -->
     <TitleBar v-if="!zen.on" class="absolute top-2.5 left-2.5 right-2.5 z-50"
-      :active="currentView === 'Home'" @logo="currentView = 'Home'" />
+      :active="currentView === 'Home'" :engine="currentView === 'Agent'"
+      @logo="currentView = 'Home'" />
 
     <!-- 启动黑布:粒子汇聚成 Logo,一切就绪后散场淡出(见 BootCloth.vue) -->
     <BootCloth v-if="booting" ref="bootCloth" />

@@ -2,8 +2,21 @@
 import { Window } from '@tauri-apps/api/window'
 import { ref, onMounted } from 'vue'
 import { useI18n } from '@/i18n'
+import { useDshStatus } from '@/composables/useDshStatus'
 
-defineProps<{ active?: boolean }>()
+defineProps<{
+  active?: boolean
+  /**
+   * 显示引擎那盏灯。**只在智能体页给 true**。
+   *
+   * 别的页(笔记、翻译、计时)跟这台引擎没关系,在那儿摆一条「已连接」
+   * 是在说一件当下用不上的事 —— 还会和页面自己的顶栏内容抢位置。
+   */
+  engine?: boolean
+}>()
+
+// 灯和文字的判断全在这一份里(见 useDshStatus),别在这儿再写一遍
+const engineStatus = useDshStatus()
 const emit = defineEmits<{ logo: [] }>()
 
 const { t } = useI18n()
@@ -79,6 +92,26 @@ onMounted(async () => {
       比左边那几张薄一圈 —— 试过做成 58 齐平，胶囊显得又粗又抢眼。
       所以这里只保证右边距 10px，高度按视觉走。
     -->
+    <!--
+      引擎状态。**贴着控制点左边**,和它们凑成右上角这一组。
+
+      以前它在会话侧栏最底下 —— 那是整个窗口最不容易看见的角落,而它说的是
+      「现在还能不能干活」,是随时要瞄一眼的东西。挪到这儿之后,不管在哪一页
+      都看得见,侧栏底下那条也就空出来给「新会话」了。
+
+      高度跟着控制点那张卡片走(48),不是 58 的模数 —— 右上角这一组自成一体。
+    -->
+    <button v-if="engine" @click="engineStatus.click" :disabled="engineStatus.busy.value"
+      :title="engineStatus.label.value"
+      class="float-card rounded-full border bg-card h-12 pl-3.5 pr-4 mr-2.5 flex items-center gap-2
+             pointer-events-auto transition-colors hover:bg-muted/50 disabled:hover:bg-card
+             max-w-[18rem]">
+      <span class="size-1.5 rounded-full shrink-0" :class="engineStatus.dot.value" />
+      <span class="text-xs text-muted-foreground truncate">{{ engineStatus.label.value }}</span>
+      <span v-if="engineStatus.canStart.value"
+        class="icon-[lucide--play] w-3 h-3 shrink-0 text-muted-foreground" />
+    </button>
+
     <!-- 根容器关了指针事件,这张卡片要自己打开,否则三颗控制点也点不动 -->
     <div class="float-card group rounded-full border bg-card p-[5px] flex items-center pointer-events-auto">
       <button @click="minimize" :title="t('window.minimize')"
