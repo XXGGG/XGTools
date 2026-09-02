@@ -1226,6 +1226,20 @@ defineExpose({
     })
     ed.focus()
   },
+  /**
+   * 选中的是第几行到第几行(1 起)。没选东西就返回光标所在那一行。
+   *
+   * 给「刮选一段、按 Alt+K 把它引用进对话」用 —— 引用要带行号,
+   * 不然模型只知道是这个文件,不知道你说的是哪一段。
+   */
+  selectedLines: () => {
+    const ed = view.value
+    if (!ed) return null
+    const sel = ed.state.selection.main
+    const from = ed.state.doc.lineAt(sel.from).number
+    const to = ed.state.doc.lineAt(sel.to).number
+    return { from, to, empty: sel.empty }
+  },
   wrap, setBlock, insertBlock, paste, clip, selectedText,
   selectAll: () => {
     const ed = view.value

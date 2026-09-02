@@ -15,10 +15,39 @@ import { listen } from '@tauri-apps/api/event'
 
 /** 一条能渲染的消息。工具调用单独成条 —— 它和文字的展示形态完全不同。 */
 export type ChatItem =
-  | { kind: 'user'; id: string; text: string }
+  /**
+   * `raw` = 真正发出去的那一份。带附件时界面上只画一句话加一个附件条,
+   * 而发出去的是「话 + 整份材料」—— 事件流随后会把发出去的那份原样送回来,
+   * 没有 `raw` 就对不上,同一句话会再画一遍(这次是连着几百行材料)。
+   */
+  | { kind: 'user'; id: string; text: string; raw?: string; files?: ChatFile[] }
   | { kind: 'assistant'; id: string; text: string; streaming: boolean }
   | { kind: 'tool'; id: string; name: string; status: 'running' | 'done' | 'failed'; detail: string }
   | { kind: 'notice'; id: string; text: string }
+
+/** 一条消息里夹带的一份材料(贴进来的代码 / md)。`text` 是原样的内容 */
+export type ChatFile = { name: string; text: string }
+
+/**
+ * 把消息里夹带的材料拆出来。
+ *
+ * 材料是以文字的身份跟着消息走的(协议里没有附件这种块),所以翻旧会话的时候
+ * 拿回来的是「话 + 几百行代码」黏成的一坨。原样画出来的话,你问的那句话
+ * 会被顶到屏幕外面 —— 明明是那句话才是重点。
+ *
+ * 拆开之后气泡里只留话,材料收成一个条,点开才看。
+ * 认的是发的时候加的那圈标记(见 dshCompose 的 attachmentBlock)。
+ */
+const ATTACH_RE = /\n*【附件：(.+?)】\n(`{3,})[^\n]*\n([\s\S]*?)\n\2(?=\n|$)/g
+
+export function splitAttachments(text: string): { head: string; files: ChatFile[] } {
+  const files: ChatFile[] = []
+  const head = text.replace(ATTACH_RE, (_m, name: string, _fence: string, body: string) => {
+    files.push({ name, text: body })
+    return ''
+  }).trim()
+  return { head, files }
+}
 
 /** 提给用户的一个选项。`description` 是给有能力的界面用的补充说明。 */
 export type QuestionOption = { label: string; description?: string }
@@ -328,8 +357,15 @@ function applyEvent(ev: any, replay = false) {
         同一句话不能显示两遍 —— 最后一条要是同一句,就当它已经在了。
       */
       const last = [...chat.items].reverse().find((i) => i.kind === 'user')
-      if (last && last.kind === 'user' && last.text === text) break
-      chat.items.push({ kind: 'user', id: String(data?.id ?? nextId()), text })
+      if (last && last.kind === 'user' && (last.text === text || last.raw === text)) break
+      const { head, files } = splitAttachments(text)
+      chat.items.push({
+        kind: 'user',
+        id: String(data?.id ?? nextId()),
+        text: head,
+        raw: text,
+        files: files.length ? files : undefined,
+      })
       break
     }
 
@@ -642,15 +678,32 @@ export async function newSession(cwd?: string) {
   }
 }
 
-export async function sendPrompt(text: string, images: { mediaType: string; data: string }[] = []) {
-  if (!text.trim() && !images.length) return
+/**
+ * 发一条消息。
+ *
+ * `files` 是贴进来的大段材料(代码、md)。协议里**没有附件这种东西** ——
+ * 一条消息只有文字块和图片块两种,所以材料是接在正文后面、以文字的身份走的。
+ * 但界面上不该跟着一起铺开:你说的那句话会被几百行材料淹掉。
+ * 所以气泡里画的是短的那份,发出去的是全的那份,两份都记着(见 `raw`)。
+ */
+export async function sendPrompt(
+  text: string,
+  images: { mediaType: string; data: string }[] = [],
+  files: { name: string; text: string; block: string }[] = [],
+) {
+  if (!text.trim() && !images.length && !files.length) return
   if (!chat.sessionId) await newSession()
   if (!chat.sessionId) return
 
+  const full = [text, ...files.map((f) => f.block)].filter(Boolean).join('\n\n')
+
+  const marks = images.length ? `[${images.length} 张图]` : ''
   chat.items.push({
     kind: 'user',
     id: nextId(),
-    text: images.length ? `${text}${text ? ' ' : ''}[${images.length} 张图]` : text,
+    text: marks ? `${text}${text ? ' ' : ''}${marks}` : text,
+    raw: full,
+    files: files.length ? files.map((f) => ({ name: f.name, text: f.text })) : undefined,
   })
   chat.busy = true
   try {
@@ -672,7 +725,7 @@ export async function sendPrompt(text: string, images: { mediaType: string; data
           放在文字**后面**:先说要干什么,再给材料,和人说话的顺序一致。
         */
         content: [
-          ...(text.trim() ? [{ type: 'text', text }] : []),
+          ...(full.trim() ? [{ type: 'text', text: full }] : []),
           ...images.map((im) => ({ type: 'image', mediaType: im.mediaType, data: im.data })),
         ],
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,

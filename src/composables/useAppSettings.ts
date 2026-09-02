@@ -40,6 +40,14 @@ export type AppSettings = {
   agentSidebarWidth: number
   /** 工作台里正文栏放中间还是对话放中间。项目可以单独覆盖 */
   agentLayout: 'doc-center' | 'chat-center'
+  /**
+   * 靠右那一栏的宽度(px)。工作台里总有一栏铺满、一栏定宽,定宽的永远是靠右那个,
+   * 所以换边之后拖的还是这一个数 —— 两栏各存一份的话,一换边宽度就跳。
+   */
+  agentDocWidth: number
+  /** 会话列表里那两区收起来了没。记着,不然每次进来都要再收一次 */
+  agentPinnedFold: boolean
+  agentCasualFold: boolean
   /** 空态那句招呼语。留空就用当前语言的默认文案 —— 存空串而不是存默认值,
    *  否则切语言时会被钉死在设置那天的那个语种上。 */
   agentGreeting: string
@@ -177,6 +185,9 @@ export const VAULT_ACCENTS = [
 
 export const AGENT_SIDEBAR = { min: 200, max: 420, minChat: 460 } as const
 
+/** 正文栏能拖到多宽。minChat 是留给对话的下限 —— 正文再宽也不能把对话挤没 */
+export const AGENT_DOC = { min: 320, max: 900, minChat: AGENT_SIDEBAR.minChat } as const
+
 export type ChatSurface = 'card' | 'flat'
 
 const SETTINGS_VERSION = 2
@@ -193,6 +204,9 @@ const DEFAULTS: AppSettings = {
   sidebarGroups: {},
   agentSidebarWidth: 240,
   agentLayout: 'doc-center',
+  agentDocWidth: 448,
+  agentPinnedFold: false,
+  agentCasualFold: false,
   agentGreeting: '',
   agentChatSurface: 'card',
   vaultTreeWidth: 260,
@@ -266,6 +280,8 @@ export async function loadSettings() {
       Math.max(VAULT_FONT_SIZE.min, Math.round(settings.vaultFontSize || VAULT_FONT_SIZE.def)))
     settings.agentSidebarWidth = Math.min(AGENT_SIDEBAR.max,
       Math.max(AGENT_SIDEBAR.min, Math.round(settings.agentSidebarWidth)))
+    settings.agentDocWidth = Math.min(AGENT_DOC.max,
+      Math.max(AGENT_DOC.min, Math.round(settings.agentDocWidth || DEFAULTS.agentDocWidth)))
     // 旧存档可能选的是已移除的高斯模糊,迁到亚克力,免得停在一个界面上不存在的选项
     if ((settings.blurKind as string) === 'blur') settings.blurKind = 'acrylic'
     // 语言:选了 auto 就每次启动重新看系统语言,否则用存档里选定的那个

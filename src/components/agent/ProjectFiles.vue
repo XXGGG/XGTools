@@ -9,14 +9,13 @@
  * 这棵钉在项目文件夹上,是「现在手头这一件事」。共用一份状态的话,
  * 在工作台里点开一个目录会把笔记页那边也搅动一遍 —— 两个地方各看各的才对。
  *
- * # 单击和双击是两件事
+ * # 单击就是打开
  *
- * · 单击文件 = **把它插进输入框**(变成 `@路径`)。这是最常做的动作:
- *   「看看这个文件」—— 不用去资源管理器找路径,看见就点。
- * · 双击 = 在中间那栏打开来看。
+ * 和在 VSCode 里点文件一样 —— 点一下就打开来看,不用先猜「这一下会发生什么」。
  *
- * 这个分工不是随手定的:干活时「让 AI 去看」的次数远多于「我自己要看」,
- * 次数多的那个给单击。
+ * 「让 AI 去看某一段」走另一条路:在打开的文件里刮选一段,按 **Alt+K**,
+ * 那一段的位置(`@路径#行号`)就进了输入框。这比「点一下插一个整文件」准得多 ——
+ * 你想让它看的多半是文件里的某一处,不是整篇。
  *
  * # 为什么自己调自己
  *
@@ -35,7 +34,6 @@ const props = withDefaults(defineProps<{
 }>(), { rel: '', depth: 0 })
 
 const emit = defineEmits<{
-  (e: 'mention', relPath: string): void
   (e: 'open', relPath: string): void
 }>()
 
@@ -70,24 +68,8 @@ function toggle(dir: Entry) {
   openDirs.value = { ...openDirs.value, [dir.path]: !openDirs.value[dir.path] }
 }
 
-/*
-  单击要等一下再动手。
-
-  双击一个文件时,浏览器**先发两次 click 再发 dblclick** —— 不等的话「打开」之前
-  会先往输入框里塞两遍 @引用。所以单击先记个定时器,250ms 内没等到双击才真的插;
-  等到了就把它撤掉。
-*/
-let clickTimer: number | undefined
-
 function onClick(e: Entry) {
   if (e.isDir) { toggle(e); return }
-  window.clearTimeout(clickTimer)
-  clickTimer = window.setTimeout(() => emit('mention', e.path), 250)
-}
-
-function onDblClick(e: Entry) {
-  if (e.isDir) return
-  window.clearTimeout(clickTimer)
   emit('open', e.path)
 }
 </script>
@@ -101,7 +83,7 @@ function onDblClick(e: Entry) {
     </p>
 
     <template v-for="e in rows" :key="e.path">
-      <button @click="onClick(e)" @dblclick="onDblClick(e)"
+      <button @click="onClick(e)"
         :style="{ paddingLeft: 8 + depth * 14 + 'px' }"
         class="w-full flex items-center gap-1.5 pr-2 py-1.5 rounded-lg text-[13px] text-left
                transition-colors hover:bg-muted/60">
@@ -112,7 +94,7 @@ function onDblClick(e: Entry) {
       </button>
 
       <ProjectFiles v-if="e.isDir && openDirs[e.path]" :root="root" :rel="e.path" :depth="depth + 1"
-        @mention="(p: string) => emit('mention', p)" @open="(p: string) => emit('open', p)" />
+        @open="(p: string) => emit('open', p)" />
     </template>
   </div>
 </template>
