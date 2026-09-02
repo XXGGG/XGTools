@@ -3,6 +3,7 @@ import type { DropdownMenuSubContentEmits, DropdownMenuSubContentProps } from "r
 import type { HTMLAttributes } from "vue"
 import { reactiveOmit } from "@vueuse/core"
 import {
+  ContextMenuPortal,
   ContextMenuSubContent,
   useForwardPropsEmits,
 } from "reka-ui"
@@ -16,7 +17,15 @@ const delegatedProps = reactiveOmit(props, "class")
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
+<!--
+  子菜单必须套在 Portal 里。
+
+  reka 的子菜单内容不像顶层内容那样自带传送门,少了这一层它**根本不渲染** ——
+  触发行会亮起来(状态确实是 open),右边却什么都不出来,看着像「这个菜单点不开」。
+  shadcn-vue 生成的这份模板漏了它,自己补上。
+-->
 <template>
+  <ContextMenuPortal>
   <ContextMenuSubContent
     data-slot="context-menu-sub-content"
     v-bind="forwarded"
@@ -29,4 +38,5 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
   >
     <slot />
   </ContextMenuSubContent>
+  </ContextMenuPortal>
 </template>
