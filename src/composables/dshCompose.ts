@@ -117,3 +117,73 @@ export function draftFromBytes(name: string, bytes: Uint8Array): Draft | null {
   const data = toBase64(bytes)
   return { name, mediaType, data, url: `data:${mediaType};base64,${data}` }
 }
+
+// ── 大段文本附件 ──────────────────────────────────────
+//
+// 往输入框里贴一整份文件(一段代码、一篇 md)时,如果原样铺在框里,输入框会
+// 涨成一屏,前面写的那句话被推没了,想改一个字都得先滚半天 —— 而这段文本
+// 十有八九不是「要打的字」,是「要给它看的材料」。
+//
+// 所以贴大段文本就把它收成一个附件条:输入框还是那两行,材料挂在上面,
+// 点开能看、能改、能撤掉。发出去的时候再把它接回消息里 ——
+// 协议这边没有「附件」这种东西,一条消息只有文字和图片两种块,
+// 所以材料是以「文字」的身份跟着走的,只是界面上不让它占地方。
+
+/** 一份贴进来的文本材料。`id` 只用来做列表 key 和正文栏的滚动位置 */
+export type TextDraft = { id: string; name: string; kind: 'md' | 'code' | 'txt'; text: string }
+
+/**
+ * 多大才算「大段」。
+ *
+ * 两条都放宽一点:标准是「这东西铺开会不会把输入框顶掉」。贴一个网址、
+ * 一句报错、一段两三行的日志,那是话的一部分,收成附件反而绕远;
+ * 而十几行往上的,基本就是整份文件了。
+ */
+const BIG_CHARS = 800
+const BIG_LINES = 15
+
+export function isBigPaste(text: string): boolean {
+  return text.length >= BIG_CHARS || text.split('\n').length >= BIG_LINES
+}
+
+/**
+ * 猜猜这段文本是什么。
+ *
+ * 只用来决定**图标和后缀名**,猜错了顶多图标不对,内容一个字不会变 ——
+ * 所以规则可以粗,不用为了准确率把它写成一个语言识别器。
+ */
+export function sniffText(text: string): 'md' | 'code' | 'txt' {
+  const head = text.slice(0, 4000)
+  if (/^---\r?\n/.test(head) || /^#{1,6}\s/m.test(head) || /^```/m.test(head) ||
+      /^\s*[-*]\s+\[[ x]\]/m.test(head) || /^\s*\|.+\|\s*$/m.test(head)) return 'md'
+  if (/^\s*(import|export|from|def|class|function|const|let|var|package|using|#include|fn|pub)\s/m.test(head) ||
+      /=>|;\s*$|\{\s*$|<\/\w+>/m.test(head)) return 'code'
+  return 'txt'
+}
+
+const EXT: Record<TextDraft['kind'], string> = { md: 'md', code: 'txt', txt: 'txt' }
+
+/** 收一段贴进来的文本。`seq` 是这条消息里的第几份,用来起名 */
+export function textDraftFrom(text: string, seq: number): TextDraft {
+  const kind = sniffText(text)
+  return {
+    id: `t${Date.now().toString(36)}${seq}`,
+    name: `粘贴内容-${seq}.${EXT[kind]}`,
+    kind,
+    text,
+  }
+}
+
+/**
+ * 把材料接回消息里。
+ *
+ * 用围栏包起来,并且**围栏的长度按内容里最长的一串反引号来定** ——
+ * 贴进来的要是一篇本身就带代码块的 md,用固定三个反引号会被内容里的
+ * 三个反引号提前截断,后半截直接漏在围栏外面。
+ */
+export function attachmentBlock(d: TextDraft): string {
+  const longest = (d.text.match(/`+/g) ?? []).reduce((n, s) => Math.max(n, s.length), 0)
+  const fence = '`'.repeat(Math.max(3, longest + 1))
+  const lang = d.kind === 'md' ? 'md' : ''
+  return `【附件：${d.name}】\n${fence}${lang}\n${d.text}\n${fence}`
+}
