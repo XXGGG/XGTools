@@ -345,3 +345,10 @@ button:not(:disabled),
   --xg-ink-brown: #d3a06a;
   --xg-ink-gray: #9ca3af;
 }
+
+/* 不定长进度条:pnpm 不报百分比,所以只能表达「还在动」而不是「还差多少」。
+   一条短杠来回跑,比一个假的百分比诚实 —— 假百分比走到 90% 卡住是最让人焦虑的。 */
+@keyframes dsh-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

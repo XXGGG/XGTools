@@ -725,6 +725,60 @@ pub async fn dsh_plugin_add(app: AppHandle, package: String) -> Result<(), Strin
     result
 }
 
+/// 卸一个可选插件。
+///
+/// `prune_store` = 顺带清 pnpm 的下载缓存。**那是缓存,不是这个插件的数据** ——
+/// 这类子智能体插件除了 node_modules 里那个包之外不留任何东西,
+/// 所以「可选清除的文件」只有这一样能给,别为了凑一个选项去编。
+/// 清了下次装(不管装哪个包)都要重新下载,所以默认不清。
+#[tauri::command]
+pub async fn dsh_plugin_remove(app: AppHandle, package: String, prune_store: bool) -> Result<(), String> {
+    use tauri::Manager;
+    if !OPTIONAL_PLUGINS.iter().any(|(p, _)| *p == package) {
+        return Err("不在可选清单里".into());
+    }
+    {
+        // 和主安装、装插件共用同一把闸:两个 pnpm 同时写一个 node_modules 会打架
+        let sidecar = app.state::<DshSidecar>();
+        let mut flag = sidecar.installing.lock().unwrap();
+        if *flag {
+            return Err("正在安装,等它装完".into());
+        }
+        *flag = true;
+    }
+    let mut result = run_pnpm(&app, &["remove", &package]).await;
+    if result.is_ok() && prune_store {
+        // 缓存清失败不该让「卸载成功」变成「卸载失败」—— 包已经卸掉了
+        let _ = run_pnpm(&app, &["store", "prune"]).await;
+    }
+    if result.is_err() {
+        result = result.map_err(|e| format!("卸 {package} 失败: {e}"));
+    }
+    {
+        let sidecar = app.state::<DshSidecar>();
+        *sidecar.installing.lock().unwrap() = false;
+    }
+    result
+}
+
+/// 在 DSH 的安装目录里跑一条 pnpm,输出照样喂给进度条。
+async fn run_pnpm(app: &AppHandle, args: &[&str]) -> Result<(), String> {
+    let dir = install_dir(app)?;
+    let (prog, argv) = shim("pnpm", args);
+    let mut cmd = tokio::process::Command::new(prog);
+    cmd.current_dir(&dir).args(&argv).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let mut child = cmd.spawn().map_err(|e| format!("起 pnpm 失败: {e}"))?;
+    if let Some(out) = child.stdout.take() { pump_progress(app.clone(), out); }
+    if let Some(err) = child.stderr.take() { pump_progress(app.clone(), err); }
+    let status = child.wait().await.map_err(|e| format!("等 pnpm 结束失败: {e}"))?;
+    if !status.success() {
+        return Err(format!("pnpm 退出码 {:?}", status.code()));
+    }
+    Ok(())
+}
+
 async fn add_package(app: &AppHandle, package: &str) -> Result<(), String> {
     let dir = install_dir(app)?;
     let (prog, argv) = shim("pnpm", &["add", package]);

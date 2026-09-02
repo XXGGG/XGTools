@@ -16,7 +16,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  dshFootprint, uninstallDsh, humanSize, dsh, listPlugins, addPlugin, PLUGIN_INFO,
+  dshFootprint, uninstallDsh, humanSize, dsh, listPlugins, addPlugin, removePlugin, PLUGIN_INFO,
   type DshFootprint, type PluginState,
 } from '@/composables/useDsh'
 import {
@@ -105,21 +105,69 @@ watch(chatReady, (ok) => { if (ok) loadCreds() }, { immediate: true })
 
 // ── 可选插件 ──
 const plugins = ref<PluginState[]>([])
-const addingPlugin = ref('')
+/** 正在装或卸的那个包。同一时刻只允许一个 —— 两个 pnpm 写同一个 node_modules 会打架 */
+const busyPlugin = ref('')
 const pluginError = ref('')
 
 async function loadPlugins() { plugins.value = await listPlugins() }
 
 async function installPlugin(pkg: string) {
-  addingPlugin.value = pkg
+  busyPlugin.value = pkg
   pluginError.value = ''
+  dsh.installLine = ''
   try {
     await addPlugin(pkg)
     await loadPlugins()
   } catch (e) {
     pluginError.value = String(e)
   } finally {
-    addingPlugin.value = ''
+    busyPlugin.value = ''
+    dsh.installLine = ''
+  }
+}
+
+/*
+  ── 卸载 ──
+
+  要先问一次再动手:卸掉之后模型就少一项能力,而这件事在界面上看不出来 ——
+  下次它「不会用 Claude Code 了」你未必想得起来是这儿关的。
+
+  「顺带清缓存」默认不勾,而且说清楚那是 pnpm 的**下载缓存**、不是这个插件的数据。
+  这类子智能体插件除了 node_modules 里那个包不留别的东西,
+  为了凑一个「清除文件」的选项去编一个出来,比没有这个选项更糟。
+*/
+const removeTarget = ref<PluginState | null>(null)
+const removePrune = ref(false)
+/*
+  **要卸的那个包自己留一份快照。** AlertDialogAction 被点中时会先关弹窗,
+  关闭触发 @update:open 把 removeTarget 清成 null —— 这发生在按钮的 @click **之前**,
+  于是拿到 null 直接 return,表现是「点了卸载什么都没发生」。
+  这个应用里已经踩过三次(Vault 删除、会话归档、删项目),照同一个办法处理。
+*/
+let pendingRemove: PluginState | null = null
+
+function askRemovePlugin(p: PluginState) {
+  pendingRemove = p
+  removeTarget.value = p
+  removePrune.value = false
+}
+
+async function doRemovePlugin() {
+  const p = pendingRemove
+  pendingRemove = null
+  removeTarget.value = null
+  if (!p) return
+  busyPlugin.value = p.package
+  pluginError.value = ''
+  dsh.installLine = ''
+  try {
+    await removePlugin(p.package, removePrune.value)
+    await loadPlugins()
+  } catch (e) {
+    pluginError.value = String(e)
+  } finally {
+    busyPlugin.value = ''
+    dsh.installLine = ''
   }
 }
 
@@ -917,22 +965,43 @@ onUnmounted(() => {
               <div class="text-xs text-muted-foreground mt-1">{{ t('settings.dshPluginsDesc') }}</div>
             </div>
             <div class="rounded-xl border divide-y">
-              <div v-for="p in plugins" :key="p.package" class="flex items-start gap-4 px-4 py-3.5">
-                <span class="icon-[lucide--puzzle] w-5 h-5 shrink-0 mt-0.5 text-muted-foreground" />
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm">{{ PLUGIN_INFO[p.id]?.name ?? p.id }}</div>
-                  <div class="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                    {{ PLUGIN_INFO[p.id]?.desc ?? p.package }}
+              <div v-for="p in plugins" :key="p.package" class="px-4 py-3.5">
+                <div class="flex items-start gap-4">
+                  <span class="icon-[lucide--puzzle] w-5 h-5 shrink-0 mt-0.5 text-muted-foreground" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm">{{ PLUGIN_INFO[p.id]?.name ?? p.id }}</div>
+                    <div class="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      {{ PLUGIN_INFO[p.id]?.desc ?? p.package }}
+                    </div>
                   </div>
+                  <span v-if="p.installed" class="text-xs text-emerald-500 shrink-0 mt-1.5">
+                    {{ t('settings.dshPluginInstalled') }}
+                  </span>
+                  <button v-if="p.installed" @click="askRemovePlugin(p)" :disabled="!!busyPlugin"
+                    class="h-8 px-3.5 shrink-0 rounded-lg border border-border text-sm transition-colors
+                           hover:bg-muted disabled:opacity-50">
+                    {{ t('settings.dshPluginRemove') }}
+                  </button>
+                  <button v-else @click="installPlugin(p.package)" :disabled="!!busyPlugin"
+                    class="h-8 px-3.5 shrink-0 rounded-lg border border-border text-sm transition-colors
+                           hover:bg-muted disabled:opacity-50">
+                    {{ t('settings.dshPluginAdd') }}
+                  </button>
                 </div>
-                <span v-if="p.installed" class="text-xs text-emerald-500 shrink-0 mt-1">
-                  {{ t('settings.dshPluginInstalled') }}
-                </span>
-                <button v-else @click="installPlugin(p.package)" :disabled="!!addingPlugin"
-                  class="h-8 px-3.5 shrink-0 rounded-lg border border-border text-sm transition-colors
-                         hover:bg-muted disabled:opacity-50">
-                  {{ addingPlugin === p.package ? t('settings.dshPluginAdding') : t('settings.dshPluginAdd') }}
-                </button>
+
+                <!--
+                  装/卸的进度。pnpm 拉一个包能拉十几秒,期间按钮只写着「安装中」的话
+                  没人知道它是在动还是卡了 —— 一条不定长的进度条 + 它自己最后吐的那行,
+                  合起来才回答「还在动吗」和「在干什么」。
+                -->
+                <div v-if="busyPlugin === p.package" class="mt-3 pl-9">
+                  <div class="h-1 rounded-full bg-muted overflow-hidden">
+                    <div class="h-full w-1/3 rounded-full bg-foreground/60 animate-[dsh-slide_1.2s_ease-in-out_infinite]" />
+                  </div>
+                  <p class="mt-1.5 text-[11px] text-muted-foreground font-mono truncate">
+                    {{ dsh.installLine || t('settings.dshPluginWorking') }}
+                  </p>
+                </div>
               </div>
             </div>
             <p v-if="pluginError" class="text-xs text-red-500 wrap-break-word">{{ pluginError }}</p>
@@ -1055,6 +1124,46 @@ onUnmounted(() => {
           <AlertDialogAction @click="doUninstall"
             class="bg-destructive text-white hover:bg-destructive/90">
             {{ t('settings.dshUninstallBtn') }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <!--
+      卸插件的确认。和卸 DSH 本体同一套版式:先说清楚卸掉之后少了什么,
+      再把「可选清除」单独框出来 —— 那一档默认不勾,而且写明它是 pnpm 的下载缓存,
+      不是这个插件的数据。这类插件除了 node_modules 里那个包不留别的东西,
+      为了凑一个「清除文件」的选项去编一个,比没有这个选项更糟。
+    -->
+    <AlertDialog :open="!!removeTarget" @update:open="(v: boolean) => { if (!v) removeTarget = null }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {{ t('settings.dshPluginRemoveTitle', { name: PLUGIN_INFO[removeTarget?.id ?? '']?.name ?? removeTarget?.id ?? '' }) }}
+          </AlertDialogTitle>
+          <AlertDialogDescription>{{ t('settings.dshPluginRemoveBody') }}</AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div class="rounded-xl border p-3.5 space-y-2.5">
+          <label class="flex items-start gap-3 cursor-pointer">
+            <Checkbox v-model="removePrune" class="mt-0.5 shrink-0" />
+            <span class="min-w-0">
+              <span class="block text-sm">{{ t('settings.dshPluginPrune') }}</span>
+              <span class="block text-xs text-muted-foreground mt-1 leading-relaxed">
+                {{ t('settings.dshPluginPruneDesc') }}
+              </span>
+            </span>
+          </label>
+          <p v-if="removePrune" class="text-xs leading-relaxed text-amber-500">
+            {{ t('settings.dshPluginPruneWarn') }}
+          </p>
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ t('convert.cancel') }}</AlertDialogCancel>
+          <AlertDialogAction @click="doRemovePlugin"
+            class="bg-destructive text-white hover:bg-destructive/90">
+            {{ removePrune ? t('settings.dshPluginRemoveBtnPrune') : t('settings.dshPluginRemoveBtn') }}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

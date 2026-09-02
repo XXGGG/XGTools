@@ -211,6 +211,17 @@ export async function listPlugins(): Promise<PluginState[]> {
   catch (e) { console.error('读插件状态失败:', e); return [] }
 }
 
+/**
+ * 卸一个可选插件。
+ *
+ * `pruneStore` = 顺带清 pnpm 的下载缓存。**那是缓存,不是这个插件的数据** ——
+ * 这类插件除了 node_modules 里那个包不留别的东西,所以「可选清除」只有这一样
+ * 能诚实地给出来。清了下次装任何包都要重新下载,所以默认不清。
+ */
+export async function removePlugin(pkg: string, pruneStore = false) {
+  await invoke('dsh_plugin_remove', { package: pkg, pruneStore })
+}
+
 export async function addPlugin(pkg: string) {
   await invoke('dsh_plugin_add', { package: pkg })
 }

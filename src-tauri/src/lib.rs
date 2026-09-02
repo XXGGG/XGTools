@@ -132,6 +132,7 @@ pub fn run() {
             dsh_commands::dsh_uninstall,
             dsh_commands::dsh_plugins,
             dsh_commands::dsh_plugin_add,
+            dsh_commands::dsh_plugin_remove,
             // DSH 通信桥:一元 RPC + 两条事件流
             dsh_bridge::dsh_rpc,
             dsh_bridge::dsh_respond,
