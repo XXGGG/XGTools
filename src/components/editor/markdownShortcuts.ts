@@ -33,6 +33,7 @@
 import type { EditorState, ChangeSpec, StateCommand } from '@codemirror/state'
 import { EditorSelection } from '@codemirror/state'
 import type { KeyBinding } from '@codemirror/view'
+import { syntaxTree } from '@codemirror/language'
 
 // ── 行内标记 ──────────────────────────────────────────
 
@@ -423,6 +424,60 @@ function writeLine(chars: Ch[]): string {
  * 整段裹一个的结果是源码里出现一对跨行的标签，而屏幕上一点颜色都没有
  * （踩过：`2. 321<span …>` 换行 `- 333</span>`）。
  */
+/**
+ * 这一行里**不许被颜色 span 切开**的地方。
+ *
+ * # 为什么必须有
+ *
+ * 上色以前是拿光标选区去裹一对 `<span>`，完全不管这段范围横跨了什么。
+ * 于是刮到一半的记号就被劈开了，写出来的东西两边都不成立：
+ *
+ *     1**3112312**            上色  →  1**<span …>3112312**</span>
+ *     12`31231`               上色  →  1<span …>2`</span><span …>31231`</span>
+ *     ==12312313==            上色  →  ==12<span …>312313==</span>
+ *
+ * 屏幕上的样子是「加粗没了 / 代码块烂了 / `==` 冒出来了」——
+ * 全是同一个病：**span 跨过了记号的边界**。
+ *
+ * 挡两类东西：
+ *  · **记号本身**（`**` `~~` `==` `#` `>` 反引号…）—— 它们保持原来的颜色，
+ *    于是拼回去的时候自然落在 span 外面，得到 `**<span>加粗</span>**`
+ *  · **原样展示的整段**（行内代码、代码块、公式）—— 那里面塞 span 只会
+ *    变成一串看得见的尖括号，不是颜色
+ */
+function protectedRanges(state: EditorState, from: number, to: number) {
+  const out: { from: number; to: number }[] = []
+  syntaxTree(state).iterate({
+    from,
+    to,
+    enter: (node) => {
+      if (MARK_NODES.has(node.name) || OPAQUE_NODES.has(node.name)) {
+        out.push({ from: node.from, to: node.to })
+      }
+    },
+  })
+  /*
+    公式（`$…$`）不在 lezer 的 markdown 里，它是我们自己按正则画出来的
+    （见 editor/mathBlocks.ts），语法树里找不到，只能同样按正则挡一下。
+  */
+  const text = state.sliceDoc(from, to)
+  for (const m of text.matchAll(/\$[^$\n]+\$/g)) {
+    out.push({ from: from + m.index, to: from + m.index + m[0].length })
+  }
+  return out
+}
+
+/** 记号本身：保持原色，于是会落在新 span 外面 */
+const MARK_NODES = new Set([
+  'EmphasisMark', 'StrikethroughMark', 'HighlightMark', 'HeaderMark',
+  'QuoteMark', 'ListMark', 'LinkMark', 'CodeMark', 'TaskMarker',
+])
+
+/** 原样展示的整段：里面塞 span 只会多出一串尖括号 */
+const OPAQUE_NODES = new Set([
+  'InlineCode', 'FencedCode', 'CodeBlock', 'CodeText', 'CommentBlock', 'URL',
+])
+
 export function applyColor(color: InkColor | null): StateCommand {
   return ({ state, dispatch }) => {
     const r = state.selection.main
@@ -441,10 +496,12 @@ export function applyColor(color: InkColor | null): StateCommand {
       const t = trimRange(state, a0, b0)
       if (t.from >= t.to) continue
 
+      const off = protectedRanges(state, line.from, line.to)
       const chars = readLine(line.text, line.from)
       let hit = false
       for (const c of chars) {
         if (c.at < t.from || c.at >= t.to) continue
+        if (off.some((p) => c.at >= p.from && c.at < p.to)) continue
         if (c.color !== color) hit = true
         c.color = color
       }

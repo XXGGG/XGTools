@@ -72,6 +72,48 @@ function build(view: EditorView): DecorationSet {
 }
 
 /**
+ * **收起来的记号要当成一个整体，光标不许停在它中间。**
+ *
+ * # 这一条不加会怎样
+ *
+ * `==高亮==` 的 `==` 平时是藏起来的。你在「看得见的最后一个字」后面按回车 ——
+ * 那个位置在文档里其实是**闭合记号的前面**，于是一刀把这对记号劈成两行：
+ *
+ *     ==12312313
+ *     ==
+ *
+ * 两截都不成对，`==` 当场原样冒出来。`%%注释%%` 同理。
+ * 用的人只觉得「我就换个行，它自己蹦出来了」—— 因为看不见的东西咬了他一口。
+ *
+ * 标成 atomic 之后，光标移动和点击都会整个跨过去，停在记号外面，
+ * 回车也就落在该落的地方。
+ *
+ * # 为什么只挡「此刻收起来的」
+ *
+ * 光标已经进到那一段里时，记号是**露出来给你改**的（写作模式）——
+ * 那会儿它就该是普通字符，能选能删。所以判据和显示保持一致：
+ * 露出来的不挡，收起来的才挡。
+ */
+export const markerAtomicRanges = EditorView.atomicRanges.of((view) => {
+  const b = new RangeSetBuilder<Decoration>()
+  const sel = view.state.selection.main
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from,
+      to,
+      enter: (node) => {
+        if (!MARKS.has(node.name) || node.to <= node.from) return
+        if (node.name === 'CodeMark' && node.to - node.from >= 3) return
+        // 光标正压在这个记号上 —— 那它现在是露着的，别挡
+        if (sel.from <= node.to && sel.to >= node.from) return
+        b.add(node.from, node.to, hide)
+      },
+    })
+  }
+  return b.finish()
+})
+
+/**
  * 库在「你正在一对 `**` 中间打字」时会临时补一组样式类，那条路不走语法树，
  * 上面抹不到。它只是给字符上色不是替换，所以这里把字缩成看不见。
  *

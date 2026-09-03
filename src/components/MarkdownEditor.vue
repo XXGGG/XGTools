@@ -54,7 +54,7 @@ import { tableAffordances } from './editor/tableTools'
 import { listIndent, listBackspace, taskSpace } from './editor/listTools'
 import { markdownShortcuts, applyColor, type InkColor } from './editor/markdownShortcuts'
 import { markdownComments, markdownCommentsTheme } from './editor/comments'
-import { hideMarks, hideMarksTheme } from './editor/hideMarks'
+import { hideMarks, hideMarksTheme, markerAtomicRanges } from './editor/hideMarks'
 import { codeAffordances, codeAffordanceTheme } from './editor/codeAffordances'
 import { inlineHtmlStyles, inlineHtmlTheme } from './editor/inlineHtml'
 import { scrollMemory, foldMemory } from './editor/viewMemory'
@@ -572,6 +572,11 @@ function decorations(clean = false) {
       而特意留出来的那几个字符。
     */
     ...(clean ? [hideMarks, hideMarksTheme] : []),
+    /*
+      收起来的记号当成一个整体：光标不许停在 `==` 中间,不然在「看得见的最后一个字」
+      后面按回车会把一对记号劈成两行,它们当场原样冒出来。两档都要。
+    */
+    markerAtomicRanges,
     // 输入法打出来的字,光标要落在它后面(空列表项里打全角标点会跑到前面)
     caretAfterInsert,
     wikiLinks({
