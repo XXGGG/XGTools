@@ -394,6 +394,7 @@ export const zh = {
     sc_ordered: '有序列表',
     sc_task: '待办',
     sc_rule: '分隔线',
+    sc_clear: '清除格式',
     sc_indent: '缩进 / 反缩进（整块一起走，序号会重排）',
     sc_continue: '续写下一条',
     sc_outdent: '空的那条退一级；退到头就出列表',

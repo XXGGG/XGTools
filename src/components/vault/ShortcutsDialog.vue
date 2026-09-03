@@ -47,6 +47,7 @@ const GROUPS: Group[] = [
       { id: 'strike', keys: [`${MOD}+Shift+X`] },
       { id: 'mark', keys: [`${MOD}+Shift+H`] },
       { id: 'link', keys: [`${MOD}+K`] },
+      { id: 'clear', keys: [`${MOD}+\\`] },
     ],
   },
   {

@@ -400,6 +400,7 @@ export const en: Messages = {
     sc_ordered: 'Numbered list',
     sc_task: 'Task list',
     sc_rule: 'Horizontal rule',
+    sc_clear: 'Clear formatting',
     sc_indent: 'Indent / outdent (whole block, numbering renumbers)',
     sc_continue: 'Continue the list',
     sc_outdent: 'Outdent an empty item; leaves the list at the top level',
