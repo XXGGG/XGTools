@@ -52,7 +52,9 @@ import { isDarkNow, settings, VAULT_FONT_STACK, type VaultFont } from '@/composa
 import { mathAndDiagrams, resetMermaidTheme } from './editor/mathBlocks'
 import { tableAffordances } from './editor/tableTools'
 import { listIndent, listBackspace, taskSpace } from './editor/listTools'
-import { markdownShortcuts, applyColor, togglePair, type InkColor } from './editor/markdownShortcuts'
+import {
+  markdownShortcuts, applyColor, togglePair, clearInlineFormat, type InkColor,
+} from './editor/markdownShortcuts'
 import { markdownComments, markdownCommentsTheme } from './editor/comments'
 import { hideMarks, hideMarksTheme, markerAtomicRanges } from './editor/hideMarks'
 import { codeAffordances, codeAffordanceTheme } from './editor/codeAffordances'
@@ -895,22 +897,6 @@ watch(() => props.readOnly, (ro) => {
   和 Obsidian 一样 —— 否则用户得先精确选词才能用菜单,比直接打符号还慢。
 */
 
-/** 当前选区;没选中就取光标所在的词 */
-function target() {
-  const ed = view.value
-  if (!ed) return null
-  const sel = ed.state.selection.main
-  if (!sel.empty) return { from: sel.from, to: sel.to }
-  const line = ed.state.doc.lineAt(sel.head)
-  const text = line.text
-  let i = sel.head - line.from
-  const word = /[\p{L}\p{N}_]/u
-  let a = i, b = i
-  while (a > 0 && word.test(text[a - 1] ?? '')) a--
-  while (b < text.length && word.test(text[b] ?? '')) b++
-  return { from: line.from + a, to: line.from + b }
-}
-
 /**
  * 右键菜单里的加粗 / 斜体 / 删除线……
  *
@@ -1295,12 +1281,14 @@ defineExpose({
     ed.dispatch({ selection: { anchor: 0, head: ed.state.doc.length } })
     ed.focus()
   },
+  /**
+   * 清除格式。实现在 editor/markdownShortcuts 里 ——
+   * 它走语法树把**记号**剥掉，而不是按字符删。
+   */
   clearFormat: () => {
     const ed = view.value
-    const t = target()
-    if (!ed || !t) return
-    const bare = ed.state.sliceDoc(t.from, t.to).replace(/[*_`~=]|==/g, '')
-    ed.dispatch({ changes: { from: t.from, to: t.to, insert: bare } })
+    if (!ed) return
+    clearInlineFormat({ state: ed.state, dispatch: (tr) => ed.dispatch(tr) })
     ed.focus()
   },
 })

@@ -34,6 +34,7 @@ import type { EditorState, ChangeSpec, StateCommand } from '@codemirror/state'
 import { EditorSelection } from '@codemirror/state'
 import type { KeyBinding } from '@codemirror/view'
 import { syntaxTree } from '@codemirror/language'
+import type { SyntaxNode } from '@lezer/common'
 
 // ── 行内标记 ──────────────────────────────────────────
 
@@ -84,6 +85,149 @@ function trimRange(state: EditorState, from: number, to: number) {
  */
 export function toggleMark(mark: string): StateCommand {
   return togglePair(mark, mark)
+}
+
+/**
+ * 清除格式：把选中这段的**行内记号**全剥掉，只留字。
+ *
+ * # 为什么要重写
+ *
+ * 原来那版是一行正则：`.replace(/[*_\`~=]/g, '')` —— 见字符就删。
+ * 于是它把 `<span style="color:green">` 里那个 **等号**也删了，
+ * 变成 `<span style"color:green">`：标签当场不成立，整行烂在那儿，
+ * 而且从此再点「清除格式」也救不回来（那对尖括号它压根不认识）。
+ *
+ * 剥的是**记号**不是字符，所以走语法树：`**` `~~` `==` 反引号这些是记号节点，
+ * `<span …>` `</span>` 是 HTMLTag 节点，`%%` 我们自己按行找。
+ * 剩下的一个字都不动 —— 正文里本来就有的星号、等号不会被误伤。
+ *
+ * 行首的 `- ` `1. ` `## ` 不动：那是**块级**样式，要换去「段落设置」里换。
+ */
+export const clearInlineFormat: StateCommand = ({ state, dispatch }) => {
+  const r = state.selection.main
+  const changes: ChangeSpec[] = []
+
+  for (let n = state.doc.lineAt(r.from).number; n <= state.doc.lineAt(r.to).number; n++) {
+    const line = state.doc.line(n)
+    // 代码块里的一律不碰 —— 那里面本来就是「原样展示」的东西
+    if (inCodeBlock(state, line.from)) continue
+    const bodyFrom = line.from + blockPrefixLen(line.text)
+    // 没刮选就整行。清格式往往是「这行乱了，给我清干净」
+    let a = r.empty ? bodyFrom : Math.max(r.from, bodyFrom)
+    let b = r.empty ? line.to : Math.min(r.to, line.to)
+    if (a >= b) continue
+    ;({ from: a, to: b } = expandToMarkup(state, a, b, line, bodyFrom))
+
+    const drop: { from: number; to: number }[] = []
+    syntaxTree(state).iterate({
+      from: a,
+      to: b,
+      enter: (node) => {
+        // 围栏代码块的 ``` 留着 —— 那不是「格式」，是这一段的边界
+        if (node.name === 'CodeMark' && node.to - node.from >= 3) return
+        if (STRIP_NODES.has(node.name)) drop.push({ from: node.from, to: node.to })
+      },
+    })
+    /*
+      尖括号那一对另外再用正则扫一遍。
+
+      语法树只认**写得对**的标签，而这个命令恰恰要能收拾写坏的：
+      旧版把 `<span style="color:green">` 里那个等号删了，变成
+      `<span style"color:green">` —— 标签不成立，于是树里没有 HTMLTag，
+      再点「清除格式」也救不回来。正则不管它写得对不对，一律剥。
+      （代码块已经在上面排除了，不会误伤正文里引用的 HTML）
+    */
+    const text = state.sliceDoc(line.from, line.to)
+    for (const m of text.matchAll(/<\/?[a-zA-Z][^<>]*>|%%/g)) {
+      drop.push({ from: line.from + m.index, to: line.from + m.index + m[0].length })
+    }
+
+    drop.sort((x, y) => x.from - y.from || x.to - y.to)
+    let out = ''
+    let at = a
+    for (const d of drop) {
+      if (d.to <= at) continue
+      const from = Math.max(d.from, at)
+      const to = Math.min(d.to, b)
+      if (to <= from) continue
+      out += state.sliceDoc(at, from)
+      at = to
+    }
+    out += state.sliceDoc(Math.min(at, b), b)
+    if (out !== state.sliceDoc(a, b)) changes.push({ from: a, to: b, insert: out })
+  }
+
+  if (!changes.length) return false
+  dispatch(state.update({ changes, userEvent: 'input.format' }))
+  return true
+}
+
+/**
+ * 刮选往外扩：碰到哪段格式，就把那段整个算进来。
+ *
+ * 不扩会只清一半。实测：`**CCC**` 里双击选中 CCC 再清，
+ * 出来是 `**CCC` —— 因为记号现在是藏着的，刮选根本刮不到它们，
+ * 只有闭合那一半恰好落在区间边上被剥了，开头那半留在原地。
+ *
+ * 人的意思一直是「把这几个字的格式去掉」，不是「只删我刮到的那几个星号」。
+ * 所以先往外扩到完整的一段，再整段剥。
+ */
+function expandToMarkup(
+  state: EditorState, a: number, b: number,
+  line: { from: number; to: number; text: string }, bodyFrom: number,
+) {
+  const tree = syntaxTree(state)
+  const tags = [...line.text.matchAll(/<\/?[a-zA-Z][^<>]*>/g)]
+  let from = a
+  let to = b
+
+  // 一轮可能又露出新的一层（`**<span …>字</span>**`），扩到不动为止
+  for (let guard = 0; guard < 8; guard++) {
+    const f0 = from
+    const t0 = to
+
+    // 一、语法树上的行内容器：**粗** ~~删~~ ==高亮== `码`
+    for (const [pos, side] of [[from, 1], [to, -1]] as const) {
+      for (let n: SyntaxNode | null = tree.resolveInner(pos, side); n; n = n.parent) {
+        if (n.from < line.from || n.to > line.to) break
+        if (!WRAPPER_NODES.has(n.name)) continue
+        from = Math.min(from, n.from)
+        to = Math.max(to, n.to)
+      }
+    }
+
+    /*
+      二、行内 HTML。这一对在树里不是父子而是兄弟，上面那圈找不到，
+      靠「一左一右紧贴着夹住」来认：`<span …>[123456]</span>` 刮中间也该清干净。
+    */
+    const l = tags.find((m) => line.from + m.index + m[0].length === from)
+    if (l) from = line.from + l.index
+    const rg = tags.find((m) => line.from + m.index === to)
+    if (rg) to = line.from + rg.index + rg[0].length
+
+    if (from === f0 && to === t0) break
+  }
+
+  // 行首那截 `- ` `1. ` 永远不进来
+  return { from: Math.max(from, bodyFrom), to: Math.min(to, line.to) }
+}
+
+/** 可以把字裹在里面的行内格式（扩选区时用） */
+const WRAPPER_NODES = new Set([
+  'Emphasis', 'StrongEmphasis', 'Strikethrough', 'Highlight', 'InlineCode',
+])
+
+/** 「清除格式」要剥掉的记号节点 */
+const STRIP_NODES = new Set([
+  'EmphasisMark', 'StrikethroughMark', 'HighlightMark', 'CodeMark', 'CommentBlock',
+])
+
+/** 这一行是不是在围栏 / 缩进代码块里 */
+function inCodeBlock(state: EditorState, pos: number): boolean {
+  for (let n: SyntaxNode | null = syntaxTree(state).resolveInner(pos, 1); n; n = n.parent) {
+    if (n.name === 'FencedCode' || n.name === 'CodeBlock' || n.name === 'CodeText') return true
+  }
+  return false
 }
 
 /**
@@ -629,6 +773,8 @@ export const markdownShortcuts: KeyBinding[] = [
   { key: 'Mod-Shift-x', run: toggleMark('~~'), preventDefault: true },
   { key: 'Mod-Shift-h', run: toggleMark('=='), preventDefault: true },
   { key: 'Mod-k', run: insertLink, preventDefault: true },
+  // Obsidian 没这个键，取 Google 文档那个 Ctrl + 反斜杠
+  { key: 'Mod-\\', run: clearInlineFormat, preventDefault: true },
 
   { key: 'Mod-0', run: setHeading(0), preventDefault: true },
   ...[1, 2, 3, 4, 5, 6].map((n) => ({

@@ -55,3 +55,6 @@ native/target/
 
 # 打包产物的取件口(scripts/collect-installer.mjs 拷进来的),上百 MB,只放本机
 installer/
+
+# 我自己的临时试验脚本，不进仓库
+scratch/
