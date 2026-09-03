@@ -44,6 +44,14 @@ export type Project = {
   folder: string
   /** 这个项目对应的那次对话。空 = 还没开始聊,进去时现开一个 */
   sessionId: string
+  /**
+   * 从别家哪一次会话接过来的（Claude Code 的 sessionId）。
+   *
+   * 认的是**会话**不是文件夹：同一个工作区底下可以并排放好几个项目
+   * （`c:\XGCode` 里既在改 XGTools 又在弄视频生成），
+   * 只按文件夹判重会把它们当成同一个，第二个就接不进来了。
+   */
+  originId?: string
   /** 正文栏在中间还是右边;不设就跟随全局 */
   layout?: 'doc-center' | 'chat-center'
   createdAt: number

@@ -27,7 +27,26 @@
  */
 import { reactive } from 'vue'
 import { readTextFile, readDir, exists } from '@tauri-apps/plugin-fs'
+import { invoke } from '@tauri-apps/api/core'
 import { homeDir, join } from '@tauri-apps/api/path'
+
+/**
+ * 别家的一次会话。**一个会话就是一个项目。**
+ *
+ * 同一个文件夹里可以同时进行好几摊不相干的活 —— `c:\XGCode` 底下既在改 XGTools，
+ * 又在弄视频生成，还在管服务器安全。它们共用一个工作区，但不是同一个项目。
+ */
+export type ExternalSession = {
+  /** 别家的会话 id。用来认「这个会话已经接过来了」 */
+  id: string
+  title: string
+  cwd: string
+  /** 最后动过的时间（毫秒） */
+  mtime: number
+  /** 自己改过名字的 —— 那是他真在意的活 */
+  named: boolean
+  linked: boolean
+}
 
 export type ExternalProject = {
   /** 真实的绝对路径 */
@@ -43,10 +62,13 @@ export type ExternalProject = {
 }
 
 export const external = reactive<{
+  /** 会话 —— 主角 */
+  sessions: ExternalSession[]
+  /** 只有文件夹、没有会话记录的。日志过期清掉之后就只剩这个了 */
   items: ExternalProject[]
   loading: boolean
   error: string
-}>({ items: [], loading: false, error: '' })
+}>({ sessions: [], items: [], loading: false, error: '' })
 
 function leafName(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() || p
@@ -195,15 +217,38 @@ async function scanCodex(): Promise<ExternalProject[]> {
   return out
 }
 
-/** 扫一遍。`taken` 是 XGTools 里已经绑过的文件夹,用来标「已经接上了」 */
-export async function scanExternalProjects(taken: string[]) {
+/**
+ * 扫一遍。
+ *
+ * `takenFolders` 是已经绑过的文件夹，`takenOrigins` 是已经接过来的会话 id。
+ * **会话按 id 判重，不按文件夹** —— 否则同一个工作区里的第二摊活就接不进来了。
+ */
+export async function scanExternalProjects(takenFolders: string[], takenOrigins: string[] = []) {
   if (external.loading) return
   external.loading = true
   external.error = ''
   try {
+    const origins = new Set(takenOrigins.filter(Boolean))
+    try {
+      const raw = await invoke<ExternalSession[]>('scan_claude_sessions')
+      external.sessions = raw.map((x) => ({ ...x, linked: origins.has(x.id) }))
+    } catch (e) {
+      // 会话读不出来不该连累文件夹那一半
+      external.sessions = []
+      external.error = String(e)
+    }
+
     const found = [...(await scanClaudeCode()), ...(await scanCodex())]
-    const low = new Set(taken.filter(Boolean).map(normKey))
+    const low = new Set(takenFolders.filter(Boolean).map(normKey))
+    /*
+      会话已经覆盖到的文件夹不再单列。
+
+      会话那一栏里已经把 `c:\XGCode` 列了十来次（十来摊活），
+      底下再来一条光秃秃的「XGCode」只会让人愣一下：这跟上面那些什么关系？
+    */
+    const bySession = new Set(external.sessions.map((x) => normKey(x.cwd)))
     external.items = found
+      .filter((p) => !bySession.has(normKey(p.path)))
       .map((p) => ({ ...p, linked: low.has(normKey(p.path)) }))
       // 最近还在用的排前面 —— 那才是他这会儿想接过来的
       .sort((a, b) =>

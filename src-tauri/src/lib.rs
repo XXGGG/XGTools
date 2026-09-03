@@ -6,6 +6,7 @@ mod translate_commands;
 mod convert_commands;
 mod record_commands;
 mod audio_loopback;
+mod foreign_projects;
 mod window_effects;
 mod dsh_commands;
 mod dsh_bridge;
@@ -290,6 +291,7 @@ pub fn run() {
             record_commands::recording_status,
             record_commands::recording_to_gif,
             record_commands::reveal_in_explorer,
+            foreign_projects::scan_claude_sessions,
             disable_window_transitions,
             set_window_no_activate,
             // 动态壁纸 / 定时屏保

@@ -56,6 +56,7 @@ import ProjectFiles from '@/components/agent/ProjectFiles.vue'
 import SessionItem from '@/components/agent/SessionItem.vue'
 import SkillsDialog from '@/components/agent/SkillsDialog.vue'
 import SyncProjectsDialog from '@/components/agent/SyncProjectsDialog.vue'
+import InfoTip from '@/components/InfoTip.vue'
 import ProjectItem from '@/components/agent/ProjectItem.vue'
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
@@ -1303,6 +1304,26 @@ async function linkExternal(ex: { path: string; name: string }) {
   await enterProject(it.id)
 }
 
+/**
+ * 把别家的**一次会话**接过来 —— 一个会话就是一个项目。
+ *
+ * 同一个工作区底下可以并排放好几个：`c:\XGCode` 里既有「改 XGTools」，
+ * 也有「弄视频生成」。所以这里不看文件夹重不重，只记住它是从哪一次会话来的
+ * （`originId`）—— 判重按会话，不按文件夹。
+ */
+async function linkExternalSession(s: { id: string; title: string; cwd: string }) {
+  syncOpen.value = false
+  const it = await addProject({
+    categoryId: '',
+    name: s.title,
+    icon: '💬',
+    folder: s.cwd,
+    sessionId: '',
+    originId: s.id,
+  })
+  await enterProject(it.id)
+}
+
 /** 在哪个类下新建项目 */
 const newProjectCat = ref('')
 function startNewProject(catId: string) {
@@ -1797,9 +1818,12 @@ async function copyMessage(id: string, text: string) {
           <template v-else>
             <!-- 和笔记页一样能往里加东西 —— 不然要新建一个文件得先切去资源管理器 -->
             <div class="flex items-center gap-1 px-1 pb-1">
-              <span class="text-[11px] text-muted-foreground mr-auto truncate">
+              <span class="text-[11px] text-muted-foreground truncate">
                 {{ currentProject.folder.split(/[\\/]/).filter(Boolean).pop() }}
               </span>
+              <!-- 说明收进 ⓘ 里，不常驻在界面上 —— 见 InfoTip 的注释 -->
+              <InfoTip :text="t('agent.filesHint')" />
+              <div class="flex-1" />
               <button @click="createInProject(false)" :title="t('agent.newFile')"
                 class="size-6 rounded-md flex items-center justify-center text-muted-foreground
                        transition-colors hover:bg-muted hover:text-foreground">
@@ -1812,9 +1836,6 @@ async function copyMessage(id: string, text: string) {
               </button>
             </div>
             <ProjectFiles :key="filesVersion" :root="currentProject.folder" @open="openProjectFile" />
-            <p class="mt-2 px-1 text-[11px] text-muted-foreground leading-relaxed">
-              {{ t('agent.filesHint') }}
-            </p>
           </template>
         </div>
       </div>
@@ -2540,7 +2561,7 @@ async function copyMessage(id: string, text: string) {
     <NewProjectDialog v-model:open="newCatOpen" :title="t('agent.newCategory')"
       :placeholder="t('agent.catNamePlaceholder')" @submit="(p) => createCategory(p.name, p.icon)" />
     <SkillsDialog v-model:open="skillsOpen" @open-skill="openSkill" @restart-engine="restartEngine" />
-    <SyncProjectsDialog v-model:open="syncOpen" @link="linkExternal" />
+    <SyncProjectsDialog v-model:open="syncOpen" @link="linkExternal" @link-session="linkExternalSession" />
 
     <!-- 改名：项目类和项目共用,图标也能重挑 -->
     <NewProjectDialog v-model:open="edit.open"
