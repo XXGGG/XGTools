@@ -213,6 +213,7 @@ export const zh = {
     agoMin: '{n} 分钟前',
     agoHour: '{n} 小时前',
     agoDay: '{n} 天前',
+    jumpToBottom: '回到最新',
     foreignLoading: '正在读 Claude Code 那边的对话…',
     foreignDropped: '更早的 {n} 条没有显示',
     foreignDivider: '以上来自 Claude Code · 从这儿往下是这边的',

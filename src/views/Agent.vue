@@ -25,7 +25,7 @@ import {
   projections, togglePlan, commands, runCommand,
   workspaces, loadWorkspaces, addWorkspace,
   permission, selectPermission, PERMISSION_PRESETS,
-  foreign, loadForeignHistory, clearForeignHistory,
+  foreign, loadForeignHistory, clearForeignHistory, primeContextFromItems,
   type ChatFile,
 } from '@/composables/useDshChat'
 import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover'
@@ -268,7 +268,16 @@ const listEl = ref<HTMLElement | null>(null)
   整个页面「跳」一下 —— 因为这是两套完全不同的排版。
   正在读的时候维持正常排版,输入框待在它该在的地方,消息淡入就行。
 */
-const empty = computed(() => chat.items.length === 0 && !chat.loadingHistory)
+/*
+  「空态」= 这边没聊过 **而且** 也没有别家的历史要画。
+
+  以前只看 chat.items：接过来的项目一进去，DSH 这边确实还没聊，于是走了空态那一支 ——
+  而别家的历史是画在消息列表里的，列表压根没渲染，人得先发一句话才看得见。
+*/
+const empty = computed(() =>
+  chat.items.length === 0 && !chat.loadingHistory
+  && foreign.items.length === 0 && !foreign.loading,
+)
 
 /**
  * 启动屏该不该盖着聊天区。
@@ -357,6 +366,34 @@ function autoScroll() {
   const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
   if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
 }
+
+/*
+  「回到底部」那颗按钮。
+
+  滚动条是有意藏起来的（原生和自绘都试过，都不满意，见项目板），
+  于是长对话里往上翻了之后没有任何东西告诉你「离最新那句还有多远」。
+  这颗按钮补的就是这个：离底部超过一屏才出现，点一下落到底。
+*/
+const farFromBottom = ref(false)
+function onListScroll() {
+  const el = listEl.value
+  if (!el) return
+  farFromBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight
+}
+function jumpToBottom() {
+  const el = listEl.value
+  if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+}
+
+// 别家的历史读进来是一次性灌满整屏：落到最底下（分界线和这边的对话在那儿）
+watch(() => foreign.items.length, (n) => {
+  if (!n) return
+  nextTick(() => {
+    const el = listEl.value
+    if (el) el.scrollTop = el.scrollHeight
+    onListScroll()
+  })
+})
 watch(() => chat.items.map((i) => (i.kind === 'assistant' ? i.text.length : 1)).join(),
   () => nextTick(autoScroll))
 
@@ -1406,6 +1443,15 @@ async function pickFolder(from: 'vault' | 'disk' = 'disk') {
   filesVersion.value++
   closeDoc()
 
+  /*
+    旧那轮的上下文带过去。
+
+    DSH 的会话绑死在建它时的目录上，换目录只能重开一轮 —— 但人脑子里的上下文没换，
+    换个文件夹接着说是最自然的事。所以把旧那轮聊过的话攒一份（只要人话，不要工具噪音），
+    新一轮第一句悄悄带上。旧那轮本身没丢，还在「聊天」列表里。
+  */
+  if (hadSession && chat.items.length) primeContextFromItems(chat.items)
+
   await newSession(picked)
   if (chat.sessionId) await updateProject(cur.id, { sessionId: chat.sessionId })
   if (hadSession) {
@@ -2253,7 +2299,18 @@ async function copyMessage(id: string, text: string) {
         列表的上下内边距要把这两层让开,不然第一条和最后一条永远是半透明的。
       -->
       <template v-else>
+        <!-- 回到底部。绝对定位在输入框正上方，不随列表滚 -->
+        <Transition name="fade">
+          <button v-if="farFromBottom" @click="jumpToBottom" :title="t('agent.jumpToBottom')"
+            class="absolute left-1/2 -translate-x-1/2 z-20 size-9 rounded-full flex items-center justify-center
+                   bg-card border border-border shadow-md text-muted-foreground
+                   transition-colors hover:text-foreground hover:bg-muted"
+            :style="{ bottom: composerH + 40 + 'px' }">
+            <span class="icon-[lucide--arrow-down] w-4 h-4" />
+          </button>
+        </Transition>
         <div ref="listEl" @wheel="onUserScroll" @touchmove="onUserScroll" @keydown="onUserScroll"
+          @scroll.passive="onListScroll"
           class="absolute inset-0 overflow-y-auto px-6 pt-8"
           :style="{ paddingBottom: composerH + 28 + 'px', maskImage: chatMask, WebkitMaskImage: chatMask }">
           <div class="max-w-2xl mx-auto flex flex-col gap-5">
@@ -2670,6 +2727,10 @@ async function copyMessage(id: string, text: string) {
 </template>
 
 <style scoped>
+/* 回到底部那颗按钮的出现 / 消失 */
+.fade-enter-active, .fade-leave-active { transition: opacity 160ms ease, transform 160ms ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translate(-50%, 6px); }
+
 /*
   输入框:两处用同一套样式(空态居中、对话态贴底),所以抽成类而不是重复一长串 utility。
   bg-background/40 而不是实心 —— 开云母/亚克力时能透出材质,关掉时看着也正常。

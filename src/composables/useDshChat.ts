@@ -661,6 +661,32 @@ export async function loadForeignHistory(originId: string, primeContext: boolean
   }
 }
 
+/**
+ * 把一段现成的对话（这边聊过的）攒成摘录，留给下一句话带走。
+ *
+ * 换工作区时用：DSH 的会话是绑死在建它时的目录上的，换目录只能重开一轮 ——
+ * 但人脑子里的上下文没换。所以把旧那轮的人话攒一份，新一轮第一句悄悄带上，
+ * 模型不至于从零开始。
+ */
+export function primeContextFromItems(items: ChatItem[]) {
+  const BUDGET = 9000
+  const PER = 900
+  const acc: string[] = []
+  let used = 0
+  for (let i = items.length - 1; i >= 0; i--) {
+    const m = items[i]
+    if (m.kind !== 'user' && m.kind !== 'assistant') continue
+    let s = m.text.slice(0, PER)
+    if (m.text.length > PER) s += '…'
+    const line = `${m.kind === 'user' ? '我' : 'AI'}: ${s.replace(/\n/g, ' ')}`
+    if (used + line.length > BUDGET) break
+    used += line.length
+    acc.push(line)
+  }
+  acc.reverse()
+  contextPrelude = acc.join('\n')
+}
+
 export function clearForeignHistory() {
   foreign.originId = ''
   foreign.items = []

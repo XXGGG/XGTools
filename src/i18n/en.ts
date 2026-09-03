@@ -219,6 +219,7 @@ export const en: Messages = {
     agoMin: '{n} min ago',
     agoHour: '{n} h ago',
     agoDay: '{n} d ago',
+    jumpToBottom: 'Jump to latest',
     foreignLoading: 'Reading the Claude Code conversation…',
     foreignDropped: '{n} earlier messages not shown',
     foreignDivider: 'Above is from Claude Code · below continues here',
