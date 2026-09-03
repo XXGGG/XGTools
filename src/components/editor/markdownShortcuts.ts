@@ -87,10 +87,71 @@ export function toggleMark(mark: string): StateCommand {
 }
 
 /**
+ * 跨行时：每一行各包一对，而且**从这一行的正文列开始**。
+ *
+ * 「正文列」那一段的理由和上色是同一条（见 blockPrefixLen）：
+ * `- ` `1. ` `> ` 这些前缀不能被裹进去，裹进去 markdown 当场就不认它是列表了。
+ *
+ * 整段跟着第一行走：只要有一行还没包，就全都包上；全都包了才全都脱掉 ——
+ * 逐行各判各的话，选区里混着的时候会一半变一半不变，再按一次又反过来。
+ */
+function pairPerLine(
+  { state, dispatch }: { state: EditorState; dispatch: (tr: ReturnType<EditorState['update']>) => void },
+  open: string, close: string,
+): boolean {
+  const r = state.selection.main
+  const first = state.doc.lineAt(r.from).number
+  const last = state.doc.lineAt(r.to).number
+  const spans: { from: number; to: number; wrapped: boolean }[] = []
+
+  for (let n = first; n <= last; n++) {
+    const line = state.doc.line(n)
+    const bodyFrom = line.from + blockPrefixLen(line.text)
+    const t = trimRange(state, Math.max(r.from, bodyFrom), Math.min(r.to, line.to))
+    if (t.from >= t.to) continue
+    const inner = state.sliceDoc(t.from, t.to)
+    spans.push({
+      ...t,
+      wrapped: inner.length >= open.length + close.length
+        && inner.startsWith(open) && inner.endsWith(close),
+    })
+  }
+  if (!spans.length) return false
+
+  const allWrapped = spans.every((s) => s.wrapped)
+  const changes: ChangeSpec[] = []
+  for (const s of spans) {
+    if (allWrapped) {
+      changes.push({ from: s.from, to: s.from + open.length })
+      changes.push({ from: s.to - close.length, to: s.to })
+    } else if (!s.wrapped) {
+      changes.push({ from: s.from, insert: open })
+      changes.push({ from: s.to, insert: close })
+    }
+  }
+  if (!changes.length) return false
+  dispatch(state.update({ changes, userEvent: 'input.format' }))
+  return true
+}
+
+/**
  * 成对包裹的开关。两头不一样的也走这儿 —— `<u>` / `</u>` 就是这种。
  */
 export function togglePair(open: string, close: string): StateCommand {
-  return ({ state, dispatch }) => {
+  return (target) => {
+    const { state } = target
+    const r = state.selection.main
+    /*
+      **跨行的选区一行一段地包，不能整段裹一对。**
+
+      `**` `~~` `==` 都是行内记号，碰到换行就断了。整段裹一对写出来是
+      `~~第一行\n第二行~~` —— 解析器不认，屏幕上两行都原样带着波浪线
+      （踩过：刮两行加删除线，出来 `1234~~56` / `123456~~`）。
+      按行分开写，每一行各自成立。
+    */
+    if (!r.empty && state.doc.lineAt(r.from).number !== state.doc.lineAt(r.to).number) {
+      return pairPerLine(target, open, close)
+    }
     const a = open.length
     const b = close.length
     const tr = state.changeByRange((range) => {
@@ -107,7 +168,9 @@ export function togglePair(open: string, close: string): StateCommand {
           显示四个星号、字一点没加粗。用的人只会觉得「加粗按了没用」。
           （踩过：`- [ ]  1**3112312 **`）
         */
-        const t = trimRange(state, from, to)
+        // 行首的 `- ` `1. ` `> ` 不能被裹进去，理由见 blockPrefixLen
+        const line = state.doc.lineAt(from)
+        const t = trimRange(state, Math.max(from, line.from + blockPrefixLen(line.text)), to)
         from = t.from; to = t.to
         if (from >= to) return { range }
       }
@@ -142,7 +205,7 @@ export function togglePair(open: string, close: string): StateCommand {
       }
     })
     if (tr.changes.empty) return false
-    dispatch(state.update(tr, { scrollIntoView: true, userEvent: 'input.format' }))
+    target.dispatch(state.update(tr, { scrollIntoView: true, userEvent: 'input.format' }))
     return true
   }
 }
@@ -474,7 +537,7 @@ function protectedRanges(state: EditorState, from: number, to: number) {
  * 这里要的是「正文从第几列开始」，引用也得算进去。
  * 一行里可能叠着好几层（`> - `），所以循环剥到剥不动为止。
  */
-function blockPrefixLen(text: string): number {
+export function blockPrefixLen(text: string): number {
   let i = 0
   for (;;) {
     const rest = text.slice(i)

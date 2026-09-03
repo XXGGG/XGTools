@@ -22,6 +22,7 @@ import { Decoration, EditorView, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { RangeSetBuilder } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
+import { blockPrefixLen } from './markdownShortcuts'
 
 /**
  * 要抹掉的记号节点。
@@ -95,9 +96,24 @@ function build(view: EditorView): DecorationSet {
  * 露出来的不挡，收起来的才挡。
  */
 export const markerAtomicRanges = EditorView.atomicRanges.of((view) => {
-  const b = new RangeSetBuilder<Decoration>()
+  const rs: { from: number; to: number }[] = []
   const sel = view.state.selection.main
   for (const { from, to } of view.visibleRanges) {
+    /*
+      行首那截 `- ` / `1. ` / `- [ ] ` / `> ` / `## ` **一律选不中**。
+
+      Notion 就是这样：圆点根本刮不到。而只要能刮到，每一个格式命令都得自己
+      记得躲开它 —— 上色躲一次、加粗躲一次、删除线再躲一次，漏一个就炸
+      （`-<span …> 123456</span>` 里短横线后面紧跟一个 `<`，
+      markdown 当场就不认它是列表，圆点变成一根横杠）。
+      与其在每个命令里打补丁，不如让它压根选不进来。
+    */
+    for (let n = view.state.doc.lineAt(from).number; n <= view.state.doc.lineAt(to).number; n++) {
+      const line = view.state.doc.line(n)
+      const len = blockPrefixLen(line.text)
+      if (len > 0) rs.push({ from: line.from, to: line.from + len })
+    }
+
     syntaxTree(view.state).iterate({
       from,
       to,
@@ -106,9 +122,18 @@ export const markerAtomicRanges = EditorView.atomicRanges.of((view) => {
         if (node.name === 'CodeMark' && node.to - node.from >= 3) return
         // 光标正压在这个记号上 —— 那它现在是露着的，别挡
         if (sel.from <= node.to && sel.to >= node.from) return
-        b.add(node.from, node.to, hide)
+        rs.push({ from: node.from, to: node.to })
       },
     })
+  }
+  // builder 要求升序，而上面是两轮扫出来的
+  rs.sort((a, b2) => a.from - b2.from || a.to - b2.to)
+  const b = new RangeSetBuilder<Decoration>()
+  let last = -1
+  for (const r of rs) {
+    if (r.from < last) continue      // 和前一段重叠的丢掉，builder 不接受
+    b.add(r.from, r.to, hide)
+    last = r.to
   }
   return b.finish()
 })

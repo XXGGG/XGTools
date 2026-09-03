@@ -52,7 +52,7 @@ import { isDarkNow, settings, VAULT_FONT_STACK, type VaultFont } from '@/composa
 import { mathAndDiagrams, resetMermaidTheme } from './editor/mathBlocks'
 import { tableAffordances } from './editor/tableTools'
 import { listIndent, listBackspace, taskSpace } from './editor/listTools'
-import { markdownShortcuts, applyColor, type InkColor } from './editor/markdownShortcuts'
+import { markdownShortcuts, applyColor, togglePair, type InkColor } from './editor/markdownShortcuts'
 import { markdownComments, markdownCommentsTheme } from './editor/comments'
 import { hideMarks, hideMarksTheme, markerAtomicRanges } from './editor/hideMarks'
 import { codeAffordances, codeAffordanceTheme } from './editor/codeAffordances'
@@ -912,38 +912,16 @@ function target() {
 }
 
 /**
- * 用 `mark` 把选中的内容裹起来;已经裹着就脱掉(再点一次取消加粗)。
+ * 右键菜单里的加粗 / 斜体 / 删除线……
  *
- * ⚠ **两头的空白必须先剪掉。** markdown 的强调标记**紧贴空格就不成立** ——
- * `**加粗 **` 里闭合的那对星号前面是空格,解析器不认,屏幕上原样显示四个星号、
- * 字一点没加粗。而刮选时多带一个尾空格太常见了,用的人只会觉得「加粗按了没用」。
- * (踩过:`- [ ]  1**3112312 **`)
+ * 直接转给 editor/markdownShortcuts 里的 togglePair —— 和快捷键同一份实现。
+ * 这里原来另写了一份，结果是同一类 bug 得修两遍：
+ * 尾空格那条修了两次，行首 `- ` 那条又差点只修一边。
  */
 function wrap(mark: string, endMark = mark) {
   const ed = view.value
-  const t0 = target()
-  if (!ed || !t0) return
-  const raw = ed.state.sliceDoc(t0.from, t0.to)
-  const head = raw.length - raw.replace(/^\s+/, '').length
-  const tail = raw.length - raw.replace(/\s+$/, '').length
-  const t = { from: t0.from + head, to: t0.to - tail }
-  if (t.from >= t.to) return
-  const inner = ed.state.sliceDoc(t.from, t.to)
-  const outer = ed.state.sliceDoc(
-    Math.max(0, t.from - mark.length),
-    Math.min(ed.state.doc.length, t.to + endMark.length),
-  )
-  if (inner.startsWith(mark) && inner.endsWith(endMark) && inner.length > mark.length + endMark.length) {
-    const bare = inner.slice(mark.length, inner.length - endMark.length)
-    ed.dispatch({ changes: { from: t.from, to: t.to, insert: bare },
-      selection: { anchor: t.from, head: t.from + bare.length } })
-  } else if (outer === mark + inner + endMark) {
-    ed.dispatch({ changes: { from: t.from - mark.length, to: t.to + endMark.length, insert: inner },
-      selection: { anchor: t.from - mark.length, head: t.from - mark.length + inner.length } })
-  } else {
-    ed.dispatch({ changes: { from: t.from, to: t.to, insert: mark + inner + endMark },
-      selection: { anchor: t.from + mark.length, head: t.to + mark.length } })
-  }
+  if (!ed) return
+  togglePair(mark, endMark)({ state: ed.state, dispatch: (tr) => ed.dispatch(tr) })
   ed.focus()
 }
 
