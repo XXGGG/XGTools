@@ -524,6 +524,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            /*
+              托盘菜单的第二道保险。
+
+              它自己那套「失焦就收」在抢不到前台时不会触发(见 tray.rs 的 watch_focus)。
+              万一那道保险也没兜住,只要用户点回我们任何一扇窗口,就把它收掉 ——
+              一张赶不走的卡片浮在最上层,是这个应用里最让人火大的状态。
+            */
+            if let tauri::WindowEvent::Focused(true) = event {
+                if window.label() != "tray-menu" {
+                    if let Some(w) = window.app_handle().get_webview_window("tray-menu") {
+                        let _ = w.hide();
+                    }
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let label = window.label();
                 if label == "main" || label == "screenshot" {

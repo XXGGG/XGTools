@@ -14,6 +14,32 @@ const { t } = useI18n()
 const store = new LazyStore('settings.json')
 const settingsLoaded = ref(false)
 
+/*
+  「重启截图」。
+
+  截图窗口是常驻的隐藏窗口,快捷键按下去只是把它叫出来。它偶尔会卡死
+  (webview 自己崩了、或者被系统挂起之后没醒过来),现象是**键还在、按了没反应** ——
+  从外面看和「键被别的程序占了」一模一样,而那条路怎么修都修不好。
+  重载这一个窗口就行,不用退出整个程序。
+
+  设置页的快捷键总览里也有这一颗。放两处不是重复:出了这个毛病的人第一反应
+  是来截图这一页找,不会想到去翻快捷键总览。
+*/
+const restarting = ref(false)
+const restartMsg = ref('')
+async function restartScreenshot() {
+  restarting.value = true
+  restartMsg.value = ''
+  try {
+    await invoke('reload_screenshot_window')
+    restartMsg.value = t('settings.keysRestartShotDone')
+  } catch (e) {
+    restartMsg.value = String(e)
+  } finally {
+    restarting.value = false
+  }
+}
+
 // --- State ---
 const screenshotEnabled = ref(true)
 const screenshotShortcut = ref('Ctrl+Alt+A')
@@ -230,6 +256,25 @@ const bgColorPresets = [
               @click="isRecordingShortcut ? cancelRecording() : startRecordingShortcut()"
             >
               {{ isRecordingShortcut ? '按下组合键...' : screenshotShortcut }}
+            </Button>
+          </div>
+
+          <!-- 键在、按了没反应时的那一手。紧挨着快捷键那一行,因为出毛病的就是它 -->
+          <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+                <span class="icon-[lucide--rotate-cw] w-5 h-5" />
+              </div>
+              <div class="min-w-0">
+                <h3 class="font-medium">{{ t('settings.keysRestartShot') }}</h3>
+                <p class="text-xs text-muted-foreground">
+                  {{ restartMsg || t('settings.keysRestartShotHint') }}
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" :disabled="restarting" @click="restartScreenshot">
+              <span class="icon-[lucide--rotate-cw] w-3.5 h-3.5" :class="restarting ? 'animate-spin' : ''" />
+              {{ t('settings.keysRestartShot') }}
             </Button>
           </div>
 

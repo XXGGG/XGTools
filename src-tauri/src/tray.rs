@@ -78,13 +78,40 @@ fn show_menu(app: &tauri::AppHandle) {
     place(app);
     let _ = win.show();
     let _ = win.set_focus();
+    watch_focus(app.clone());
+}
+
+/// 抢不到焦点就自己收掉。
+///
+/// # 为什么必须有这一手
+///
+/// 菜单**只靠「失去焦点」这一个事件收起来**。而 `set_focus()` 在 Windows 上
+/// 是会被拒绝的 —— 前台锁:当前前台进程不是我们时，系统不让我们抢到前台。
+/// 一旦抢不到，菜单就从来没有获得过焦点，于是**永远等不到那个失焦事件**，
+/// 结果是一张浮在最上层、位置还不对、怎么点都不消失的卡片。
+///
+/// 所以显示之后等一下，回头看它到底拿到焦点没有；没拿到就直接收掉 ——
+/// 「菜单没弹出来」比「弹出来一张赶不走的卡片」好收拾得多。
+fn watch_focus(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        // 给窗口显示 + 激活留出时间。太短会误判(还没轮到它激活),
+        // 太长的话那张收不掉的卡片就在屏幕上多待一会儿。
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        let Some(w) = app.get_webview_window(MENU) else { return };
+        if w.is_visible().unwrap_or(false) && !w.is_focused().unwrap_or(false) {
+            let _ = w.hide();
+        }
+    });
 }
 
 /// 把菜单窗口的右下角贴到锚点的左上方。
 fn place(app: &tauri::AppHandle) {
-    let (Some(win), Some((ax, ay))) = (app.get_webview_window(MENU), *ANCHOR.lock().unwrap()) else {
-        return;
-    };
+    let Some(win) = app.get_webview_window(MENU) else { return };
+    // 没有锚点就现问一次鼠标在哪。直接返回的话窗口会停在**上一次**的位置 ——
+    // 那正是「菜单出现在屏幕上一个奇怪的地方」的来路。
+    let anchor = (*ANCHOR.lock().unwrap())
+        .or_else(|| app.cursor_position().ok().map(|c| (c.x, c.y)));
+    let Some((ax, ay)) = anchor else { return };
     let Ok(size) = win.outer_size() else { return };
     let scale = win.scale_factor().unwrap_or(1.0);
     // 窗口比看得见的卡片大一圈:那圈透明留白是给阴影的(前端的 p-3)。
