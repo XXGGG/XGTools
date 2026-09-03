@@ -57,6 +57,7 @@ import KeyboardPetView from './views/KeyboardPet.vue'
 import ScreenshotView from './views/Screenshot.vue'
 import TranslateView from './views/Translate.vue'
 const ConvertView = defineAsyncComponent(() => import('./views/Convert.vue'))
+const PaletteView = defineAsyncComponent(() => import('./views/Palette.vue'))
 import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
 import PaletteWindow from './palette/PaletteWindow.vue'
@@ -130,8 +131,8 @@ const shortcutNameMap: Record<string, string> = {
   dock: 'nav.dock',
   screenshot: 'nav.screenshot',
   screenshot_translate: 'nav.screenshot',
-  palette: 'dock.tabPalette',
-  palette_translate: 'dock.paletteTranslateHotkey',
+  palette: 'nav.palette',
+  palette_translate: 'palettePage.transHotkey',
 }
 
 // 把浏览器自带的快捷键收掉(Ctrl+P/R/F5/缩放…),见 useBrowserKeys
@@ -316,6 +317,7 @@ onMounted(async () => {
             <VaultView v-else-if="currentView === 'Vault'" />
             <SettingsView v-else-if="currentView === 'Settings'" />
             <TimerView v-else-if="currentView === 'Timer'" />
+            <PaletteView v-else-if="currentView === 'Palette'" />
             <DockView v-else-if="currentView === 'Dock'" />
             <KeyboardPetView v-else-if="currentView === 'KeyboardPet'" />
             <ScreenshotView v-else-if="currentView === 'Screenshot'" />

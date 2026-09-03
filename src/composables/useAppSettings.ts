@@ -51,6 +51,14 @@ export type AppSettings = {
   /** 空态那句招呼语。留空就用当前语言的默认文案 —— 存空串而不是存默认值,
    *  否则切语言时会被钉死在设置那天的那个语种上。 */
   agentGreeting: string
+  /**
+   * 命令面板里回车默认是不是翻译。
+   *
+   * 关掉之后面板就是一个纯粹的搜索框:回车打开第一条结果,不再变红、不再冒出译文格。
+   * 翻译还在,只是要显式开口 —— 打 `/fy 正文`,或者按翻译面板那个快捷键。
+   * 之所以给这个开关:老拿它找文件的人,每次回车都翻译一次是纯粹的干扰。
+   */
+  paletteTranslateFirst: boolean
   /** 聊天区外观:'card' 和侧栏一样是张浮空卡片;'flat' 直接铺在窗口材质上,更透。 */
   agentChatSurface: ChatSurface
 
@@ -115,6 +123,17 @@ export type AppSettings = {
    * 上色用的是笔记主题色的深浅变体,不是另起一套彩虹,免得整页花掉。
    */
   vaultColorHeadings: boolean
+  /**
+   * 记号（`**`、`==`、`<span style="color:red">` 这些）什么时候露出来。
+   *
+   * · `reveal` —— 平时收起来，光标点到那一段才露出原文给你改（默认）
+   * · `clean`  —— 点上也不露；只看效果
+   *
+   * **「源码模式」不在这里** —— 那是当次会话的临时状态（见 Vault.vue 里
+   * `sourceMode` 上面那段）。「我现在要看一眼原文」和「我平时喜欢干净些」
+   * 是两回事：前者存下来的话，下次开应用发现满屏源码，还得想半天这是怎么了。
+   */
+  vaultMarkMode: 'reveal' | 'clean'
   /** 正文底下那条状态栏(字数/字符/行数)。不想要就关掉 */
   vaultStatusBar: boolean
   /** 拼写检查。默认关 —— 中文笔记里满屏红波浪线比不检查还烦 */
@@ -208,6 +227,7 @@ const DEFAULTS: AppSettings = {
   agentPinnedFold: false,
   agentCasualFold: false,
   agentGreeting: '',
+  paletteTranslateFirst: true,
   agentChatSurface: 'card',
   vaultTreeWidth: 260,
   vaultChatWidth: 320,
@@ -222,6 +242,7 @@ const DEFAULTS: AppSettings = {
   vaultPageWidth: {},
   vaultSidePanel: 'chat' as 'none' | 'chat',
   vaultColorHeadings: true,
+  vaultMarkMode: 'reveal',
   vaultStatusBar: true,
   vaultSpellcheck: false,
   vaultWebp: true,
@@ -305,6 +326,26 @@ export async function loadSettings() {
 */
 let persistEnabled = true
 export function disableSettingsPersist() { persistEnabled = false }
+
+/**
+ * 只改一个键,并且**改之前先从磁盘重读一遍**。
+ *
+ * 给命令面板这种「只读窗口」用的:它整体不回写(见上面),但偶尔要翻一个自己的开关。
+ * 直接把内存里那份整个写回去会盖掉主窗口刚改的东西 —— 那正是上面那段警告说的事。
+ * 所以这里读盘 → 只换这一个键 → 写回,窗口里那份陈旧的设置一个字都不参与。
+ */
+export async function patchSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
+  settings[key] = value
+  try {
+    const s = new LazyStore('settings.json')
+    await s.init()
+    const cur = (await s.get<Partial<AppSettings>>(KEY)) ?? {}
+    await s.set(KEY, { ...cur, [key]: value })
+    await s.save()
+  } catch (e) {
+    console.error('保存设置失败:', e)
+  }
+}
 
 let saveTimer: number | undefined
 function startAutoSave() {
