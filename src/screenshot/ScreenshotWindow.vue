@@ -1000,6 +1000,9 @@ async function pinToScreen() {
  */
 async function startRecording() {
   if (!selMgr || selMgr.state !== SelectState.Selected) return
+  // 从截图工具条点进来的，选区还是截图那套蓝；那圈框是琥珀色的，先对上
+  recordMode.value = true
+  setSelectionLook('record')
   const r = selMgr.rect
   const sf = scaleFactor
 
@@ -2149,6 +2152,13 @@ const tools = [
         <span v-else class="icon-[lucide--languages] tb-icon" />
       </button>
       <!--
+        录制。框都框好了，临时改主意想录一段不用退出去重按一次快捷键 ——
+        这一组本来就是「框好了之后拿它干嘛」，录制和翻译、钉图是一类事。
+      -->
+      <button class="tb action-record" :title="t('rec.start')" @click="startRecording">
+        <span class="icon-[lucide--circle-dot] tb-icon" />
+      </button>
+      <!--
         这一次要不要背景投影。改的是本次截图,不写回设置 ——
         为一张图去设置页翻开关、截完还得改回来,那才是麻烦。
       -->
@@ -2676,6 +2686,8 @@ const tools = [
 
 .action-copy { color: #4096ff; }
 .action-copy:hover { background: #4096ff; color: #fff; }
+.action-record { color: #e8952f; }
+.action-record:hover { background: #e8952f; color: #fff; }
 .action-close { color: #ff4d4f; }
 .action-close:hover { background: #ff4d4f; color: #fff; }
 

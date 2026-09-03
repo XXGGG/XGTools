@@ -34,10 +34,23 @@ function isBlankSpot(e: MouseEvent) {
 function onTopPointerDown(e: MouseEvent) {
   if (!isBlankSpot(e)) return
   e.preventDefault()          // 不然会拖出一片文字选区
+  /*
+    **双击最大化必须在这儿判,不能只靠 dblclick 事件。**
+
+    `startDragging()` 一调,窗口拖拽就交给系统的模态消息循环了 —— 后面那半个
+    双击(第二次 mousedown/mouseup)被系统吞掉,网页永远收不到 dblclick。
+    表现就是「双击顶栏没反应」,而代码里明明写了 dblclick 处理。
+
+    `e.detail` 是这一串连击的第几下,第二下就是 2 —— 在开拖之前先看它。
+  */
+  if (e.detail >= 2) {
+    getCurrentWindow().toggleMaximize()
+    return
+  }
   getCurrentWindow().startDragging()
 }
 
-// 原生标题栏双击最大化,这里得自己补上
+/** 兜底:某些场合(拖拽没触发)dblclick 还是会正常来 */
 function onTopDoubleClick(e: MouseEvent) {
   if (!isBlankSpot(e)) return
   getCurrentWindow().toggleMaximize()
