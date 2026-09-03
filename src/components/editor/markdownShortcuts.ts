@@ -467,6 +467,25 @@ function protectedRanges(state: EditorState, from: number, to: number) {
   return out
 }
 
+/**
+ * 这一行开头的块级前缀有多长（缩进 + `- ` / `1. ` / `- [ ] ` / `> ` / `## `）。
+ *
+ * 和 `stripBlock` 分开写：那个是给「换块级样式」用的，不认引用；
+ * 这里要的是「正文从第几列开始」，引用也得算进去。
+ * 一行里可能叠着好几层（`> - `），所以循环剥到剥不动为止。
+ */
+function blockPrefixLen(text: string): number {
+  let i = 0
+  for (;;) {
+    const rest = text.slice(i)
+    const m = TASK.exec(rest) ?? BULLET.exec(rest) ?? ORDERED.exec(rest)
+      ?? HEAD.exec(rest) ?? QUOTE.exec(rest)
+    if (!m || !m[0]) break
+    i += m[0].length
+  }
+  return i
+}
+
 /** 记号本身：保持原色，于是会落在新 span 外面 */
 const MARK_NODES = new Set([
   'EmphasisMark', 'StrikethroughMark', 'HighlightMark', 'HeaderMark',
@@ -492,8 +511,21 @@ export function applyColor(color: InkColor | null): StateCommand {
       const a0 = Math.max(r.from, line.from)
       const b0 = Math.min(r.to, line.to)
       if (a0 >= b0) continue
+      /*
+        **从这一行的正文开始，别从行首开始。**
+
+        `- ` `1. ` `> ` `## ` `- [ ] ` 这些块级前缀不该被上色 —— 给圆点上色本来
+        就没意义，更要命的是**记号和它后面那个空格必须连着**：只挡住 `-` 而让
+        span 从空格开始，写出来是 `-<span …> 123456</span>`，短横线后面紧跟着
+        一个 `<`，markdown 当场就不认它是列表了，圆点变成一根横杠。
+        （现场：刮选带上了行首的 `- `，一上色整条列表塌了。）
+
+        挡记号那一步（protectedRanges）挡不住这个 —— 空格不属于记号节点。
+        所以这里直接把起点推到正文列上。
+      */
+      const bodyFrom = line.from + blockPrefixLen(line.text)
       // 每一行各自剪掉两头空白：行首的缩进裹进颜色里没有意义
-      const t = trimRange(state, a0, b0)
+      const t = trimRange(state, Math.max(a0, bodyFrom), b0)
       if (t.from >= t.to) continue
 
       const off = protectedRanges(state, line.from, line.to)
