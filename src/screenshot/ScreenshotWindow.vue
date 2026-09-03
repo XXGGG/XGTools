@@ -1021,20 +1021,28 @@ async function startRecording() {
   await new Promise((res) => setTimeout(res, 120))
 
   const rect = { x: px, y: py, w: (pw >> 1) << 1, h: (ph >> 1) << 1 }
+
+  /*
+    **两个小窗口先摆好，再起 ffmpeg。**
+
+    反过来的话，那圈框的开窗动画（Windows 默认是从中心放大）会有几帧画在选区
+    里面，而 gdigrab 抓的就是选区 —— 成品视频开头就多一圈往外扩的边。
+    动画本身没问题，只是不能让它落在录制开始之后。
+  */
+  await openRecorderWindows(rect)
+
   try {
     await invoke<string>('start_recording', {
       x: rect.x, y: rect.y, width: rect.w, height: rect.h, fps, dir: dir || null,
     })
   } catch (e) {
     console.error('start_recording failed:', e)
-    return
+    await tauriEmit('record-cancelled', {})
   }
-
-  await openRecorderWindows(rect)
 }
 
 /**
- * 开两个小窗：一圈红框（鼠标穿透）+ 一条控制条。
+ * 开两个小窗：一圈琥珀色的框（鼠标穿透）+ 一条控制条。
  *
  * 都走「子窗先喊 ready、父边再发数据」这套握手 —— 和钉图窗口一样。
  * 不握手直接发的话，webview 还没 mount，那个事件就掉地上了：
@@ -1062,9 +1070,23 @@ async function openRecorderWindows(rect: { x: number; y: number; w: number; h: n
       ...opts,
     })
   }
+  // 两个窗口各自贴好位置、show 完，才会发 *-shown。等齐了才算「摆好了」
+  const shown = (ev: string) =>
+    new Promise<void>((resolve) => {
+      let done = false
+      listen(ev, () => { if (!done) { done = true; resolve() } }).then((un) => {
+        // 兜底：万一某个窗口没起来，别把开录整个卡死在这儿
+        setTimeout(() => { if (!done) { done = true; resolve() } ; un() }, 2000)
+      })
+    })
+
   try {
+    const waits = [shown('rec-frame-shown'), shown('rec-bar-shown')]
     await mk('rec_frame', 'rec-frame-ready', 'rec-frame-init', {})
     await mk('rec_bar', 'rec-bar-ready', 'rec-bar-init', {})
+    await Promise.all(waits)
+    // 关掉动画之后 DWM 还要一两帧才真正把窗口画上去
+    await new Promise((res) => setTimeout(res, 80))
   } catch (err) {
     console.error('Failed to create recorder windows:', err)
   }
@@ -2560,15 +2582,15 @@ const tools = [
 </template>
 
 <style scoped>
-/* 录屏那条只有一颗主按钮，给它文字和正红底，和截图工具条的图标按钮区分开 */
+/* 录屏那条只有一颗主按钮，给它文字和琥珀黄底，和截图工具条的图标按钮区分开 */
 .rec-go {
   width: auto !important;
-  padding: 0 10px;
-  gap: 6px;
-  background: #e5484d !important;
+  padding: 0 16px;
+  gap: 7px;
+  background: #e8952f !important;
   color: #fff !important;
 }
-.rec-go:hover { background: #f2585d !important; }
+.rec-go:hover { background: #f5a544 !important; }
 .rec-go-text { font-size: 12.5px; white-space: nowrap; }
 
 .screenshot-container {

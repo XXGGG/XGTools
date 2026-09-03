@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 录制中的那条小控制条：红点 + 计时 + 停止 / 丢弃。
+ * 录制中的那条小控制条：录制点 + 计时 + 停止 / 丢弃。
  *
  * 停止之后它不关掉，而是**原地变成结果条**（已保存 · 打开文件夹 · 转 GIF）。
  * 换成弹主窗口的话，人正在录别的软件，主窗口一跳出来就把画面糊住了；
@@ -57,10 +57,12 @@ onMounted(async () => {
 
   unlisten.push(
     await listen<{ x: number; y: number; w: number; h: number }>('rec-bar-init', async (e) => {
+      await invoke('disable_window_transitions').catch(() => {})
       await place(e.payload)
       ready.value = true
       await win.show()
       startTicking()
+      await tauriEmit('rec-bar-shown', {})
     }),
   )
   await tauriEmit('rec-bar-ready', {})
@@ -85,7 +87,8 @@ async function place(r: { x: number; y: number; w: number; h: number }) {
   let x = Math.round(r.x + r.w / 2 - bw / 2)
   let y = r.y + r.h + gap
   if (y + bh > sh) y = r.y - bh - gap
-  if (y < 0) y = Math.max(0, r.y + r.h - bh - gap)
+  // 上下都塞不下就贴到屏幕最下面。**不能压回选区里** —— 压进去就被录进成品了
+  if (y < 0) y = Math.max(0, sh - bh - gap)
   x = Math.max(0, Math.min(x, sw - bw))
 
   await win.setSize(new PhysicalSize(bw, bh))
@@ -113,7 +116,7 @@ async function stop() {
   try {
     outPath.value = await invoke<string>('stop_recording')
     phase.value = 'done'
-    // 红框那个窗口靠这个事件自己收摊
+    // 那圈框的窗口靠这个事件自己收摊
     await tauriEmit('record-stopped', outPath.value)
     await growForResult()
   } catch (e) {
@@ -226,7 +229,7 @@ body.recorder-bar-window { margin: 0; background: transparent !important; overfl
 
 .dot {
   width: 9px; height: 9px; border-radius: 50%;
-  background: #e5484d; flex: none;
+  background: #e8952f; flex: none;
   animation: rec-blink 1.2s ease-in-out infinite;
 }
 .dot.still { animation: none; opacity: 0.5; }
@@ -247,8 +250,8 @@ body.recorder-bar-window { margin: 0; background: transparent !important; overfl
 }
 .btn:hover { background: rgba(255, 255, 255, 0.16); }
 .btn:disabled { opacity: 0.5; cursor: default; }
-.btn.primary { background: #e5484d; }
-.btn.primary:hover { background: #f2585d; }
+.btn.primary { background: #e8952f; }
+.btn.primary:hover { background: #f5a544; }
 .btn.ghost { padding: 0 8px; }
 
 .ic { width: 15px; height: 15px; flex: none; }

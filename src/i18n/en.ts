@@ -632,7 +632,7 @@ export const en: Messages = {
     recHotkey: 'Recording shortcut',
     recHotkeyHint: 'Press once to select an area, press again to cancel',
     recDir: 'Save to',
-    recDirDefault: 'Desktop \\ Recordings (default)',
+    recDirDefault: 'Downloads \\ Recordings (default)',
     recDirPick: 'Choose folder',
     recDirReset: 'Reset',
     recFps: 'Frame rate',

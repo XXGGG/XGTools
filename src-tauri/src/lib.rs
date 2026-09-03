@@ -77,6 +77,24 @@ pub(crate) fn fullscreen_borderless(window: &tauri::WebviewWindow) {
     }
 }
 
+/*
+  运行时建出来的窗口自己来关这个动画。
+
+  录屏那圈框踩过：Windows 默认的开窗动画是**从中心放大**，
+  于是框在头几帧是缩在选区**里面**的，一路长到选区外 ——
+  而 gdigrab 抓的就是选区那块，那几帧原样录进了成品视频里
+  （现象：视频开头有一圈边从内往外扩）。
+
+  现在开录之前先把这个动画关掉，再等窗口真的贴到位才起 ffmpeg。
+*/
+#[tauri::command]
+fn disable_window_transitions(window: tauri::WebviewWindow) {
+    #[cfg(windows)]
+    disable_dwm_transitions(&window);
+    #[cfg(not(windows))]
+    let _ = window;
+}
+
 /// 照搬 Snow-Shot：在截图窗口创建后禁用 DWM 过渡动画
 #[cfg(windows)]
 fn disable_dwm_transitions(window: &tauri::WebviewWindow) {
@@ -243,6 +261,7 @@ pub fn run() {
             record_commands::recording_status,
             record_commands::recording_to_gif,
             record_commands::reveal_in_explorer,
+            disable_window_transitions,
             // 动态壁纸 / 定时屏保
         ])
         .setup(|app| {

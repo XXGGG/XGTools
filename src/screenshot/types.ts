@@ -375,8 +375,12 @@ export const COLOR_PICKER_STYLE = {
 export const SELECTION_ACCENTS = {
   normal: '#7aa7e6',
   translate: '#e08a8a',
-  /* 录屏用正红：录制键在哪个软件里都是红点，跟着这个认知走 */
-  record: '#e5484d',
+  /*
+    录屏用琥珀黄。本来想用正红（录制键的通例），
+    但截图翻译已经占了淡红 —— 两个红摆在一起，框一出来分不清自己按的是哪个。
+    黄跟蓝、红都隔得够开，而且它本身就是「正在进行」的颜色。
+  */
+  record: '#e8952f',
 } as const
 
 /** 换选区的主色。边框和控制点描边一起换,漏一个就是两种颜色混着 */

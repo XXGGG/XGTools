@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 录制时套在选区外面的那圈红框。
+ * 录制时套在选区外面的那圈框。
  *
  * # 为什么要单独一个窗口
  *
@@ -22,9 +22,18 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { getCurrentWindow, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/window'
 import { emit as tauriEmit, listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 
 /** 边宽（物理像素）。太细看不见，太粗遮住旁边的东西 */
 const BORDER = 3
+/**
+ * 边和选区之间再留一像素透明。
+ *
+ * 窗口的位置尺寸是**物理像素**，而 CSS 的 border-width 是**CSS 像素** ——
+ * 屏幕缩放不是 100% 时（125% 很常见）两者对不齐，边会往里渗进去半个到一个像素，
+ * 那半个像素就会被 gdigrab 录进画面里。留一格空的，怎么取整都碰不到。
+ */
+const PAD = 1
 
 const win = getCurrentWindow()
 const ready = ref(false)
@@ -36,12 +45,18 @@ onMounted(async () => {
   unlisten.push(
     await listen<{ x: number; y: number; w: number; h: number }>('rec-frame-init', async (e) => {
       const { x, y, w, h } = e.payload
-      await win.setPosition(new PhysicalPosition(x - BORDER, y - BORDER))
-      await win.setSize(new PhysicalSize(w + BORDER * 2, h + BORDER * 2))
+      // 先关掉开窗动画：默认那个「从中心放大」会把框的头几帧画进选区里面，
+      // 而那正是 gdigrab 抓的地方 —— 成品视频开头就多一圈往外扩的边
+      await invoke('disable_window_transitions').catch(() => {})
+      const out = BORDER + PAD
+      await win.setPosition(new PhysicalPosition(x - out, y - out))
+      await win.setSize(new PhysicalSize(w + out * 2, h + out * 2))
       await win.setIgnoreCursorEvents(true)
       await win.setAlwaysOnTop(true)
       ready.value = true
       await win.show()
+      // 告诉开录的那一方「我已经贴到位了」，它才会去起 ffmpeg
+      await tauriEmit('rec-frame-shown', {})
     }),
   )
   // 录制结束 / 取消，自己收摊
@@ -61,7 +76,7 @@ onUnmounted(() => unlisten.forEach((f) => f()))
     整窗透明，只有 border 是实的。box-sizing 用 border-box：
     窗口尺寸已经算进了两条边，内容区剩下的正好是选区那么大。
   -->
-  <div v-show="ready" class="rec-frame" :style="{ borderWidth: '3px' }" />
+  <div v-show="ready" class="rec-frame" />
 </template>
 
 <style>
@@ -74,14 +89,16 @@ body.recorder-frame-window {
   width: 100vw;
   height: 100vh;
   box-sizing: border-box;
-  border-style: solid;
-  border-color: #e5484d;
+  /* 外面 1px 透明的空档,边只画在里面那一圈 —— 见上面 PAD 的注释 */
+  border: 1px solid transparent;
+  outline: 3px solid #e8952f;
+  outline-offset: -4px;
   /* 录制中呼吸一下,一眼能看出"正在录"而不是"框在那儿" */
   animation: rec-breathe 1.6s ease-in-out infinite;
   pointer-events: none;
 }
 @keyframes rec-breathe {
-  0%, 100% { border-color: #e5484d; }
-  50% { border-color: #ff8085; }
+  0%, 100% { outline-color: #e8952f; }
+  50% { outline-color: #ffbe6b; }
 }
 </style>

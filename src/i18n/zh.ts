@@ -626,7 +626,7 @@ export const zh = {
     recHotkey: '录屏快捷键',
     recHotkeyHint: '按一下开始框选，再按一次取消',
     recDir: '存到哪',
-    recDirDefault: '桌面 \\ Recordings（默认）',
+    recDirDefault: '下载 \\ Recordings（默认）',
     recDirPick: '换个文件夹',
     recDirReset: '恢复默认',
     recFps: '帧率',
