@@ -2,13 +2,18 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { localModel, checkLocalModel, downloadLocalModel, removeLocalModel, LOCAL_MODEL_BYTES } from '@/lib/bergamot'
-import { ENGINES, engineLabel, loadChain, translateChain, type ChainFailure } from '@/lib/translateChain'
+import {
+  ENGINES, engineLabel, loadChain, translateRacing, loadRace, saveRace, isFreeToRace,
+  type ChainFailure, type RaceConfig,
+} from '@/lib/translateChain'
 import { VueDraggable } from 'vue-draggable-plus'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useI18n } from '@/i18n'
 
 const { t } = useI18n()
@@ -34,7 +39,7 @@ const aiEngines = [
   { id: 'yi', label: '零一万物' },
   { id: 'moonshot', label: 'Moonshot' },
   { id: 'groq', label: 'Groq' },
-  { id: 'custom', label: '自定义接口' },
+  { id: 'custom', label: 'AI 自定义接口' },
 ]
 
 // 每个引擎可选的模型列表（第一个为默认值）
@@ -66,6 +71,20 @@ const aiEngine = ref('openai')
 const lastUsed = ref<string | null>(null)
 const lastFailed = ref<ChainFailure[]>([])
 
+/*
+  兜底:和链**同时**出发,谁先回来算谁的。和「排序」是两回事 ——
+  排序是前面的不行才轮到后面的,那要先干等一次失败。
+  详见 lib/translateChain 里那一大段。
+*/
+const race = ref<RaceConfig>({ local: false, localAi: false })
+/**
+ * 「AI 自定义接口」现在指的是不是本机。
+ *
+ * 不是的话那个开关就点不动 —— 兜底是**每一次翻译都发**的，
+ * 让它指着线上的接口，等于给「顺手打开的一个开关」接了一根按次计费的水管。
+ */
+const customIsLocal = computed(() => isFreeToRace('custom', aiConfigs.value))
+
 const defaultAiConfig = (): AiConfig => ({ api_key: '', api_url: '', model: '' })
 const aiConfigs = ref<Record<string, AiConfig>>(
   Object.fromEntries(aiEngines.map(e => [e.id, defaultAiConfig()]))
@@ -81,6 +100,8 @@ const loading = ref(false)
 const copied = ref(false)
 const speaking = ref(false)
 const showSettingsDialog = ref(false)
+/** 设置弹窗停在哪一页。每次开都回到「引擎」—— 那是常来改的那一页 */
+const settingsTab = ref<'chain' | 'race'>('chain')
 const validating = ref<string | null>(null)
 
 // 动态模型列表
@@ -108,6 +129,7 @@ function engineWarn(id: string): string | null {
 async function loadSettings() {
   await store.init()
   chain.value = await loadChain()
+  race.value = await loadRace()
   const saved = await store.get<Record<string, AiConfig>>('translate_ai_configs')
   if (saved) {
     for (const key of Object.keys(aiConfigs.value)) {
@@ -124,6 +146,7 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
+  await saveRace(race.value)
   await store.set('translate_chain', chain.value)
   await store.set('translate_ai_configs', aiConfigs.value)
   await store.set('translate_ai_validated', aiValidated.value)
@@ -155,7 +178,8 @@ async function doTranslate() {
   }
   loading.value = true
   try {
-    const r = await translateChain(inputText.value, detectTargetLang(inputText.value), chain.value, aiConfigs.value)
+    const r = await translateRacing(inputText.value, detectTargetLang(inputText.value),
+      { chain: chain.value, aiConfigs: aiConfigs.value, race: race.value })
     outputText.value = r.text
     detectedLang.value = r.detected
     lastUsed.value = r.engine
@@ -297,6 +321,14 @@ watch(chain, () => {
   }
 }, { deep: true })
 
+// 兜底和链一样是「改完就该生效」的东西 —— 这弹窗没有保存按钮，不存就是白改
+watch(race, () => {
+  if (settingsLoaded.value) {
+    saveSettings()
+    if (inputText.value.trim()) doTranslate()
+  }
+}, { deep: true })
+
 function addEngine(id: string) {
   if (!chain.value.includes(id)) chain.value = [...chain.value, id]
   // 加进来的是要配置的那种,顺手把它的配置展开
@@ -327,7 +359,8 @@ function toggleConfig(id: string, forceOpen = false) {
             {{ t('translate.fellBack', { failed: lastFailed.map(f => engineLabel(f.engine)).join('、'), engine: engineLabel(lastUsed) }) }}
           </span>
         </div>
-        <Button variant="ghost" size="sm" @click="showSettingsDialog = true" :title="t('translate.settings')">
+        <Button variant="ghost" size="sm" :title="t('translate.settings')"
+          @click="settingsTab = 'chain'; showSettingsDialog = true">
           <span class="icon-[lucide--settings] w-5 h-5" />
         </Button>
       </div>
@@ -377,6 +410,16 @@ function toggleConfig(id: string, forceOpen = false) {
 
         <!-- 输出区 -->
         <div class="flex-1 relative group">
+          <!--
+            这一版的译文是谁给的。配了兜底之后这件事**不再是可以推断的** ——
+            链里排第一的和两个兜底同时在跑,谁先回来算谁的,所以每次都可能不一样。
+            摆在结果框右上角:看结果的时候眼睛正好在那儿。
+          -->
+          <span v-if="outputText && lastUsed && !loading"
+            class="absolute top-2.5 right-3 z-10 px-2 py-0.5 rounded-md text-[11px]
+                   bg-background/80 border border-border text-muted-foreground backdrop-blur-sm">
+            {{ engineLabel(lastUsed) }}
+          </span>
           <Textarea
             :model-value="outputText"
             readonly
@@ -405,12 +448,23 @@ function toggleConfig(id: string, forceOpen = false) {
     </div>
   </div>
 
-  <!-- ==================== 设置弹窗 ==================== -->
+  <!--
+    ==================== 设置弹窗 ====================
+
+    ⚠ 点背景关闭走的是 **mousedown**,不是 click。
+
+    弹窗是上下居中的,内容一换高度就变,整张卡片跟着上下挪。用 click 的话:
+    在页签上按下 → 内容换掉、卡片位移 → 松手时鼠标底下已经不是那颗页签了,
+    浏览器就把 click 派发到两者的**共同祖先**,也就是这层背景 ——
+    `.self` 命中,弹窗当场关掉。现象是「点第二个页签就把设置关了」。
+    拖引擎排序时松手松到卡片外面,也是同一个坑。
+    mousedown 只认按下那一刻的目标,不受后面的重排影响。
+  -->
   <Transition enter-active-class="transition-opacity duration-150" enter-from-class="opacity-0" leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0">
     <div
       v-if="showSettingsDialog"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      @click.self="showSettingsDialog = false"
+      @mousedown.self="showSettingsDialog = false"
     >
       <div class="w-[480px] max-h-[80vh] rounded-xl shadow-2xl bg-popover border flex flex-col">
         <!-- 头部 -->
@@ -421,15 +475,26 @@ function toggleConfig(id: string, forceOpen = false) {
           </Button>
         </div>
 
+        <!--
+          排序和兜底分成两页。
+
+          它们**不是一件事**:排序是「前面的不行才轮到后面」,兜底是「同时跑,谁快用谁」。
+          原来上下叠着,读的人一路扫下来,几乎一定把第二块当成第一块的延续 ——
+          所以那两段说明得越写越长,才拦得住这个误会。
+          分成两页之后,那个误会从版面上就不成立了,说明也就能收回一句话。
+        -->
+        <Tabs v-model="settingsTab" class="flex-1 min-h-0 flex flex-col">
+          <TabsList class="mx-5 mt-4">
+            <TabsTrigger value="chain">{{ t('translate.chain') }}</TabsTrigger>
+            <TabsTrigger value="race">{{ t('translate.race') }}</TabsTrigger>
+          </TabsList>
+
         <!-- 内容 -->
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
 
           <!-- 引擎顺序:拖动排序,从上往下试 -->
-          <div class="space-y-2">
-            <div>
-              <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.chain') }}</p>
-              <p class="text-xs text-muted-foreground mt-1 leading-relaxed">{{ t('translate.chainHint') }}</p>
-            </div>
+          <div v-if="settingsTab === 'chain'" class="space-y-2">
+            <p class="text-xs text-muted-foreground leading-relaxed">{{ t('translate.chainHint') }}</p>
             <VueDraggable v-model="chain" handle=".chain-grip" :animation="180" :force-fallback="true" ghost-class="opacity-30"
               class="rounded-lg border divide-y overflow-hidden">
               <div v-for="(id, i) in chain" :key="id" class="flex items-center gap-2 px-2.5 py-2 bg-background">
@@ -449,8 +514,34 @@ function toggleConfig(id: string, forceOpen = false) {
             <p v-if="!chain.length" class="text-xs text-amber-400">{{ t('translate.chainEmpty') }}</p>
           </div>
 
+          <!-- 兜底:和链同时跑,谁快用谁。只收跑在本机的东西,理由见 lib/translateChain -->
+          <div v-if="settingsTab === 'race'" class="space-y-2">
+            <p class="text-xs text-muted-foreground leading-relaxed">{{ t('translate.raceHint') }}</p>
+            <div class="rounded-lg border divide-y overflow-hidden">
+              <!-- 本地离线包就一个（Bergamot），所以是开关不是下拉 -->
+              <div class="flex items-center gap-2 px-2.5 py-2 bg-background">
+                <span class="icon-[lucide--hard-drive] w-4 h-4 shrink-0 text-muted-foreground" />
+                <span class="text-sm flex-1 truncate">{{ t('translate.raceLocal') }}</span>
+                <span v-if="race.local && localModel.status !== 'ready'"
+                  class="text-xs text-amber-400 shrink-0">{{ t('translate.localMissing') }}</span>
+                <Switch :model-value="race.local" @update:model-value="race.local = $event" />
+              </div>
+              <!-- 只有指向本机的「AI 自定义接口」能进来。在线的一概不给选，理由见 raceHint -->
+              <div class="flex items-center gap-2 px-2.5 py-2 bg-background"
+                :class="customIsLocal ? '' : 'opacity-50'">
+                <span class="icon-[lucide--sparkles] w-4 h-4 shrink-0 text-muted-foreground" />
+                <span class="text-sm flex-1 truncate">{{ t('translate.raceAi') }}</span>
+                <span v-if="!customIsLocal" class="text-xs text-muted-foreground shrink-0">
+                  {{ t('translate.raceAiNotLocal') }}
+                </span>
+                <Switch :model-value="race.localAi" :disabled="!customIsLocal"
+                  @update:model-value="race.localAi = $event" />
+              </div>
+            </div>
+          </div>
+
           <!-- 没进链的引擎,点一下加到末尾 -->
-          <div v-if="available.length" class="space-y-2">
+          <div v-if="settingsTab === 'chain' && available.length" class="space-y-2">
             <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium">{{ t('translate.addEngine') }}</p>
             <div class="flex flex-wrap gap-1.5">
               <button v-for="e in available" :key="e.id" @click="addEngine(e.id)"
@@ -461,7 +552,7 @@ function toggleConfig(id: string, forceOpen = false) {
           </div>
 
           <!-- 本机离线模型:不随安装包走,这里按需下 -->
-          <div v-if="configOpen === 'local'" class="rounded-lg border p-3 space-y-2">
+          <div v-if="settingsTab === 'chain' && configOpen === 'local'" class="rounded-lg border p-3 space-y-2">
             <div class="flex items-center justify-between text-sm">
               <span>{{ t('translate.localModel') }}</span>
               <span class="text-xs" :class="localModel.status === 'ready' ? 'text-emerald-500' : localModel.status === 'error' ? 'text-red-500' : 'text-muted-foreground'">
@@ -485,7 +576,7 @@ function toggleConfig(id: string, forceOpen = false) {
           </div>
 
           <!-- AI 引擎配置(展开了哪个就显示哪个的) -->
-          <div v-if="configOpen && configKind === 'ai'" class="space-y-4">
+          <div v-if="settingsTab === 'chain' && configOpen && configKind === 'ai'" class="space-y-4">
             <!-- 当前 AI 配置表单 -->
             <div class="space-y-3 p-4 border border-border rounded-lg bg-muted/10">
               <div class="flex items-center justify-between">
@@ -575,6 +666,7 @@ function toggleConfig(id: string, forceOpen = false) {
 
 
         </div>
+        </Tabs>
       </div>
     </div>
   </Transition>
