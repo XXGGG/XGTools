@@ -508,6 +508,7 @@ const toolsWithPanel = new Set([
 ])
 
 function setTool(tool: DrawTool) {
+  openGroup.value = null
   currentTool.value = currentTool.value === tool ? DrawTool.None : tool
   showOptions.value = currentTool.value !== DrawTool.None
   // 切换工具时取消标注选中
@@ -1019,6 +1020,7 @@ async function startRecording() {
   const fps = ((await settingsStore.get<number>('record_fps')) ?? 30) as number
   const dir = ((await settingsStore.get<string>('record_dir')) ?? '') as string
   const audio = ((await settingsStore.get<boolean>('record_audio')) ?? true) as boolean
+  const maxMinutes = ((await settingsStore.get<number>('record_max_min')) ?? 30) as number
 
   cancelCapture()
   // 等一帧，让遮罩真的从屏幕上下去了再开录
@@ -1039,7 +1041,7 @@ async function startRecording() {
 
   try {
     await invoke<string>('start_recording', {
-      x: rect.x, y: rect.y, width: rect.w, height: rect.h, fps, dir: dir || null, audio,
+      x: rect.x, y: rect.y, width: rect.w, height: rect.h, fps, dir: dir || null, audio, maxMinutes,
     })
   } catch (e) {
     console.error('start_recording failed:', e)
@@ -2029,21 +2031,71 @@ onUnmounted(() => { _unlistens.forEach(fn => fn()) })
 
 // ============ 工具定义 ============
 
-const tools = [
-  { tool: DrawTool.Rect, iconClass: 'icon-[lucide--square]', label: '矩形 (R)' },
-  { tool: DrawTool.Diamond, iconClass: 'icon-[lucide--diamond]', label: '菱形' },
-  { tool: DrawTool.Ellipse, iconClass: 'icon-[lucide--circle]', label: '椭圆 (O)' },
-  { tool: DrawTool.Arrow, iconClass: 'icon-[lucide--move-right]', label: '箭头 (A)' },
-  { tool: DrawTool.Line, iconClass: 'icon-[lucide--minus]', label: '直线 (L)' },
-  { tool: DrawTool.Pen, iconClass: 'icon-[lucide--pencil]', label: '画笔 (P)' },
-  { tool: DrawTool.Text, iconClass: 'icon-[lucide--type]', label: '文字 (T)' },
-  { tool: DrawTool.SerialNumber, iconClass: 'icon-[lucide--list-ordered]', label: '序号' },
-  { tool: DrawTool.Blur, iconClass: 'icon-[lucide--grid-3x3]', label: '马赛克 (B)' },
-  { tool: DrawTool.BlurFreeDraw, iconClass: 'icon-[lucide--fingerprint]', label: '涂抹模糊' },
-  { tool: DrawTool.Highlight, iconClass: 'icon-[lucide--highlighter]', label: '高亮 (H)' },
-  { tool: DrawTool.Watermark, iconClass: 'icon-[lucide--stamp]', label: '水印' },
-  { tool: DrawTool.Eraser, iconClass: 'icon-[lucide--eraser]', label: '橡皮擦 (E)' },
-] as const
+/*
+  ── 工具条为什么要分组 ──────────────────────────────
+
+  十四个标注工具原来平铺成一排，加上右边那七八个操作按钮，一条工具条二十来颗
+  三十见方的小图标 —— 挤、难点，而且**一眼扫不出哪个是哪个**。
+
+  按「要干的事」收成五组：画形状、画线、写字、打码、擦掉。每组只占一颗按钮，
+  显示的是这一组**上次用过的那个**（不是一个抽象的组图标）—— 于是常用路径
+  和以前一样是「点一下就用」，没有多一层。右下角那个小三角是提示：
+  这颗底下还有别的。
+
+  展开的规矩：**点一下用，已经选中了再点一下才展开**（右键也展开）。
+  悬停自动展开试过，鼠标横穿工具条时一路弹菜单，很烦。
+*/
+type ToolMeta = { tool: DrawTool; iconClass: string; key: string }
+
+const TOOL_META: ToolMeta[] = [
+  { tool: DrawTool.Rect, iconClass: 'icon-[lucide--square]', key: 'toolRect' },
+  { tool: DrawTool.Diamond, iconClass: 'icon-[lucide--diamond]', key: 'toolDiamond' },
+  { tool: DrawTool.Ellipse, iconClass: 'icon-[lucide--circle]', key: 'toolEllipse' },
+  { tool: DrawTool.Arrow, iconClass: 'icon-[lucide--move-right]', key: 'toolArrow' },
+  { tool: DrawTool.Line, iconClass: 'icon-[lucide--minus]', key: 'toolLine' },
+  { tool: DrawTool.Pen, iconClass: 'icon-[lucide--pencil]', key: 'toolPen' },
+  { tool: DrawTool.Highlight, iconClass: 'icon-[lucide--highlighter]', key: 'toolHighlight' },
+  { tool: DrawTool.Text, iconClass: 'icon-[lucide--type]', key: 'toolText' },
+  { tool: DrawTool.SerialNumber, iconClass: 'icon-[lucide--list-ordered]', key: 'toolSerial' },
+  { tool: DrawTool.Blur, iconClass: 'icon-[lucide--grid-3x3]', key: 'toolBlur' },
+  { tool: DrawTool.BlurFreeDraw, iconClass: 'icon-[lucide--fingerprint]', key: 'toolBlurDraw' },
+  { tool: DrawTool.Watermark, iconClass: 'icon-[lucide--stamp]', key: 'toolWatermark' },
+  { tool: DrawTool.Eraser, iconClass: 'icon-[lucide--eraser]', key: 'toolEraser' },
+]
+
+const metaOf = (t: DrawTool) => TOOL_META.find((m) => m.tool === t) ?? TOOL_META[0]
+
+const TOOL_GROUPS: { id: string; nameKey: string; tools: DrawTool[] }[] = [
+  { id: 'shape', nameKey: 'groupShape', tools: [DrawTool.Rect, DrawTool.Diamond, DrawTool.Ellipse, DrawTool.Arrow, DrawTool.Line] },
+  { id: 'draw', nameKey: 'groupDraw', tools: [DrawTool.Pen, DrawTool.Highlight] },
+  { id: 'text', nameKey: 'groupText', tools: [DrawTool.Text, DrawTool.SerialNumber] },
+  { id: 'mask', nameKey: 'groupMask', tools: [DrawTool.Blur, DrawTool.BlurFreeDraw, DrawTool.Watermark] },
+  { id: 'erase', nameKey: 'groupErase', tools: [DrawTool.Eraser] },
+]
+
+/** 每一组现在代表哪个工具。记着上次用的那个，下次点一下直接就是它 */
+const groupPick = reactive<Record<string, DrawTool>>(
+  Object.fromEntries(TOOL_GROUPS.map((g) => [g.id, g.tools[0]])),
+)
+
+/** 哪一组正展开着。null = 都收着 */
+const openGroup = ref<string | null>(null)
+
+function onGroupClick(g: { id: string; tools: DrawTool[] }) {
+  if (g.tools.length > 1 && currentTool.value === groupPick[g.id]) {
+    // 已经在用这一组了，再点就是「给我看看还有什么」
+    openGroup.value = openGroup.value === g.id ? null : g.id
+    return
+  }
+  openGroup.value = null
+  setTool(groupPick[g.id])
+}
+
+function pickFromGroup(gid: string, tool: DrawTool) {
+  groupPick[gid] = tool
+  openGroup.value = null
+  if (currentTool.value !== tool) setTool(tool)
+}
 </script>
 
 <template>
@@ -2136,16 +2188,32 @@ const tools = [
       <!-- 抓手:按住拖动整条工具栏 -->
       <span class="toolbar-grip icon-[lucide--grip-vertical]" :title="t('shot.dragToolbar')"
         @mousedown="onToolbarDragStart" />
-      <!-- 标注工具 -->
+      <!-- 标注工具：五组，每组一颗 -->
       <div class="toolbar-group">
-        <button
-          v-for="t in tools" :key="t.tool"
-          class="tb" :class="{ active: currentTool === t.tool }"
-          :title="t.label"
-          @click="setTool(t.tool)"
-        >
-          <span :class="t.iconClass" class="tb-icon" />
-        </button>
+        <div v-for="g in TOOL_GROUPS" :key="g.id" class="tb-slot">
+          <button
+            class="tb"
+            :class="{ active: currentTool === groupPick[g.id], open: openGroup === g.id }"
+            :title="t('shot.' + metaOf(groupPick[g.id]).key)"
+            @click="onGroupClick(g)"
+            @contextmenu.prevent="g.tools.length > 1 && (openGroup = openGroup === g.id ? null : g.id)"
+          >
+            <span :class="metaOf(groupPick[g.id]).iconClass" class="tb-icon" />
+            <!-- 右下角的小三角:提示这颗底下还压着别的工具 -->
+            <span v-if="g.tools.length > 1" class="tb-more" />
+          </button>
+
+          <div v-if="openGroup === g.id" class="tb-flyout" @mousedown.stop>
+            <button
+              v-for="tl in g.tools" :key="tl"
+              class="tb" :class="{ active: currentTool === tl }"
+              :title="t('shot.' + metaOf(tl).key)"
+              @click="pickFromGroup(g.id, tl)"
+            >
+              <span :class="metaOf(tl).iconClass" class="tb-icon" />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="divider" />
@@ -2644,11 +2712,13 @@ const tools = [
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 4px 6px;
-  background: rgba(30, 30, 30, 0.92);
-  border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
-  backdrop-filter: blur(12px);
+  /* 高度 = 36 的按钮 + 上下各 6 = 48。原来 30+8=38，太瘦，按钮也难点 */
+  padding: 6px 8px;
+  background: rgba(28, 28, 30, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(16px);
   opacity: 0;
   animation: fade-in 200ms ease-out forwards;
   white-space: nowrap;
@@ -2661,14 +2731,14 @@ const tools = [
 }
 
 .toolbar-grip {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  margin: 0 2px 0 -2px;
-  color: rgba(255, 255, 255, 0.45);
+  margin: 0 3px 0 -1px;
+  color: rgba(255, 255, 255, 0.6);
   cursor: grab;
 }
-.toolbar-grip:hover { color: rgba(255, 255, 255, 0.8); }
+.toolbar-grip:hover { color: rgba(255, 255, 255, 0.9); }
 .toolbar-grip:active { cursor: grabbing; }
 
 .toolbar-group {
@@ -2678,29 +2748,63 @@ const tools = [
 
 .divider {
   width: 1px;
-  height: 22px;
-  background: rgba(255,255,255,0.15);
-  margin: 0 4px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.14);
+  margin: 0 5px;
 }
 
 .tb {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px; height: 30px;
+  width: 36px; height: 36px;
   border: none;
-  border-radius: 5px;
+  border-radius: 8px;
   background: transparent;
-  color: #ccc;
+  color: #d4d4d6;
   cursor: pointer;
-  transition: all 120ms;
+  transition: background 120ms, color 120ms;
   font-size: 14px;
   padding: 0;
 }
 .tb:hover { background: rgba(255,255,255,0.12); color: #fff; }
 .tb.active { background: #4096ff; color: #fff; }
+.tb.open { background: rgba(255,255,255,0.18); color: #fff; }
 .tb:disabled { opacity: 0.3; cursor: default; }
-.tb .tb-icon { width: 16px; height: 16px; }
+.tb .tb-icon { width: 18px; height: 18px; }
+
+/* 一组一格。展开的浮层挂在这一格上,自动跟着按钮走 */
+.tb-slot { position: relative; display: flex; }
+
+/* 右下角那个小三角 —— 「这颗底下还有别的」 */
+.tb-more {
+  position: absolute;
+  right: 4px; bottom: 4px;
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-bottom: 4px solid rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+}
+.tb:hover .tb-more, .tb.active .tb-more { border-bottom-color: rgba(255, 255, 255, 0.85); }
+
+/* 展开的那一小排。和工具条同一套外观,看着是从它里面拉出来的 */
+.tb-flyout {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 5px;
+  background: rgba(28, 28, 30, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(16px);
+  animation: fade-in 140ms ease-out forwards;
+  z-index: 2;
+}
 
 .action-copy { color: #4096ff; }
 .action-copy:hover { background: #4096ff; color: #fff; }

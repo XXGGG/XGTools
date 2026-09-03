@@ -70,6 +70,7 @@ const recordShortcut = ref('Ctrl+Alt+R')
 const recordFps = ref(30)
 const recordDir = ref('')
 const recordAudio = ref(true)
+const recordMaxMin = ref(30)
 const isRecordingRecShortcut = ref(false)
 
 /** 空 = 用默认的「桌面\Recordings」。显示成人话，别把空串直接摆出来 */
@@ -112,6 +113,7 @@ async function loadSettings() {
   recordFps.value = (await store.get<number>('record_fps')) ?? 30
   recordDir.value = (await store.get<string>('record_dir')) ?? ''
   recordAudio.value = (await store.get<boolean>('record_audio')) ?? true
+  recordMaxMin.value = (await store.get<number>('record_max_min')) ?? 30
   settingsLoaded.value = true
 }
 
@@ -130,13 +132,14 @@ async function saveSettings() {
   await store.set('record_fps', recordFps.value)
   await store.set('record_dir', recordDir.value)
   await store.set('record_audio', recordAudio.value)
+  await store.set('record_max_min', recordMaxMin.value)
   await store.save()
 }
 
 onMounted(loadSettings)
 
 watch(
-  [screenshotEnabled, screenshotTranslateEnabled, recordEnabled, recordFps, recordAudio, autoBgShadow, bgColor, bgPadding, shadowBlur, cornerRadius],
+  [screenshotEnabled, screenshotTranslateEnabled, recordEnabled, recordFps, recordAudio, recordMaxMin, autoBgShadow, bgColor, bgPadding, shadowBlur, cornerRadius],
   () => {
     if (settingsLoaded.value) {
       saveSettings()
@@ -519,6 +522,28 @@ const bgColorPresets = [
               </div>
             </div>
             <Switch :model-value="recordAudio" @update:model-value="recordAudio = $event" />
+          </div>
+
+
+          <!-- 时长上限 -->
+          <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground shrink-0">
+                <span class="icon-[lucide--alarm-clock] w-5 h-5" />
+              </div>
+              <div class="min-w-0">
+                <h3 class="font-medium">{{ t('screenshot.recMax') }}</h3>
+                <p class="text-xs text-muted-foreground">{{ t('screenshot.recMaxHint') }}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <Button
+                v-for="m in [10, 30, 60, 0]" :key="m"
+                :variant="recordMaxMin === m ? 'default' : 'outline'" size="sm"
+                class="min-w-14"
+                @click="recordMaxMin = m"
+              >{{ m === 0 ? t('screenshot.recMaxOff') : m + ' min' }}</Button>
+            </div>
           </div>
 
           <!-- 帧率 -->

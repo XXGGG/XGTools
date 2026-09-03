@@ -26,6 +26,8 @@ const gifDone = ref(false)
 const ready = ref(false)
 /** 这一段有没有在录声音。只是给人看的标记，真正开关在设置里 */
 const withAudio = ref(false)
+/** 是到点自动停的，不是人点的停止。结果条上要说一声 */
+const autoStopped = ref(false)
 
 let timer: number | null = null
 let unlisten: (() => void)[] = []
@@ -70,6 +72,17 @@ onMounted(async () => {
     }),
   )
   unlisten.push(await listen<boolean>('rec-audio-mode', (e) => { withAudio.value = e.payload }))
+  /*
+    到点自动停：后端自己收的尾，这边只是把条子切到结果态。
+    不这么做的话，屏幕上会留一条永远停在某个时间的计时器，看着像卡死了。
+  */
+  unlisten.push(await listen<string>('record-auto-stopped', async (e) => {
+    if (phase.value !== 'recording') return
+    outPath.value = e.payload
+    autoStopped.value = true
+    phase.value = 'done'
+    await growForResult()
+  }))
   await tauriEmit('rec-bar-ready', {})
 })
 
@@ -188,8 +201,9 @@ function close() { win.destroy().catch(() => {}) }
 
     <!-- ── 录完了 ── -->
     <template v-else-if="phase === 'done'">
-      <span class="icon-[lucide--check] ic ok" />
-      <span class="name" :title="outPath">{{ fileName }}</span>
+      <span v-if="autoStopped" class="icon-[lucide--alarm-clock] ic warn" :title="t('rec.autoStopped')" />
+      <span v-else class="icon-[lucide--check] ic ok" />
+      <span class="name" :title="autoStopped ? t('rec.autoStopped') : outPath">{{ fileName }}</span>
       <div class="spacer" />
       <button class="btn ghost" :title="t('rec.openFolder')" @click="reveal">
         <span class="icon-[lucide--folder-open] ic" />

@@ -121,6 +121,7 @@ pub async fn start_recording(
     fps: u32,
     dir: Option<String>,
     audio: Option<bool>,
+    max_minutes: Option<u32>,
 ) -> Result<String, String> {
     if state.inner.lock().unwrap().is_some() {
         return Err("已经在录了".into());
@@ -256,16 +257,49 @@ pub async fn start_recording(
         audio,
     });
 
+    /*
+        到点自动停 —— 停的是「保存」，不是「作废」。
+
+        真正要防的不是「录太久」，是**忘了在录**：点了开始去干别的，
+        回来时硬盘已经被写掉十几个 G，而且全程没有任何提示。
+        自动保存的话最坏也就是一段长录像被切成两截，一点东西都不丢。
+    */
+    if let Some(mins) = max_minutes.filter(|m| *m > 0) {
+        let app2 = app.clone();
+        let mine = out.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(mins as u64 * 60)).await;
+            // 这期间可能已经手动停了、甚至又开了新的一段，认准是不是同一个文件
+            {
+                let st = app2.state::<RecordState>();
+                let g = st.inner.lock().unwrap();
+                match g.as_ref() {
+                    Some(r) if r.output == mine && !r.stopping => {}
+                    _ => return,
+                }
+            }
+            match finish(&app2).await {
+                Ok(path) => {
+                    let _ = app2.emit("record-auto-stopped", &path);
+                }
+                Err(e) => eprintln!("[record] 自动停止失败: {e}"),
+            }
+        });
+    }
+
     let _ = app.emit("record-started", &out_str);
     Ok(out_str)
 }
 
 /// 停止并保存。返回文件路径
 #[tauri::command]
-pub async fn stop_recording(
-    app: AppHandle,
-    state: tauri::State<'_, RecordState>,
-) -> Result<String, String> {
+pub async fn stop_recording(app: AppHandle) -> Result<String, String> {
+    finish(&app).await
+}
+
+/// 真正的收尾。手动停止和到点自动停止走的是同一段
+async fn finish(app: &AppHandle) -> Result<String, String> {
+    let state = app.state::<RecordState>();
     // 先把整条记录取出来，别把锁带进 await —— MutexGuard 不能跨 await
     let mut rec = {
         let mut g = state.inner.lock().unwrap();
