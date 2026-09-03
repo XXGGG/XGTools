@@ -213,6 +213,8 @@ export const en: Messages = {
     syncNotShared: 'Chat history stays on each side. The three tools log sessions in different formats; converting would quietly produce a wrong history. Put what both sides must remember into markdown.',
     syncLink: 'Link it',
     syncLinked: 'Linked',
+    syncRecent: 'Recent',
+    syncFilter: 'Filter…',
     syncNone: 'No projects found from other tools',
     syncNoneHint: 'Install Claude Code or Codex and chat inside a folder, and it shows up here.',
     pickFromVault: 'Pick from my vault',

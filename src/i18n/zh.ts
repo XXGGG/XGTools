@@ -207,6 +207,8 @@ export const zh = {
     syncNotShared: '聊天记录两边各留各的 —— 三家的会话日志不是一种格式，硬转会默默给出一段错的历史。要两边都记得的事，写进 md。',
     syncLink: '接过来',
     syncLinked: '已接上',
+    syncRecent: '最近在用',
+    syncFilter: '筛一下…',
     syncNone: '没找到别家的项目',
     syncNoneHint: '装了 Claude Code 或 Codex 并且在某个文件夹里聊过，这里就会列出来。',
     pickFromVault: '从笔记库里挑',

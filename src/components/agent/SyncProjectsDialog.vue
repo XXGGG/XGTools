@@ -18,7 +18,7 @@
  *
  * 界面上把这条直接写出来，不藏在帮助里 —— 让人按下按钮之后才发现，比一开始就说要糟得多。
  */
-import { watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from '@/i18n'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -34,8 +34,20 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+const q = ref('')
+
+/** 列表长了就给个筛选框。八条以内一眼扫得完，摆个输入框反而是噪音 */
+const shown = computed(() => {
+  const k = q.value.trim().toLowerCase()
+  if (!k) return external.items
+  return external.items.filter(
+    (p) => p.name.toLowerCase().includes(k) || p.path.toLowerCase().includes(k),
+  )
+})
+
 watch(() => props.open, (v) => {
   if (!v) return
+  q.value = ''
   void scanExternalProjects(projects.items.map((p) => p.folder))
 })
 </script>
@@ -54,18 +66,33 @@ watch(() => props.open, (v) => {
         <p class="mt-1.5 text-[12px] text-amber-500/90 leading-relaxed">{{ t('agent.syncNotShared') }}</p>
       </div>
 
+      <div v-if="external.items.length > 8" class="px-5 pb-2.5">
+        <div class="relative">
+          <span class="icon-[lucide--search] w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2
+                       text-muted-foreground pointer-events-none" />
+          <input v-model="q" :placeholder="t('agent.syncFilter')"
+            class="w-full h-9 pl-9 pr-3 rounded-lg bg-background border border-border text-[13px]
+                   placeholder:text-muted-foreground/60 focus:outline-none focus:border-foreground/25" />
+        </div>
+      </div>
+
       <div class="max-h-[20rem] overflow-y-auto px-5 pb-2">
         <p v-if="external.error" class="mb-2 text-[12px] text-red-500 wrap-break-word">{{ external.error }}</p>
         <p v-if="external.loading" class="py-8 text-center text-[13px] text-muted-foreground">…</p>
 
-        <template v-else-if="external.items.length">
-          <button v-for="p in external.items" :key="p.path" @click="emit('link', p)" :disabled="p.linked"
+        <template v-else-if="shown.length">
+          <button v-for="p in shown" :key="p.path" @click="emit('link', p)" :disabled="p.linked"
             class="w-full text-left rounded-xl border border-border px-3 py-2.5 mb-1.5 transition-colors
                    hover:bg-muted/50 disabled:opacity-45 disabled:hover:bg-transparent">
             <div class="flex items-center gap-2">
               <span class="text-[13.5px] truncate">{{ p.name }}</span>
               <span class="shrink-0 px-1.5 py-0.5 rounded text-[10.5px] bg-muted text-muted-foreground">
                 {{ p.source }}
+              </span>
+              <!-- 会话日志还在 = 最近还在用。一堆文件夹里先看这几个 -->
+              <span v-if="p.recent"
+                class="shrink-0 px-1.5 py-0.5 rounded text-[10.5px] bg-emerald-500/15 text-emerald-500">
+                {{ t('agent.syncRecent') }}
               </span>
               <span class="ml-auto shrink-0 text-[11px] text-muted-foreground">
                 {{ p.linked ? t('agent.syncLinked') : t('agent.syncLink') }}

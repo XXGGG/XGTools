@@ -38,6 +38,8 @@ export type ExternalProject = {
   source: string
   /** XGTools 里已经有指向这个文件夹的项目了 */
   linked: boolean
+  /** 会话日志还在 —— 说明最近还在用。排前面 */
+  recent: boolean
 }
 
 export const external = reactive<{
@@ -51,43 +53,102 @@ function leafName(p: string): string {
 }
 
 /**
- * Claude Code 的项目清单。
+ * 路径拿来比对用的样子：分隔符统一、去掉结尾的斜杠、全小写。
  *
- * 目录名是把路径里的 `:`、`\`、空格**还有中文**统统换成 `-` 得到的
- * （`H:\其他计算机\我的 Mac\Documents\Obsidian` → `H-----------Mac-Documents-Obsidian`）——
- * **反解不回来**。所以真实路径要从会话日志里的 `cwd` 字段拿,那是原样记下的。
+ * 同一个文件夹在 Claude Code 的配置里会以好几种写法出现 ——
+ * `C:/XGCode/XGWeb`、`C:\XGCode\XGWeb`、`c:/XGCode/XGBlog` 都指着同一处。
+ * 不归一化就会在列表里重复出现三四遍。
+ */
+function normKey(p: string): string {
+  return p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+}
+
+/**
+ * Claude Code 的项目清单。**两个来源合起来看。**
+ *
+ * # 为什么不能只看会话日志
+ *
+ * 原来只翻 `~/.claude/projects/*` 里的会话日志，从里面的 `cwd` 取真实路径。
+ * 问题是**日志是会过期清掉的**：这台机器上 Claude Code 一共在 24 个文件夹里
+ * 干过活，而还留着日志的只有 3 个 —— 于是同步对话框里只列出 3 个，
+ * 用的人看到的是「我的项目怎么没了」。
+ *
+ * `~/.claude.json` 的 `projects` 那一段是**配置**，不会随日志一起清，
+ * 里面记着每个待过的文件夹。所以两边都读：
+ *  · 会话日志 —— 给出真实的 `cwd` 原样大小写，而且说明「最近还在用」
+ *  · 配置文件 —— 给出全部待过的文件夹，哪怕日志早清了
+ *
+ * # 目录名为什么不能反解
+ *
+ * `~/.claude/projects` 下的目录名是把路径里的 `:`、`\`、空格**还有中文**
+ * 统统换成 `-` 得到的（`H:\其他计算机\我的 Mac\Documents\Obsidian`
+ * → `H-----------Mac-Documents-Obsidian`）—— 反解不回来。所以真实路径只能
+ * 从日志里的 `cwd` 或者配置文件的键名拿。
  */
 async function scanClaudeCode(): Promise<ExternalProject[]> {
-  const out: ExternalProject[] = []
-  const root = await join(await homeDir(), '.claude', 'projects')
-  if (!(await exists(root).catch(() => false))) return out
+  const found = new Map<string, ExternalProject>()
+  const home = await homeDir()
 
-  let dirs: string[] = []
-  try {
-    dirs = ((await readDir(root)) as any[]).map((e) => String(e?.name ?? '')).filter(Boolean)
-  } catch {
-    return out
+  const add = (path: string, recent: boolean) => {
+    if (!path) return
+    const key = normKey(path)
+    // 家目录本身不算项目 —— 在这儿开过一次 Claude Code 不代表它是个项目，
+    // 而它一列出来就排在最上面挡着真正要找的东西。它下面的子文件夹照常算
+    if (key === normKey(home)) return
+    const old = found.get(key)
+    // 日志里那份是真实 cwd(大小写原样)，比配置里的键名可靠，优先留它
+    if (old && (old.recent || !recent)) return
+    found.set(key, { path, name: leafName(path), source: 'Claude Code', linked: false, recent })
   }
 
-  for (const d of dirs) {
-    const dir = await join(root, d)
-    let files: string[] = []
+  // ── 来源一：还留着的会话日志 ──
+  const root = await join(home, '.claude', 'projects')
+  if (await exists(root).catch(() => false)) {
+    let dirs: string[] = []
     try {
-      files = ((await readDir(dir)) as any[])
-        .map((e) => String(e?.name ?? ''))
-        .filter((n) => n.toLowerCase().endsWith('.jsonl'))
-    } catch { continue }
-    if (!files.length) continue
+      dirs = ((await readDir(root)) as any[]).map((e) => String(e?.name ?? '')).filter(Boolean)
+    } catch { dirs = [] }
 
-    // 只读一份、只读开头 —— 会话日志能有几十兆,整份读进来纯属浪费
-    try {
-      const head = (await readTextFile(await join(dir, files[0]))).slice(0, 20000)
-      const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head)
-      if (!m) continue
-      const path = JSON.parse(`"${m[1]}"`) as string
-      if (!path || out.some((x) => x.path === path)) continue
-      out.push({ path, name: leafName(path), source: 'Claude Code', linked: false })
-    } catch { /* 这一个读不出来不该拖垮整张表 */ }
+    for (const d of dirs) {
+      const dir = await join(root, d)
+      let files: string[] = []
+      try {
+        files = ((await readDir(dir)) as any[])
+          .map((e) => String(e?.name ?? ''))
+          .filter((n) => n.toLowerCase().endsWith('.jsonl'))
+      } catch { continue }
+
+      /*
+        一个目录里挨个试，试到读出 cwd 为止。
+
+        原来只读 `files[0]`：那一份要是开头两万字里正好没有 cwd
+        （比如头一条就是一大段贴进来的东西），整个项目就被丢掉了。
+      */
+      for (const f of files.slice(0, 5)) {
+        try {
+          const head = (await readTextFile(await join(dir, f))).slice(0, 20000)
+          const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head)
+          if (!m) continue
+          add(JSON.parse(`"${m[1]}"`) as string, true)
+          break
+        } catch { /* 这一份读不出来就试下一份 */ }
+      }
+    }
+  }
+
+  // ── 来源二：配置里记着的所有文件夹 ──
+  try {
+    const cfg = JSON.parse(await readTextFile(await join(home, '.claude.json')))
+    for (const p of Object.keys(cfg?.projects ?? {})) add(p, false)
+  } catch { /* 没有这个文件就算了,来源一还在 */ }
+
+  /*
+    文件夹已经不在了的不列出来 —— 配置里那份只增不减，这台机器上二十四个
+    里有十六个早删了。列出来点一下只会得到一个空项目。
+  */
+  const out: ExternalProject[] = []
+  for (const p of found.values()) {
+    if (await exists(p.path).catch(() => false)) out.push(p)
   }
   return out
 }
@@ -123,7 +184,7 @@ async function scanCodex(): Promise<ExternalProject[]> {
           if (!m) continue
           const path = JSON.parse(`"${m[1]}"`) as string
           if (!path || out.some((x) => x.path === path)) continue
-          out.push({ path, name: leafName(path), source: 'Codex', linked: false })
+          out.push({ path, name: leafName(path), source: 'Codex', linked: false, recent: true })
         } catch { /* 同上 */ }
       } else {
         await walk(p, depth + 1)
@@ -141,10 +202,14 @@ export async function scanExternalProjects(taken: string[]) {
   external.error = ''
   try {
     const found = [...(await scanClaudeCode()), ...(await scanCodex())]
-    const low = new Set(taken.filter(Boolean).map((p) => p.toLowerCase()))
+    const low = new Set(taken.filter(Boolean).map(normKey))
     external.items = found
-      .map((p) => ({ ...p, linked: low.has(p.path.toLowerCase()) }))
-      .sort((a, b) => a.source.localeCompare(b.source) || a.name.localeCompare(b.name))
+      .map((p) => ({ ...p, linked: low.has(normKey(p.path)) }))
+      // 最近还在用的排前面 —— 那才是他这会儿想接过来的
+      .sort((a, b) =>
+        Number(b.recent) - Number(a.recent)
+        || a.source.localeCompare(b.source)
+        || a.name.localeCompare(b.name))
   } catch (e) {
     external.error = String(e)
   } finally {
