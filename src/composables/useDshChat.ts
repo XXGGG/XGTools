@@ -593,6 +593,94 @@ export function searchSessions(q: string) {
  * 聊天窗口本来就是看最近这段的,更早的要翻自己会去翻。截住尾巴那 200 条,
  * 前面的用一行字交代。
  */
+
+// ── 接过来的项目：别家的历史 ──────────────────────────
+//
+// 一个项目会话承载了很多记忆 —— 接过来只带文件夹不带对话，等于让人把来龙去脉
+// 再讲一遍。所以：**历史只读渲染在上面，DSH 的新对话接在下面**；
+// 而且这个项目在 DSH 这边的第一句话会**自动带上一份摘录**当背景，
+// 模型一开口就知道之前聊到哪了。
+//
+// 不做的是「把历史灌成 DSH 自己的会话」：那要把 Claude Code 的日志转成 DSH 的
+// 事件流，两边任何一方改格式就会默默给出一段错的历史。只读渲染没有这个风险。
+
+export type ForeignItem =
+  | { kind: 'user'; id: string; text: string }
+  | { kind: 'assistant'; id: string; text: string }
+  | { kind: 'tool'; id: string; name: string; detail: string }
+
+export const foreign = reactive<{
+  /** 现在画的是哪一次别家会话。空 = 没有 */
+  originId: string
+  items: ForeignItem[]
+  /** 太早没带过来的条数 */
+  dropped: number
+  loading: boolean
+  error: string
+}>({ originId: '', items: [], dropped: 0, loading: false, error: '' })
+
+/**
+ * 第一句话要顺带塞给模型的背景。用一次就清掉 —— 之后 DSH 自己的会话里
+ * 已经有这段了，再塞就是重复。
+ */
+let contextPrelude = ''
+
+const foreignCache = new Map<string, { items: ForeignItem[]; dropped: number; digest: string }>()
+
+/**
+ * 读一次别家会话来渲染。`primeContext` = 这个项目在 DSH 这边还没聊过，
+ * 把摘录准备好等第一句话带走。
+ */
+export async function loadForeignHistory(originId: string, primeContext: boolean) {
+  foreign.originId = originId
+  foreign.error = ''
+  const hit = foreignCache.get(originId)
+  if (hit) {
+    foreign.items = hit.items
+    foreign.dropped = hit.dropped
+    contextPrelude = primeContext ? hit.digest : ''
+    return
+  }
+  foreign.items = []
+  foreign.dropped = 0
+  foreign.loading = true
+  try {
+    const r = await invoke<{ items: ForeignItem[]; dropped: number; digest: string }>(
+      'read_claude_session', { id: originId, maxItems: 240 },
+    )
+    // 读的时候人已经切去别的项目了,别把人家的界面覆盖掉
+    if (foreign.originId !== originId) return
+    foreignCache.set(originId, r)
+    foreign.items = r.items
+    foreign.dropped = r.dropped
+    contextPrelude = primeContext ? r.digest : ''
+  } catch (e) {
+    if (foreign.originId === originId) foreign.error = String(e)
+  } finally {
+    if (foreign.originId === originId) foreign.loading = false
+  }
+}
+
+export function clearForeignHistory() {
+  foreign.originId = ''
+  foreign.items = []
+  foreign.dropped = 0
+  foreign.error = ''
+  contextPrelude = ''
+}
+
+/** 把摘录包成一段说明，让模型知道这是背景不是指令 */
+function wrapPrelude(digest: string): string {
+  return [
+    '<以下是这个项目之前在 Claude Code 里的对话摘录。它是背景，不需要逐条回应；',
+    '接下来我说的话请建立在这些上下文之上，不要让我重新解释。>',
+    '',
+    digest,
+    '',
+    '<摘录结束>',
+  ].join('\n')
+}
+
 const MAX_RENDER = 200
 
 /** 每个会话上次渲染出来的样子。切回来先拿这份顶上,不至于对着空白等 */
@@ -695,7 +783,18 @@ export async function sendPrompt(
   if (!chat.sessionId) await newSession()
   if (!chat.sessionId) return
 
-  const full = [text, ...files.map((f) => f.block)].filter(Boolean).join('\n\n')
+  /*
+    接过来的项目第一句话：把 Claude Code 那边的摘录悄悄放在前面。
+    气泡里显示的还是你打的那句（text），发出去的（full）多了一段背景 ——
+    和「附件条」是同一个思路，屏幕上干净，模型手里齐全。
+  */
+  const prelude = contextPrelude
+  contextPrelude = ''
+  const full = [
+    ...(prelude ? [wrapPrelude(prelude)] : []),
+    text,
+    ...files.map((f) => f.block),
+  ].filter(Boolean).join('\n\n')
 
   const marks = images.length ? `[${images.length} 张图]` : ''
   chat.items.push({

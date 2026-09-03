@@ -292,6 +292,7 @@ pub fn run() {
             record_commands::recording_to_gif,
             record_commands::reveal_in_explorer,
             foreign_projects::scan_claude_sessions,
+            foreign_projects::read_claude_session,
             disable_window_transitions,
             set_window_no_activate,
             // 动态壁纸 / 定时屏保

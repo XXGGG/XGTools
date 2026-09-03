@@ -202,3 +202,159 @@ pub async fn scan_claude_sessions() -> Result<Vec<ForeignSession>, String> {
     .await
     .map_err(|e| format!("扫描线程挂了: {e}"))?
 }
+
+// ─── 读一次会话的内容 ───────────────────────────────
+
+/// 渲染用的一条。和前端 ChatItem 的几种 kind 对齐，前端不用再转一遍
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ForeignItem {
+    User { id: String, text: String },
+    Assistant { id: String, text: String },
+    Tool { id: String, name: String, detail: String },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ForeignTranscript {
+    pub items: Vec<ForeignItem>,
+    /// 太早的没带过来的条数。带全的话一份几万条的日志会把界面拖死
+    pub dropped: usize,
+    /// 喂给模型当背景用的精简版：只有人和 AI 说的话，没有工具噪音
+    pub digest: String,
+}
+
+fn text_of(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(a) => a
+            .iter()
+            .filter(|x| x.get("type").and_then(|t| t.as_str()) == Some("text"))
+            .filter_map(|x| x.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// 工具调用只留「叫什么 + 主要参数」，结果不要 —— 结果动辄几万字，
+/// 而人回头看历史要的是「当时干了什么」，不是重放输出
+fn tool_detail(input: &serde_json::Value) -> String {
+    for k in ["command", "file_path", "path", "query", "url", "pattern", "description"] {
+        if let Some(v) = input.get(k).and_then(|v| v.as_str()) {
+            let one = v.lines().next().unwrap_or("");
+            return one.chars().take(160).collect();
+        }
+    }
+    String::new()
+}
+
+/// 找到这次会话的日志文件（目录名反解不回来，只能挨个目录找同名文件）
+fn find_session_file(id: &str) -> Option<PathBuf> {
+    if id.contains(['/', '\\', '.']) {
+        return None; // 别让人拿会话 id 当路径钻空子
+    }
+    let root = dirs::home_dir()?.join(".claude").join("projects");
+    for d in std::fs::read_dir(root).ok()?.flatten() {
+        let p = d.path().join(format!("{id}.jsonl"));
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// 把一次 Claude Code 会话读成可渲染的条目 + 一份给模型的摘录。
+///
+/// 这里是整份读的（不像扫描那样只读两头）—— 但只读**正在打开的这一份**，
+/// 几十兆在 Rust 里也就几百毫秒。`max_items` 限制带回前端的条数。
+#[tauri::command]
+pub async fn read_claude_session(id: String, max_items: Option<usize>) -> Result<ForeignTranscript, String> {
+    let path = find_session_file(&id).ok_or("找不到这次会话的记录，可能已经被 Claude Code 清掉了")?;
+    let max_items = max_items.unwrap_or(240);
+
+    tokio::task::spawn_blocking(move || {
+        use std::io::{BufRead, BufReader};
+        let f = std::fs::File::open(&path).map_err(|e| format!("打不开: {e}"))?;
+        let reader = BufReader::new(f);
+
+        let mut items: Vec<ForeignItem> = Vec::new();
+        // 摘录只收人话：(是不是用户, 文本)
+        let mut talk: Vec<(bool, String)> = Vec::new();
+        let mut n = 0usize;
+
+        for line in reader.lines() {
+            let line = match line { Ok(l) => l, Err(_) => continue };
+            let v: serde_json::Value = match serde_json::from_str(&line) { Ok(v) => v, Err(_) => continue };
+            let ty = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if ty != "user" && ty != "assistant" { continue; }
+            // isMeta = 工具塞进去的系统消息（斜杠命令回显之类），不是人说的
+            if v.get("isMeta").and_then(|b| b.as_bool()) == Some(true) { continue; }
+            let msg = match v.get("message") { Some(m) => m, None => continue };
+            let content = match msg.get("content") { Some(c) => c, None => continue };
+
+            if ty == "user" {
+                // tool_result 那种 user 消息是工具回传，不是人说的
+                if let serde_json::Value::Array(a) = content {
+                    if a.iter().any(|x| x.get("type").and_then(|t| t.as_str()) == Some("tool_result")) {
+                        continue;
+                    }
+                }
+                let mut t = text_of(content);
+                if t.trim().is_empty() { continue; }
+                // 贴进来的大段 <system-reminder>、<ide_selection> 这种不算人话
+                if t.trim_start().starts_with('<') { continue; }
+                let has_img = matches!(content, serde_json::Value::Array(a) if a.iter().any(|x| x.get("type").and_then(|t| t.as_str()) == Some("image")));
+                if has_img { t.push_str(" [图]"); }
+                n += 1;
+                talk.push((true, t.clone()));
+                items.push(ForeignItem::User { id: format!("cc{n}"), text: t });
+            } else if let serde_json::Value::Array(a) = content {
+                for part in a {
+                    match part.get("type").and_then(|t| t.as_str()) {
+                        Some("text") => {
+                            let t = part.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                            if t.trim().is_empty() { continue; }
+                            n += 1;
+                            talk.push((false, t.clone()));
+                            items.push(ForeignItem::Assistant { id: format!("cc{n}"), text: t });
+                        }
+                        Some("tool_use") => {
+                            let name = part.get("name").and_then(|t| t.as_str()).unwrap_or("?").to_string();
+                            let detail = part.get("input").map(tool_detail).unwrap_or_default();
+                            n += 1;
+                            items.push(ForeignItem::Tool { id: format!("cc{n}"), name, detail });
+                        }
+                        _ => {} // thinking 不渲染 —— 那是草稿，不是回复
+                    }
+                }
+            }
+        }
+
+        let dropped = items.len().saturating_sub(max_items);
+        let items = if dropped > 0 { items.split_off(dropped) } else { items };
+
+        /*
+          给模型的摘录：最近的对话，从后往前攒到上限为止。
+          单条太长的截一截 —— 一大段贴进来的代码对「记住我们聊过什么」没帮助，
+          却会把预算吃光。
+        */
+        const BUDGET: usize = 9000;
+        const PER: usize = 900;
+        let mut acc: Vec<String> = Vec::new();
+        let mut used = 0usize;
+        for (is_user, t) in talk.iter().rev() {
+            let mut s: String = t.chars().take(PER).collect();
+            if t.chars().count() > PER { s.push('…'); }
+            let line = format!("{}: {}", if *is_user { "我" } else { "AI" }, s.replace('\n', " "));
+            if used + line.len() > BUDGET { break; }
+            used += line.len();
+            acc.push(line);
+        }
+        acc.reverse();
+        let digest = acc.join("\n");
+
+        Ok(ForeignTranscript { items, dropped, digest })
+    })
+    .await
+    .map_err(|e| format!("读取线程挂了: {e}"))?
+}

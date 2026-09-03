@@ -25,6 +25,7 @@ import {
   projections, togglePlan, commands, runCommand,
   workspaces, loadWorkspaces, addWorkspace,
   permission, selectPermission, PERMISSION_PRESETS,
+  foreign, loadForeignHistory, clearForeignHistory,
   type ChatFile,
 } from '@/composables/useDshChat'
 import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover'
@@ -949,16 +950,29 @@ async function enterProject(id: string) {
   closeDoc()
   if (pr.sessionId) {
     if (pr.sessionId !== chat.sessionId) await openSession(pr.sessionId)
-    return
+  } else {
+    await newSession(pr.folder || undefined)
+    if (chat.sessionId) await updateProject(id, { sessionId: chat.sessionId })
   }
-  await newSession(pr.folder || undefined)
-  if (chat.sessionId) await updateProject(id, { sessionId: chat.sessionId })
+
+  /*
+    从别家接过来的项目：把那边的对话读出来画在上面。
+    DSH 这边还一句没聊过的（items 空），第一句话顺带把摘录带给模型 ——
+    之后就不带了，它自己的会话里已经有了。
+  */
+  if (pr.originId) {
+    const fresh = chat.items.filter((m) => m.kind === 'user' || m.kind === 'assistant').length === 0
+    void loadForeignHistory(pr.originId, fresh)
+  } else {
+    clearForeignHistory()
+  }
 }
 
 /** 退回项目列表。对话不动 —— 只是左栏换回列表 */
 function leaveProject() {
   projects.currentId = ''
   closeDoc()
+  clearForeignHistory()
 }
 
 // ── 正文栏 ────────────────────────────────────────────
@@ -2257,6 +2271,45 @@ async function copyMessage(id: string, text: string) {
               眼睛得重新找一遍看到哪儿了。淡入 + 轻微上移只要 200ms,
               但足够让人知道「刚才那块是新出现的」。
             -->
+            <!--
+              接过来的项目：Claude Code 那边的对话，只读，画在上面。
+              样式和下面的一模一样 —— 它就是这个项目的前半段，不是另一种东西。
+              只在中间放一条细线说明「从这儿往下是这边的」。
+            -->
+            <template v-if="foreign.originId && currentProject?.originId === foreign.originId">
+              <p v-if="foreign.loading" class="py-6 text-center text-[13px] text-muted-foreground">
+                {{ t('agent.foreignLoading') }}
+              </p>
+              <p v-else-if="foreign.error" class="py-3 text-center text-[12px] text-red-500">{{ foreign.error }}</p>
+              <p v-else-if="foreign.dropped" class="pb-2 text-center text-[11.5px] text-muted-foreground/70">
+                {{ t('agent.foreignDropped', { n: String(foreign.dropped) }) }}
+              </p>
+
+              <div v-for="m in foreign.items" :key="m.id" class="msg-in opacity-90">
+                <div v-if="m.kind === 'user'" class="flex justify-end">
+                  <div class="max-w-[85%] rounded-2xl rounded-br-md bg-muted px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap wrap-break-word">
+                    {{ m.text }}
+                  </div>
+                </div>
+                <div v-else-if="m.kind === 'assistant'" class="flex gap-3">
+                  <span class="icon-[simple-icons--anthropic] w-5 h-5 mt-0.5 shrink-0 text-muted-foreground" />
+                  <div class="min-w-0 flex-1 chat-md" v-html="renderChatMd(m.text)" @click="onChatLinkClick" />
+                </div>
+                <div v-else class="flex items-center gap-2.5 px-3.5 py-1.5 text-[12.5px] text-muted-foreground">
+                  <span class="icon-[lucide--wrench] w-3.5 h-3.5 shrink-0" />
+                  <span class="font-mono">{{ m.name }}</span>
+                  <span class="truncate">{{ m.detail }}</span>
+                </div>
+              </div>
+
+              <!-- 分界：从这儿往下是 XGTools 这边的对话 -->
+              <div v-if="foreign.items.length" class="flex items-center gap-3 py-3 text-[11.5px] text-muted-foreground/70">
+                <div class="flex-1 h-px bg-border" />
+                <span>{{ t('agent.foreignDivider') }}</span>
+                <div class="flex-1 h-px bg-border" />
+              </div>
+            </template>
+
             <div v-for="m in chat.items" :key="m.id" class="msg-in">
 
               <!-- 用户:右侧气泡 -->
