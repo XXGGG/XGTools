@@ -8,10 +8,10 @@
 import { invoke } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 
-export type ShortcutKey = 'dock' | 'screenshot' | 'screenshot_translate' | 'palette' | 'palette_translate'
+export type ShortcutKey = 'dock' | 'screenshot' | 'screenshot_translate' | 'record' | 'palette' | 'palette_translate'
 
 /** 设置页里的展示顺序:最常按的在上面 */
-export const SHORTCUT_KEYS: ShortcutKey[] = ['palette', 'palette_translate', 'screenshot', 'screenshot_translate', 'dock']
+export const SHORTCUT_KEYS: ShortcutKey[] = ['palette', 'palette_translate', 'screenshot', 'screenshot_translate', 'record', 'dock']
 
 export type ShortcutState = {
   key: ShortcutKey
@@ -31,6 +31,7 @@ export const SHORTCUT_DEFAULTS: Record<ShortcutKey, string> = {
   dock: 'Ctrl+Alt+W',
   screenshot: 'Ctrl+Alt+A',
   screenshot_translate: 'Ctrl+Alt+D',
+  record: 'Ctrl+Alt+R',
   palette: 'Ctrl+Alt+Space',
   palette_translate: 'Ctrl+Alt+E',
 }
@@ -59,6 +60,11 @@ export async function readAllShortcuts(): Promise<ShortcutState[]> {
       key: 'screenshot_translate', optional: false, ownSwitch: true,
       shortcut: await get('screenshot_translate_shortcut', SHORTCUT_DEFAULTS.screenshot_translate),
       enabled: await get('screenshot_translate_enabled', false),
+    },
+    record: {
+      key: 'record', optional: false, ownSwitch: true,
+      shortcut: await get('record_shortcut', SHORTCUT_DEFAULTS.record),
+      enabled: await get('record_enabled', true),
     },
     palette: {
       key: 'palette', optional: false, ownSwitch: true,
@@ -118,6 +124,7 @@ export async function syncAllShortcuts(): Promise<ShortcutKey[]> {
       dock_shortcut: pick('dock'),
       screenshot_shortcut: pick('screenshot'),
       screenshot_translate_shortcut: pick('screenshot_translate'),
+      record_shortcut: pick('record'),
       palette_shortcut: pick('palette'),
       palette_translate_shortcut: pick('palette_translate'),
     },

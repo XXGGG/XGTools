@@ -183,6 +183,12 @@ pub fn tray_screenshot(app: tauri::AppHandle) {
     let _ = app.emit("execute-screenshot", ());
 }
 
+#[tauri::command]
+pub fn tray_record(app: tauri::AppHandle) {
+    hide_tray_menu(app.clone());
+    let _ = app.emit("execute-record", ());
+}
+
 /// 卡住时的总闸:把所有浮层一次收干净。
 ///
 /// 合并了原来的「强制结束截图」和「关闭启动台」—— 它们本来就是同一个用途,

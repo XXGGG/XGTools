@@ -9,7 +9,9 @@
     "palette",
     "screenshot",
     "pin_*",
-    "tray-menu"
+    "tray-menu",
+    "rec_frame",
+    "rec_bar"
   ],
   "permissions": [
     "core:default",

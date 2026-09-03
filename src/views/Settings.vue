@@ -322,6 +322,7 @@ const HK_META: Record<ShortcutKey, { icon: string; nameKey: string; descKey: str
   palette_translate: { icon: 'icon-[lucide--languages]', nameKey: 'settings.keyPaletteTranslate', descKey: 'settings.keyPaletteTranslateDesc' },
   screenshot: { icon: 'icon-[lucide--camera]', nameKey: 'settings.keyScreenshot', descKey: 'settings.keyScreenshotDesc' },
   screenshot_translate: { icon: 'icon-[lucide--scan-text]', nameKey: 'settings.keyScreenshotTranslate', descKey: 'settings.keyScreenshotTranslateDesc' },
+  record: { icon: 'icon-[lucide--video]', nameKey: 'settings.keyRecord', descKey: 'settings.keyRecordDesc' },
   dock: { icon: 'icon-[lucide--layout-grid]', nameKey: 'settings.keyDock', descKey: 'settings.keyDockDesc' },
 }
 type HkStatus = 'on' | 'taken' | 'off' | 'unset'

@@ -369,10 +369,15 @@ export const COLOR_PICKER_STYLE = {
 } as const
 
 /**
- * 两种截图的框线色。普通截图淡蓝,截图翻译淡红 —— 一眼能分清现在按的是哪个
+ * 三种框线色。普通截图淡蓝,截图翻译淡红,录屏正红 —— 一眼能分清现在按的是哪个
  * 快捷键。都压过饱和度:鲜艳的框线会和画面里的颜色打架。
  */
-export const SELECTION_ACCENTS = { normal: '#7aa7e6', translate: '#e08a8a' } as const
+export const SELECTION_ACCENTS = {
+  normal: '#7aa7e6',
+  translate: '#e08a8a',
+  /* 录屏用正红：录制键在哪个软件里都是红点，跟着这个认知走 */
+  record: '#e5484d',
+} as const
 
 /** 换选区的主色。边框和控制点描边一起换,漏一个就是两种颜色混着 */
 export function setSelectionLook(kind: keyof typeof SELECTION_ACCENTS) {
@@ -382,5 +387,6 @@ export function setSelectionLook(kind: keyof typeof SELECTION_ACCENTS) {
   // 十字虚线跟着同一个色,只是淡一点 —— 翻译时整套都是淡红,不能框红线蓝
   const r = parseInt(color.slice(1, 3), 16), g = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16)
   SELECTION_STYLE.crosshairColor = `rgba(${r}, ${g}, ${b}, 0.6)`
-  SELECTION_STYLE.showSizeLabel = kind === 'normal'
+  // 翻译不需要知道像素尺寸；截图和录屏要
+  SELECTION_STYLE.showSizeLabel = kind !== 'translate'
 }

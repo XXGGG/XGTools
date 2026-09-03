@@ -141,6 +141,10 @@ onMounted(async () => {
         <span class="icon-[lucide--focus] size-3.5 shrink-0 opacity-70" />
         {{ t('tray.screenshot') }}
       </button>
+      <button class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] text-left transition-colors hover:bg-muted/60" @click="invoke('tray_record')">
+        <span class="icon-[lucide--video] size-3.5 shrink-0 opacity-70" />
+        {{ t('tray.record') }}
+      </button>
       <button class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] text-left transition-colors hover:bg-muted/60" @click="invoke('tray_toggle_dock')">
         <span class="icon-[lucide--layout-grid] size-3.5 shrink-0 opacity-70" />
         {{ t('tray.dock') }}

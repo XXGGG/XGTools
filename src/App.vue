@@ -64,6 +64,8 @@ import PaletteWindow from './palette/PaletteWindow.vue'
 import TrayMenu from './views/TrayMenu.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
+import RecorderFrame from './screenshot/RecorderFrame.vue'
+import RecorderBar from './screenshot/RecorderBar.vue'
 
 const { t } = useI18n()
 /*
@@ -116,6 +118,8 @@ const isPaletteWindow = ref(false)
 const isTrayMenu = ref(false)
 const isScreenshotWindow = ref(false)
 const isPinWindow = ref(false)
+const isRecFrame = ref(false)
+const isRecBar = ref(false)
 
 const shortcutWarning = ref('')
 
@@ -131,6 +135,7 @@ const shortcutNameMap: Record<string, string> = {
   dock: 'nav.dock',
   screenshot: 'nav.screenshot',
   screenshot_translate: 'nav.screenshot',
+  record: 'settings.keyRecord',
   palette: 'nav.palette',
   palette_translate: 'palettePage.transHotkey',
 }
@@ -148,6 +153,8 @@ onMounted(async () => {
   if (win.label === 'tray-menu') { isTrayMenu.value = true; return }
   if (win.label === 'screenshot') { isScreenshotWindow.value = true; return }
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
+  if (win.label === 'rec_frame') { isRecFrame.value = true; return }
+  if (win.label === 'rec_bar') { isRecBar.value = true; return }
 
   /*
     主窗口一建出来就显示(tauri.conf.json 里没有 visible:false)。
@@ -254,6 +261,8 @@ onMounted(async () => {
   <TrayMenu v-else-if="isTrayMenu" />
   <ScreenshotWindow v-else-if="isScreenshotWindow" />
   <PinWindow v-else-if="isPinWindow" />
+  <RecorderFrame v-else-if="isRecFrame" />
+  <RecorderBar v-else-if="isRecBar" />
 
   <!--
     布局:内容层铺满整窗,顶栏和侧栏作为浮层压在它上面。

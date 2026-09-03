@@ -4,6 +4,7 @@ mod ocr_commands;
 mod window_detect;
 mod translate_commands;
 mod convert_commands;
+mod record_commands;
 mod window_effects;
 mod dsh_commands;
 mod dsh_bridge;
@@ -111,6 +112,7 @@ pub fn run() {
         .manage(convert_commands::ConvertState {
             cancel_flags: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
+        .manage(record_commands::RecordState::default())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -146,6 +148,7 @@ pub fn run() {
             tray::tray_toggle_dock,
             tray::tray_open_palette,
             tray::tray_screenshot,
+            tray::tray_record,
             tray::tray_force_close_overlays,
             tray::reload_screenshot_window,
             tray::tray_quit,
@@ -233,6 +236,13 @@ pub fn run() {
             convert_commands::download_ffmpeg,
             convert_commands::cancel_convert,
             convert_commands::resolve_output_dir,
+            // 录屏
+            record_commands::start_recording,
+            record_commands::stop_recording,
+            record_commands::cancel_recording,
+            record_commands::recording_status,
+            record_commands::recording_to_gif,
+            record_commands::reveal_in_explorer,
             // 动态壁纸 / 定时屏保
         ])
         .setup(|app| {
@@ -369,6 +379,22 @@ pub fn run() {
                 None
             };
 
+            // 录屏。默认 Ctrl+Alt+R（Record），和截图那两个排在一起
+            let record_enabled = store_json.as_ref()
+                .and_then(|v| v.get("record_enabled"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let record_shortcut = if record_enabled {
+                dock_commands::parse_shortcut_str(
+                    store_json.as_ref()
+                        .and_then(|v| v.get("record_shortcut"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Ctrl+Alt+R"),
+                ).ok()
+            } else {
+                None
+            };
+
             let screenshot_translate_shortcut = if screenshot_translate_enabled {
                 store_json.as_ref()
                     .and_then(|v| v.get("screenshot_translate_shortcut"))
@@ -385,6 +411,7 @@ pub fn run() {
                 screenshot_translate: screenshot_translate_shortcut,
                 palette: palette_shortcut,
                 palette_translate: palette_translate_shortcut,
+                record: record_shortcut,
             }));
             app.manage(bindings.clone());
 
@@ -412,6 +439,8 @@ pub fn run() {
                             let _ = app.emit("execute-screenshot", ());
                         } else if b.screenshot_translate.as_ref() == Some(shortcut) {
                             let _ = app.emit("execute-screenshot-translate", ());
+                        } else if b.record.as_ref() == Some(shortcut) {
+                            let _ = app.emit("execute-record", ());
                         } else if b.palette.as_ref() == Some(shortcut) {
                             if let Some(win) = app.get_webview_window("palette") {
                                 // 定位和 show 都交给窗口里的 JS 做 ——
@@ -467,6 +496,9 @@ pub fn run() {
             if let Some(sc) = palette_translate_shortcut {
                 try_register(sc, "palette_translate", &mut failed_shortcuts);
             }
+            if let Some(sc) = record_shortcut {
+                try_register(sc, "record", &mut failed_shortcuts);
+            }
 
             // 通知前端有哪些快捷键注册失败
             if !failed_shortcuts.is_empty() {
@@ -497,7 +529,7 @@ pub fn run() {
                         std::thread::sleep(std::time::Duration::from_secs(wait));
                         let wanted: Vec<tauri_plugin_global_shortcut::Shortcut> = {
                             let b = bindings_retry.lock().unwrap();
-                            [b.dock, b.screenshot, b.screenshot_translate, b.palette, b.palette_translate]
+                            [b.dock, b.screenshot, b.screenshot_translate, b.palette, b.palette_translate, b.record]
                                 .into_iter()
                                 .flatten()
                                 .collect()
@@ -554,6 +586,7 @@ pub fn run() {
             // 那样最小化到托盘就把智能体杀了。只在进程真正退出时收。
             if let tauri::RunEvent::Exit = event {
                 dsh_commands::shutdown(app);
+                record_commands::shutdown(app);
             }
         });
 }

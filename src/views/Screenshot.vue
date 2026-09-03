@@ -1,13 +1,22 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsTrigger } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { useI18n } from '@/i18n'
+/*
+  快捷键统一走 lib/shortcuts。
+
+  这一页原来自己攒了一份「读三个键 → update_all_shortcuts」——
+  少传的那几个键（命令面板、翻译面板、录屏）在后端会被当成 null 全部注销掉：
+  在截图页动一下开关，命令面板的键就没了，而且没有任何报错。
+*/
+import { syncAllShortcuts } from '@/lib/shortcuts'
 
 const { t } = useI18n()
 
@@ -54,12 +63,36 @@ const screenshotTranslateEnabled = ref(false)
 const screenshotTranslateShortcut = ref('Ctrl+Alt+D')
 const isRecordingTranslateShortcut = ref(false)
 
+
+// 录屏
+const recordEnabled = ref(true)
+const recordShortcut = ref('Ctrl+Alt+R')
+const recordFps = ref(30)
+const recordDir = ref('')
+const isRecordingRecShortcut = ref(false)
+
+/** 空 = 用默认的「桌面\Recordings」。显示成人话，别把空串直接摆出来 */
+const recordDirLabel = computed(() => recordDir.value || t('screenshot.recDirDefault'))
+
+async function pickRecordDir() {
+  const picked = await openDialog({ directory: true, multiple: false })
+  if (typeof picked === 'string') {
+    recordDir.value = picked
+    await saveSettings()
+  }
+}
+
+function clearRecordDir() {
+  recordDir.value = ''
+  saveSettings()
+}
+
 // 快捷键录制
 const isRecordingShortcut = ref(false)
 const recordingKeys = ref('')
 
 // Tabs
-const activeTab = ref<'screenshot' | 'translate'>('screenshot')
+const activeTab = ref<'screenshot' | 'record' | 'translate'>('screenshot')
 
 // --- Load / Save ---
 async function loadSettings() {
@@ -73,6 +106,10 @@ async function loadSettings() {
   cornerRadius.value = (await store.get<number>('screenshot_corner_radius')) ?? 8
   screenshotTranslateEnabled.value = (await store.get<boolean>('screenshot_translate_enabled')) ?? false
   screenshotTranslateShortcut.value = (await store.get<string>('screenshot_translate_shortcut')) ?? 'Ctrl+Alt+D'
+  recordEnabled.value = (await store.get<boolean>('record_enabled')) ?? true
+  recordShortcut.value = (await store.get<string>('record_shortcut')) ?? 'Ctrl+Alt+R'
+  recordFps.value = (await store.get<number>('record_fps')) ?? 30
+  recordDir.value = (await store.get<string>('record_dir')) ?? ''
   settingsLoaded.value = true
 }
 
@@ -86,13 +123,17 @@ async function saveSettings() {
   await store.set('screenshot_corner_radius', cornerRadius.value)
   await store.set('screenshot_translate_enabled', screenshotTranslateEnabled.value)
   await store.set('screenshot_translate_shortcut', screenshotTranslateShortcut.value)
+  await store.set('record_enabled', recordEnabled.value)
+  await store.set('record_shortcut', recordShortcut.value)
+  await store.set('record_fps', recordFps.value)
+  await store.set('record_dir', recordDir.value)
   await store.save()
 }
 
 onMounted(loadSettings)
 
 watch(
-  [screenshotEnabled, screenshotTranslateEnabled, autoBgShadow, bgColor, bgPadding, shadowBlur, cornerRadius],
+  [screenshotEnabled, screenshotTranslateEnabled, recordEnabled, recordFps, autoBgShadow, bgColor, bgPadding, shadowBlur, cornerRadius],
   () => {
     if (settingsLoaded.value) {
       saveSettings()
@@ -101,24 +142,6 @@ watch(
   },
 )
 
-// --- 收集所有快捷键并统一更新 ---
-async function syncAllShortcuts() {
-  try {
-    const dockSettings = await invoke<{ shortcut: string }>('get_settings')
-    const stEnabled = (await store.get<boolean>('screenshot_translate_enabled')) ?? false
-    const stShortcut = (await store.get<string>('screenshot_translate_shortcut')) ?? ''
-    await invoke('update_all_shortcuts', {
-      shortcuts: {
-        dock_shortcut: dockSettings.shortcut,
-        screenshot_shortcut: screenshotEnabled.value ? screenshotShortcut.value : null,
-        screenshot_translate_shortcut: stEnabled && stShortcut ? stShortcut : null,
-      }
-    })
-  } catch (e) {
-    console.error('Failed to sync shortcuts:', e)
-  }
-}
-
 // --- 快捷键录制 ---
 function startRecordingShortcut() {
   isRecordingShortcut.value = true
@@ -126,7 +149,7 @@ function startRecordingShortcut() {
 }
 
 function handleShortcutKeydown(e: KeyboardEvent) {
-  if (!isRecordingShortcut.value && !isRecordingTranslateShortcut.value) return
+  if (!isRecordingShortcut.value && !isRecordingTranslateShortcut.value && !isRecordingRecShortcut.value) return
   e.preventDefault()
   e.stopPropagation()
   if (e.key === 'Escape') { cancelRecording(); return }
@@ -156,7 +179,11 @@ function handleShortcutKeydown(e: KeyboardEvent) {
   parts.push(key)
   const shortcutStr = parts.join('+')
 
-  if (isRecordingTranslateShortcut.value) {
+  if (isRecordingRecShortcut.value) {
+    isRecordingRecShortcut.value = false
+    recordShortcut.value = shortcutStr
+    saveSettings().then(() => syncAllShortcuts())
+  } else if (isRecordingTranslateShortcut.value) {
     isRecordingTranslateShortcut.value = false
     screenshotTranslateShortcut.value = shortcutStr
     saveSettings().then(() => syncAllShortcuts())
@@ -214,6 +241,7 @@ const bgColorPresets = [
       <Tabs v-model="activeTab">
         <TitleBarTabs>
           <TabsTrigger value="screenshot" class="h-11 px-4 rounded-xl">{{ t('shot.tabShot') }}</TabsTrigger>
+          <TabsTrigger value="record" class="h-11 px-4 rounded-xl">{{ t('shot.tabRecord') }}</TabsTrigger>
           <TabsTrigger value="translate" class="h-11 px-4 rounded-xl">{{ t('shot.tabTranslate') }}</TabsTrigger>
         </TitleBarTabs>
       </Tabs>
@@ -255,7 +283,7 @@ const bgColorPresets = [
               class="min-w-30 font-mono"
               @click="isRecordingShortcut ? cancelRecording() : startRecordingShortcut()"
             >
-              {{ isRecordingShortcut ? '按下组合键...' : screenshotShortcut }}
+              {{ isRecordingShortcut ? t('screenshot.pressKeys') : screenshotShortcut }}
             </Button>
           </div>
 
@@ -417,6 +445,87 @@ const bgColorPresets = [
         </div>
       </div>
 
+      <!-- ======== 录屏 Tab ======== -->
+      <div v-else-if="activeTab === 'record'" class="space-y-3">
+
+        <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+              <span class="icon-[lucide--video] w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="font-medium">{{ t('screenshot.recEnable') }}</h3>
+              <p class="text-xs text-muted-foreground">{{ t('screenshot.recEnableHint') }}</p>
+            </div>
+          </div>
+          <Switch :model-value="recordEnabled" @update:model-value="recordEnabled = $event" />
+        </div>
+
+        <div :class="{ 'opacity-40 pointer-events-none select-none': !recordEnabled }" class="space-y-3 transition-opacity duration-300">
+
+          <!-- 快捷键 -->
+          <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+            <div class="flex items-center gap-3">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+                <span class="icon-[lucide--keyboard] w-5 h-5" />
+              </div>
+              <div>
+                <h3 class="font-medium">{{ t('screenshot.recHotkey') }}</h3>
+                <p class="text-xs text-muted-foreground">{{ t('screenshot.recHotkeyHint') }}</p>
+              </div>
+            </div>
+            <Button
+              variant="outline" size="sm" class="min-w-30 font-mono"
+              @click="isRecordingRecShortcut ? cancelRecording() : (isRecordingRecShortcut = true)"
+            >
+              {{ isRecordingRecShortcut ? t('screenshot.pressKeys') : recordShortcut }}
+            </Button>
+          </div>
+
+          <!-- 保存位置 -->
+          <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground shrink-0">
+                <span class="icon-[lucide--folder] w-5 h-5" />
+              </div>
+              <div class="min-w-0">
+                <h3 class="font-medium">{{ t('screenshot.recDir') }}</h3>
+                <p class="text-xs text-muted-foreground truncate" :title="recordDirLabel">{{ recordDirLabel }}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <Button v-if="recordDir" variant="ghost" size="sm" @click="clearRecordDir">
+                {{ t('screenshot.recDirReset') }}
+              </Button>
+              <Button variant="outline" size="sm" @click="pickRecordDir">
+                {{ t('screenshot.recDirPick') }}
+              </Button>
+            </div>
+          </div>
+
+          <!-- 帧率 -->
+          <div class="p-4 border rounded-lg">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-3">
+                <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+                  <span class="icon-[lucide--gauge] w-5 h-5" />
+                </div>
+                <div>
+                  <h3 class="font-medium">{{ t('screenshot.recFps') }}</h3>
+                  <p class="text-xs text-muted-foreground">{{ t('screenshot.recFpsHint') }}</p>
+                </div>
+              </div>
+              <span class="text-sm font-mono text-muted-foreground">{{ recordFps }}</span>
+            </div>
+            <Slider
+              :model-value="[recordFps]" :min="10" :max="60" :step="5"
+              @update:model-value="(v) => { if (v) recordFps = v[0] }"
+            />
+          </div>
+
+        </div>
+      </div>
+
       <!-- ======== 截图翻译 Tab ======== -->
       <div v-else-if="activeTab === 'translate'" class="space-y-3">
 
@@ -454,7 +563,7 @@ const bgColorPresets = [
               class="min-w-30 font-mono"
               @click="isRecordingTranslateShortcut ? cancelRecording() : (isRecordingTranslateShortcut = true)"
             >
-              {{ isRecordingTranslateShortcut ? '按下组合键...' : screenshotTranslateShortcut }}
+              {{ isRecordingTranslateShortcut ? t('screenshot.pressKeys') : screenshotTranslateShortcut }}
             </Button>
           </div>
 

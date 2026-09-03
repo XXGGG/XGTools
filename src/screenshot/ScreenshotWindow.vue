@@ -36,6 +36,9 @@ const capturing = ref(false)
 let imgWidth = 0
 let imgHeight = 0
 let scaleFactor = window.devicePixelRatio
+/* 这块显示器在虚拟桌面里的原点。录屏要把选区换算回屏幕绝对坐标，靠它 */
+let monitorX = 0
+let monitorY = 0
 
 const appWindow = getCurrentWindow()
 
@@ -560,6 +563,10 @@ function initSelectionManager() {
       if (translateMode.value) {
         // 截图翻译模式：选区完成后直接触发翻译，不显示工具栏
         runScreenshotTranslate()
+      } else if (recordMode.value) {
+        // 录屏：只出一条「开始录制」，没有标注工具
+        showToolbar.value = true
+        nextTick(() => updateToolbarPosition())
       } else {
         showToolbar.value = true
         // 等 DOM 渲染后再定位，确保能取到真实宽度
@@ -980,6 +987,89 @@ async function pinToScreen() {
   }
 }
 
+// ============ 录屏 ============
+
+/**
+ * 开始录制。
+ *
+ * # 顺序是有讲究的：先让遮罩让开，再起 ffmpeg
+ *
+ * gdigrab 抓的是**桌面真实画面**，而遮罩上盖的是一张冻住的截图。
+ * 先起 ffmpeg 再藏遮罩，开头那几帧录到的就是那张静止图。
+ * 所以这里先 cancelCapture()（它会把窗口挪到屏外再隐藏），等一帧，才开录。
+ */
+async function startRecording() {
+  if (!selMgr || selMgr.state !== SelectState.Selected) return
+  const r = selMgr.rect
+  const sf = scaleFactor
+
+  /*
+    给 ffmpeg 的是**屏幕绝对物理坐标**，不是窗口内部坐标。
+    monX/monY 是这块显示器在虚拟桌面里的原点 —— 不加它，副屏上框的区域会录成主屏的。
+  */
+  const px = Math.round(r.x * sf) + monitorX
+  const py = Math.round(r.y * sf) + monitorY
+  const pw = Math.round(r.w * sf)
+  const ph = Math.round(r.h * sf)
+  if (pw < 16 || ph < 16) return
+
+  const fps = ((await settingsStore.get<number>('record_fps')) ?? 30) as number
+  const dir = ((await settingsStore.get<string>('record_dir')) ?? '') as string
+
+  cancelCapture()
+  // 等一帧，让遮罩真的从屏幕上下去了再开录
+  await new Promise((res) => setTimeout(res, 120))
+
+  const rect = { x: px, y: py, w: (pw >> 1) << 1, h: (ph >> 1) << 1 }
+  try {
+    await invoke<string>('start_recording', {
+      x: rect.x, y: rect.y, width: rect.w, height: rect.h, fps, dir: dir || null,
+    })
+  } catch (e) {
+    console.error('start_recording failed:', e)
+    return
+  }
+
+  await openRecorderWindows(rect)
+}
+
+/**
+ * 开两个小窗：一圈红框（鼠标穿透）+ 一条控制条。
+ *
+ * 都走「子窗先喊 ready、父边再发数据」这套握手 —— 和钉图窗口一样。
+ * 不握手直接发的话，webview 还没 mount，那个事件就掉地上了：
+ * 窗口建出来了、永远不显示。
+ */
+async function openRecorderWindows(rect: { x: number; y: number; w: number; h: number }) {
+  const mk = async (label: string, readyEvent: string, initEvent: string, opts: Record<string, unknown>) => {
+    const un = await listen(readyEvent, async () => {
+      un()
+      await tauriEmit(initEvent, rect)
+    })
+    new WebviewWindow(label, {
+      url: 'index.html',
+      title: 'XGTools Recorder',
+      decorations: false,
+      shadow: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      focus: false,
+      visible: false,
+      width: 1,
+      height: 1,
+      ...opts,
+    })
+  }
+  try {
+    await mk('rec_frame', 'rec-frame-ready', 'rec-frame-init', {})
+    await mk('rec_bar', 'rec-bar-ready', 'rec-bar-init', {})
+  } catch (err) {
+    console.error('Failed to create recorder windows:', err)
+  }
+}
+
 // ============ OCR ============
 
 interface OcrTextBlock {
@@ -1029,6 +1119,16 @@ interface TranslateBlock {
 }
 
 const translateMode = ref(false)
+
+/*
+  录屏模式。框选那一步和截图完全一样 —— 同一套遮罩、同一个选区管理器、
+  同一套窗口吸附和像素吸附。差别只在选完之后：截图出标注工具条，
+  录屏出一个只有「开始录制」的短条。
+
+  另开一套框选代码的话，吸附、放大镜、方向键微调这些干活都得再写一遍，
+  而且两边迟早会不一样。
+*/
+const recordMode = ref(false)
 const translateResults = ref<TranslateBlock[]>([])
 const translateLoading = ref(false)
 
@@ -1156,6 +1256,7 @@ function cancelCapture() {
   ocrLoading.value = false
   ocrMode.value = false
   translateMode.value = false
+  recordMode.value = false
   translateResults.value = []
   translateLoading.value = false
   cancelTextEditor()
@@ -1725,6 +1826,8 @@ async function _doExecuteScreenshot() {
     imgHeight = dv.getUint32(4, true)
     const monX = dv.getInt32(8, true)
     const monY = dv.getInt32(12, true)
+    monitorX = monX
+    monitorY = monY
     const monW = dv.getUint32(16, true)
     const monH = dv.getUint32(20, true)
 
@@ -1847,6 +1950,24 @@ onMounted(async () => {
     executeScreenshot()
   }))
 
+  /*
+    录屏。和截图一样：再按一次就是取消框选；
+    但已经在录的时候不能再开一个 —— 屏幕就一块，两个 ffmpeg 抢同一块区域没意义。
+  */
+  _unlistens.push(await listen('execute-record', async () => {
+    const enabled = (await settingsStore.get<boolean>('record_enabled')) ?? true
+    if (!enabled) return
+    if (capturing.value) { cancelCapture(); return }
+    try {
+      const st = await invoke<{ recording: boolean }>('recording_status')
+      if (st.recording) return
+    } catch { /* 后端没应声就当没在录 */ }
+    translateMode.value = false
+    recordMode.value = true
+    setSelectionLook('record')
+    executeScreenshot()
+  }))
+
   // 监听强制取消事件（托盘菜单）
   _unlistens.push(await listen('force-cancel-screenshot', () => {
     _executeLock = false
@@ -1941,9 +2062,30 @@ const tools = [
       <span class="text-white text-sm">{{ t('shot.translating') }}</span>
     </div>
 
+    <!--
+      录屏的短条。沿用 .toolbar 这个类 —— 定位函数是按 `.toolbar` 查 DOM 宽度的，
+      另起一个类名就得把那套定位也再写一遍。
+    -->
+    <div
+      v-if="showToolbar && recordMode"
+      class="toolbar"
+      :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
+      @mousedown.stop
+    >
+      <span class="toolbar-grip icon-[lucide--grip-vertical]" :title="t('shot.dragToolbar')"
+        @mousedown="onToolbarDragStart" />
+      <button class="tb rec-go" :title="t('rec.start')" @click="startRecording">
+        <span class="icon-[lucide--circle-dot] tb-icon" />
+        <span class="rec-go-text">{{ t('rec.start') }}</span>
+      </button>
+      <button class="tb action-close" :title="t('shot.close')" @click="cancelCapture">
+        <span class="icon-[lucide--x] tb-icon" />
+      </button>
+    </div>
+
     <!-- 工具栏 -->
     <div
-      v-if="showToolbar"
+      v-if="showToolbar && !recordMode"
       class="toolbar"
       :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
       @mousedown.stop
@@ -2418,6 +2560,17 @@ const tools = [
 </template>
 
 <style scoped>
+/* 录屏那条只有一颗主按钮，给它文字和正红底，和截图工具条的图标按钮区分开 */
+.rec-go {
+  width: auto !important;
+  padding: 0 10px;
+  gap: 6px;
+  background: #e5484d !important;
+  color: #fff !important;
+}
+.rec-go:hover { background: #f2585d !important; }
+.rec-go-text { font-size: 12.5px; white-space: nowrap; }
+
 .screenshot-container {
   position: fixed;
   top: 0; left: 0;

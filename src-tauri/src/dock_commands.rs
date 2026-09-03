@@ -14,6 +14,8 @@ pub struct ShortcutBindings {
     pub palette: Option<tauri_plugin_global_shortcut::Shortcut>,
     /// 直接以翻译形态唤起命令面板。可选,没配就不注册
     pub palette_translate: Option<tauri_plugin_global_shortcut::Shortcut>,
+    /// 框选区域录屏
+    pub record: Option<tauri_plugin_global_shortcut::Shortcut>,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +27,8 @@ pub struct AllShortcuts {
     // 老版本前端不传这个字段,缺省当 None,别让整个请求反序列化失败
     #[serde(default)]
     pub palette_translate_shortcut: Option<String>,
+    #[serde(default)]
+    pub record_shortcut: Option<String>,
 }
 
 /// 录制快捷键期间,把我们自己注册的全局快捷键全部摘掉。
@@ -67,6 +71,7 @@ pub fn update_all_shortcuts(
     let ss_translate = parse(shortcuts.screenshot_translate_shortcut.as_deref());
     let palette = parse(shortcuts.palette_shortcut.as_deref());
     let palette_translate = parse(shortcuts.palette_translate_shortcut.as_deref());
+    let record = parse(shortcuts.record_shortcut.as_deref());
 
     let mut failed: Vec<String> = Vec::new();
     for (name, sc) in [
@@ -75,6 +80,7 @@ pub fn update_all_shortcuts(
         ("screenshot_translate", ss_translate),
         ("palette", palette),
         ("palette_translate", palette_translate),
+        ("record", record),
     ] {
         let Some(sc) = sc else { continue };
         if gs.register(sc).is_err() {
@@ -94,6 +100,7 @@ pub fn update_all_shortcuts(
     b.screenshot_translate = ss_translate;
     b.palette = palette;
     b.palette_translate = palette_translate;
+    b.record = record;
 
     Ok(failed)
 }
@@ -122,6 +129,7 @@ pub fn shortcut_status(
         ("screenshot_translate", b.screenshot_translate),
         ("palette", b.palette),
         ("palette_translate", b.palette_translate),
+        ("record", b.record),
     ]
     .into_iter()
     .map(|(key, sc)| ShortcutStatus {

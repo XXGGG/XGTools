@@ -66,7 +66,7 @@ lnk = "0.5"
 window-vibrancy = "0.5"
 # Win32_System_Com / _Variant / _Ole:查 Windows 索引要走 ADO 的晚绑定调用
 # (Search.CollatorDSO 这个 OLE DB 提供程序),见 file_search_commands.rs
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Ole"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Ole", "Win32_System_SystemInformation"] }
 uiautomation = "0.24"
 clipboard-win = "5"
 
