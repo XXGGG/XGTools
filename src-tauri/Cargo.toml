@@ -1,6 +1,6 @@
 [package]
 name = "xgtools"
-version = "0.6.0"
+version = "0.7.0"
 description = "A Tools"
 authors = ["xxg"]
 edition = "2021"
@@ -40,6 +40,10 @@ atree = "0.5.2"
 rayon = "1.10"
 thiserror = "2"
 dirs = "6"
+
+# 录屏要抓「电脑正在放的声音」。ffmpeg 在 Windows 上做不到（它只有 dshow，
+# 而 dshow 只认录音设备），只能自己走 WASAPI 的回环采集。详见 audio_loopback.rs
+wasapi = "0.24"
 paddle-ocr-rs = "0.6"
 ort = { version = "=2.0.0-rc.10", default-features = false }
 num_cpus = "1"

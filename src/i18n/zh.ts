@@ -629,6 +629,8 @@ export const zh = {
     recDirDefault: '下载 \\ Recordings（默认）',
     recDirPick: '换个文件夹',
     recDirReset: '恢复默认',
+    recAudio: '录电脑里的声音',
+    recAudioHint: '把音箱/耳机正在放的声音一起录进去（不是麦克风）。放什么声卡都行，不用装东西',
     recFps: '帧率',
     recFpsHint: '每秒多少张。30 够顺滑；调高文件更大，录游戏才需要',
   },
@@ -801,6 +803,7 @@ export const zh = {
     saving: '收尾中',
     discard: '不要这段',
     openFolder: '打开所在文件夹',
+    withAudio: '这一段带声音',
     close: '关闭',
   },
   shot: {

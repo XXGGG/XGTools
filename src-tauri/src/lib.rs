@@ -5,6 +5,7 @@ mod window_detect;
 mod translate_commands;
 mod convert_commands;
 mod record_commands;
+mod audio_loopback;
 mod window_effects;
 mod dsh_commands;
 mod dsh_bridge;
@@ -87,6 +88,34 @@ pub(crate) fn fullscreen_borderless(window: &tauri::WebviewWindow) {
 
   现在开录之前先把这个动画关掉，再等窗口真的贴到位才起 ffmpeg。
 */
+/*
+  让这个窗口「点了不抢焦点」。
+
+  录屏那条控制条踩过：它建出来时不占焦点（不能把焦点从人家正在录的
+  软件里抢走），于是变成一个非活动窗口 —— 而非活动窗口上的**第一下点击
+  只用来激活它**，里面的按钮根本没收到。现象就是「点停止没反应，得点两下」。
+
+  WS_EX_NOACTIVATE 是悬浮工具条的标准做法：窗口干脆永远不去抢激活，
+  鼠标消息照样送进来，一下就是一下。
+*/
+#[tauri::command]
+fn set_window_no_activate(window: tauri::WebviewWindow) {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+        };
+        if let Ok(h) = window.hwnd() {
+            let hwnd = HWND(h.0);
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE.0 as isize);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = window;
+}
+
 #[tauri::command]
 fn disable_window_transitions(window: tauri::WebviewWindow) {
     #[cfg(windows)]
@@ -262,6 +291,7 @@ pub fn run() {
             record_commands::recording_to_gif,
             record_commands::reveal_in_explorer,
             disable_window_transitions,
+            set_window_no_activate,
             // 动态壁纸 / 定时屏保
         ])
         .setup(|app| {

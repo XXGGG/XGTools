@@ -69,6 +69,7 @@ const recordEnabled = ref(true)
 const recordShortcut = ref('Ctrl+Alt+R')
 const recordFps = ref(30)
 const recordDir = ref('')
+const recordAudio = ref(true)
 const isRecordingRecShortcut = ref(false)
 
 /** 空 = 用默认的「桌面\Recordings」。显示成人话，别把空串直接摆出来 */
@@ -110,6 +111,7 @@ async function loadSettings() {
   recordShortcut.value = (await store.get<string>('record_shortcut')) ?? 'Ctrl+Alt+R'
   recordFps.value = (await store.get<number>('record_fps')) ?? 30
   recordDir.value = (await store.get<string>('record_dir')) ?? ''
+  recordAudio.value = (await store.get<boolean>('record_audio')) ?? true
   settingsLoaded.value = true
 }
 
@@ -127,13 +129,14 @@ async function saveSettings() {
   await store.set('record_shortcut', recordShortcut.value)
   await store.set('record_fps', recordFps.value)
   await store.set('record_dir', recordDir.value)
+  await store.set('record_audio', recordAudio.value)
   await store.save()
 }
 
 onMounted(loadSettings)
 
 watch(
-  [screenshotEnabled, screenshotTranslateEnabled, recordEnabled, recordFps, autoBgShadow, bgColor, bgPadding, shadowBlur, cornerRadius],
+  [screenshotEnabled, screenshotTranslateEnabled, recordEnabled, recordFps, recordAudio, autoBgShadow, bgColor, bgPadding, shadowBlur, cornerRadius],
   () => {
     if (settingsLoaded.value) {
       saveSettings()
@@ -501,6 +504,21 @@ const bgColorPresets = [
                 {{ t('screenshot.recDirPick') }}
               </Button>
             </div>
+          </div>
+
+
+          <!-- 录声音 -->
+          <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+            <div class="flex items-center gap-3">
+              <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+                <span class="icon-[lucide--volume-2] w-5 h-5" />
+              </div>
+              <div>
+                <h3 class="font-medium">{{ t('screenshot.recAudio') }}</h3>
+                <p class="text-xs text-muted-foreground">{{ t('screenshot.recAudioHint') }}</p>
+              </div>
+            </div>
+            <Switch :model-value="recordAudio" @update:model-value="recordAudio = $event" />
           </div>
 
           <!-- 帧率 -->

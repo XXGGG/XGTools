@@ -635,6 +635,8 @@ export const en: Messages = {
     recDirDefault: 'Downloads \\ Recordings (default)',
     recDirPick: 'Choose folder',
     recDirReset: 'Reset',
+    recAudio: 'Record system sound',
+    recAudioHint: 'Include whatever the speakers are playing (not the microphone). Works with any sound card, nothing to install',
     recFps: 'Frame rate',
     recFpsHint: 'Frames per second. 30 is smooth; higher means bigger files',
   },
@@ -807,6 +809,7 @@ export const en: Messages = {
     saving: 'Saving',
     discard: 'Discard',
     openFolder: 'Show in folder',
+    withAudio: 'This clip has sound',
     close: 'Close',
   },
   shot: {

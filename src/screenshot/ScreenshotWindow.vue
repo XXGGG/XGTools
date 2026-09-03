@@ -1018,6 +1018,7 @@ async function startRecording() {
 
   const fps = ((await settingsStore.get<number>('record_fps')) ?? 30) as number
   const dir = ((await settingsStore.get<string>('record_dir')) ?? '') as string
+  const audio = ((await settingsStore.get<boolean>('record_audio')) ?? true) as boolean
 
   cancelCapture()
   // 等一帧，让遮罩真的从屏幕上下去了再开录
@@ -1033,10 +1034,12 @@ async function startRecording() {
     动画本身没问题，只是不能让它落在录制开始之后。
   */
   await openRecorderWindows(rect)
+  // 控制条上那个喇叭图标靠这个知道该不该亮
+  await tauriEmit('rec-audio-mode', audio)
 
   try {
     await invoke<string>('start_recording', {
-      x: rect.x, y: rect.y, width: rect.w, height: rect.h, fps, dir: dir || null,
+      x: rect.x, y: rect.y, width: rect.w, height: rect.h, fps, dir: dir || null, audio,
     })
   } catch (e) {
     console.error('start_recording failed:', e)
@@ -1052,6 +1055,21 @@ async function startRecording() {
  * 窗口建出来了、永远不显示。
  */
 async function openRecorderWindows(rect: { x: number; y: number; w: number; h: number }) {
+  /*
+    先把上一轮留下的同名窗口拆掉。
+
+    录完之后那条控制条不会自己关（要留着给「打开文件夹 / 转 GIF」），于是
+    紧接着再录一段时，`new WebviewWindow('rec_bar')` 撞上已经存在的标签，
+    **建不出来而且不报错** —— 屏幕上还是上一段的结果条，新这段既没有计时也没有
+    停止按钮，只能去托盘里救。踩过一次。
+  */
+  for (const label of ['rec_frame', 'rec_bar']) {
+    const old = await WebviewWindow.getByLabel(label)
+    if (old) {
+      await old.destroy().catch(() => {})
+    }
+  }
+
   const mk = async (label: string, readyEvent: string, initEvent: string, opts: Record<string, unknown>) => {
     const un = await listen(readyEvent, async () => {
       un()

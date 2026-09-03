@@ -6460,6 +6460,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasapi"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee144c215d8d31e94c1a599fbaf540ca82a7017e4f1786816b179f334fac751d"
+dependencies = [
+ "log",
+ "num-integer",
+ "thiserror 2.0.18",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+]
+
+[[package]]
 name = "wasi"
 version = "0.9.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7566,6 +7579,7 @@ dependencies = [
  "uiautomation",
  "urlencoding",
  "uuid",
+ "wasapi",
  "winapi",
  "window-vibrancy 0.5.3",
  "windows 0.61.3",

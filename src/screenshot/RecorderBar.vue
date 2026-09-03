@@ -24,6 +24,8 @@ const errMsg = ref('')
 const gifBusy = ref(false)
 const gifDone = ref(false)
 const ready = ref(false)
+/** 这一段有没有在录声音。只是给人看的标记，真正开关在设置里 */
+const withAudio = ref(false)
 
 let timer: number | null = null
 let unlisten: (() => void)[] = []
@@ -58,6 +60,8 @@ onMounted(async () => {
   unlisten.push(
     await listen<{ x: number; y: number; w: number; h: number }>('rec-bar-init', async (e) => {
       await invoke('disable_window_transitions').catch(() => {})
+      // 不抢焦点，否则第一下点击只用来激活窗口，点停止得点两次
+      await invoke('set_window_no_activate').catch(() => {})
       await place(e.payload)
       ready.value = true
       await win.show()
@@ -65,6 +69,7 @@ onMounted(async () => {
       await tauriEmit('rec-bar-shown', {})
     }),
   )
+  unlisten.push(await listen<boolean>('rec-audio-mode', (e) => { withAudio.value = e.payload }))
   await tauriEmit('rec-bar-ready', {})
 })
 
@@ -169,6 +174,7 @@ function close() { win.destroy().catch(() => {}) }
     <template v-if="phase === 'recording' || phase === 'stopping'">
       <span class="dot" :class="{ still: phase === 'stopping' }" />
       <span class="clock">{{ clock }}</span>
+      <span v-if="withAudio" class="icon-[lucide--volume-2] ic mute-ic" :title="t('rec.withAudio')" />
       <span v-if="sizeText" class="size">{{ sizeText }}</span>
       <div class="spacer" />
       <button class="btn primary" :disabled="phase === 'stopping'" @click="stop">
@@ -236,6 +242,7 @@ body.recorder-bar-window { margin: 0; background: transparent !important; overfl
 @keyframes rec-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 .clock { font-variant-numeric: tabular-nums; font-size: 14px; letter-spacing: 0.02em; }
+.mute-ic { color: rgba(255, 255, 255, 0.55); }
 .size { color: rgba(255, 255, 255, 0.45); font-variant-numeric: tabular-nums; }
 .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
 .spacer { flex: 1 1 auto; }

@@ -42,6 +42,8 @@ struct Recording {
     started: Instant,
     /// 已经喊过停了。防止连点两次停止：第二次会等在一个已经退出的进程上
     stopping: bool,
+    /// 抓声音那条线程。没开录声音时是 None
+    audio: Option<crate::audio_loopback::Handle>,
 }
 
 #[derive(Default)]
@@ -118,6 +120,7 @@ pub async fn start_recording(
     height: u32,
     fps: u32,
     dir: Option<String>,
+    audio: Option<bool>,
 ) -> Result<String, String> {
     if state.inner.lock().unwrap().is_some() {
         return Err("已经在录了".into());
@@ -142,9 +145,24 @@ pub async fn start_recording(
     let out_str = out.to_string_lossy().to_string();
 
     let fps = fps.clamp(5, 60);
-    let args: Vec<String> = vec![
+    let with_audio = audio.unwrap_or(false);
+
+    /*
+        声音走**命名管道**，不走 stdin。
+
+        stdin 已经被「停止」占了 —— 停止是往它写一个 q 让 ffmpeg 自己收尾。
+        两样东西挤一根管子没法收场，所以另开一条 `\\.\pipe\...`：
+        Windows 上 ffmpeg 可以像读文件一样读命名管道。
+    */
+    let pipe_name = if with_audio {
+        Some(format!(r"\\.\pipe\xgtools_rec_{}", std::process::id()))
+    } else {
+        None
+    };
+
+    let mut args: Vec<String> = vec![
         "-hide_banner".into(),
-        "-loglevel".into(), "error".into(),
+        "-loglevel".into(), "warning".into(),
         "-f".into(), "gdigrab".into(),
         "-framerate".into(), fps.to_string(),
         "-offset_x".into(), x.to_string(),
@@ -152,15 +170,53 @@ pub async fn start_recording(
         "-video_size".into(), format!("{w}x{h}"),
         "-draw_mouse".into(), "1".into(),
         "-i".into(), "desktop".into(),
+    ];
+    if let Some(pipe) = &pipe_name {
+        args.extend([
+            "-f".into(), "f32le".into(),
+            "-ar".into(), crate::audio_loopback::SAMPLE_RATE.to_string(),
+            "-ac".into(), crate::audio_loopback::CHANNELS.to_string(),
+            "-i".into(), pipe.clone(),
+        ]);
+    }
+    args.extend([
         "-c:v".into(), "libx264".into(),
         "-preset".into(), "veryfast".into(),
         "-crf".into(), "23".into(),
         "-pix_fmt".into(), "yuv420p".into(),
+    ]);
+    if with_audio {
+        args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "160k".into()]);
+    }
+    args.extend([
         // 索引写在文件开头,拖进度条不用先读到尾
         "-movflags".into(), "+faststart".into(),
         "-y".into(),
         out_str.clone(),
-    ];
+    ]);
+
+    /*
+        管道要在 ffmpeg 起来**之前**建好。
+
+        命名管道的规矩是先有服务端在听，客户端才连得上；反过来的话
+        ffmpeg 打开那个路径直接报「找不到」，整条录制当场失败。
+    */
+    let audio = match &pipe_name {
+        None => None,
+        Some(pipe) => match spawn_audio_pipe(pipe) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                // 声音抓不起来不该连累画面：去掉声音那几个参数，照录不误
+                eprintln!("[record] 声音没接上，这段只有画面: {e}");
+                None
+            }
+        },
+    };
+    let args = if pipe_name.is_some() && audio.is_none() {
+        strip_audio_args(args)
+    } else {
+        args
+    };
 
     let mut cmd = tokio::process::Command::new(&ff);
     cmd.args(&args)
@@ -171,13 +227,33 @@ pub async fn start_recording(
     #[cfg(windows)]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-    let child = cmd.spawn().map_err(|e| format!("起 ffmpeg 失败: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| format!("起 ffmpeg 失败: {e}"))?;
+
+    /*
+        **stderr 必须有人读。**
+
+        接了管道却不读，管道缓冲区（几 KB）一满 ffmpeg 就卡在写日志上，
+        画面和声音一起停，而外面看着像是「录了但没东西」。
+        顺手把日志留下来 —— 出了问题能知道 ffmpeg 自己怎么说。
+    */
+    if let Some(err) = child.stderr.take() {
+        tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut lines = BufReader::new(err).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if !line.trim().is_empty() {
+                    eprintln!("[ffmpeg] {line}");
+                }
+            }
+        });
+    }
 
     *state.inner.lock().unwrap() = Some(Recording {
         child,
         output: out.clone(),
         started: Instant::now(),
         stopping: false,
+        audio,
     });
 
     let _ = app.emit("record-started", &out_str);
@@ -211,6 +287,15 @@ pub async fn stop_recording(
     drop(rec.child.stdin.take()); // 关掉管道，ffmpeg 那边 read 才会返回
 
     /*
+        声音放在 q 之后才收。
+
+        反过来的话，ffmpeg 还在收尾而音轨已经断了，最后小半秒就成了哑片。
+    */
+    if let Some(a) = &rec.audio {
+        a.stop();
+    }
+
+    /*
         给它 5 秒收尾。超时就硬杀 —— 文件多半废了，但总比界面一直卡着强。
         正常情况下几十毫秒就退了。
     */
@@ -240,6 +325,9 @@ pub async fn cancel_recording(
         Some(r) => r,
         None => return Ok(()),
     };
+    if let Some(a) = &rec.audio {
+        a.stop();
+    }
     let _ = rec.child.kill().await;
     let _ = rec.child.wait().await;
     let _ = std::fs::remove_file(&rec.output);
@@ -316,6 +404,58 @@ pub async fn recording_to_gif(
     Ok(out_str)
 }
 
+/// 把声音那几个参数拆掉（抓不到声音时的退路）
+fn strip_audio_args(args: Vec<String>) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        let drop_pair = a == "-ar"
+            || a == "-ac"
+            || a == "-c:a"
+            || a == "-b:a"
+            || (a == "-f" && args.get(i + 1).map(|s| s == "f32le").unwrap_or(false))
+            || (a == "-i" && args.get(i + 1).map(|s| s.starts_with(r"\\.\pipe\")).unwrap_or(false));
+        if drop_pair {
+            i += 2;
+            continue;
+        }
+        out.push(a.clone());
+        i += 1;
+    }
+    out
+}
+
+/// 建命名管道、起抓声音的线程，再开一个任务把 PCM 往管道里写
+fn spawn_audio_pipe(pipe: &str) -> Result<crate::audio_loopback::Handle, String> {
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::windows::named_pipe::ServerOptions;
+
+    let server = ServerOptions::new()
+        .first_pipe_instance(true)
+        .create(pipe)
+        .map_err(|e| format!("建管道失败: {e}"))?;
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+    let handle = crate::audio_loopback::start(tx);
+
+    tokio::spawn(async move {
+        let mut server = server;
+        // 等 ffmpeg 接上来
+        if server.connect().await.is_err() {
+            return;
+        }
+        while let Some(chunk) = rx.recv().await {
+            if server.write_all(&chunk).await.is_err() {
+                break; // ffmpeg 退了
+            }
+        }
+        let _ = server.shutdown().await;
+    });
+
+    Ok(handle)
+}
+
 /// 在文件管理器里选中这个文件
 #[tauri::command]
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
@@ -334,6 +474,9 @@ pub fn shutdown(app: &AppHandle) {
     let state = app.state::<RecordState>();
     let mut g = state.inner.lock().unwrap();
     if let Some(mut rec) = g.take() {
+        if let Some(a) = &rec.audio {
+            a.stop();
+        }
         let _ = rec.child.start_kill();
     }
 }
