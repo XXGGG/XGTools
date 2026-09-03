@@ -1,0 +1,85 @@
+/**
+ * 「阅读模式」：光标点上去也不把记号露出来。
+ *
+ * # 为什么不能只靠 CSS
+ *
+ * 第一版是拿 CSS 把 `cm-atomic-*-mark` 藏掉的，结果加粗、高亮、`#` 照样露 ——
+ * 因为那几个类名**只用在库里一条很窄的路上**（你正在一对 `**` 中间打字、
+ * lezer 还没认出这是强调时的临时补偿）。真正常见的那条路走的是 lezer 的
+ * `EmphasisMark` 之类的记号节点，样式来自 CodeMirror 生成的高亮类名
+ * （`ͼ1a` 这种），**名字是随机的，选择器根本写不出来**。
+ *
+ * 所以改成从语法树下手：认出记号节点，直接用 `Decoration.replace` 把它抹掉。
+ * 库那边「光标在这儿所以我不藏」的决定不受影响 —— 它不藏，我们藏，叠加即可。
+ *
+ * # 代码块里的记号不会被误伤
+ *
+ * 靠的是解析器，不是正则：围栏代码块里那一整段在语法树里是 `CodeText`，
+ * 里面的 `**` 和 `<span>` 压根不会产生记号节点，也就轮不到这里来。
+ * 正文里孤零零一个 `==` 同理 —— 它没被解析成高亮，就没有 `HighlightMark`。
+ */
+import { Decoration, EditorView, ViewPlugin } from '@codemirror/view'
+import type { DecorationSet, ViewUpdate } from '@codemirror/view'
+import { RangeSetBuilder } from '@codemirror/state'
+import { syntaxTree } from '@codemirror/language'
+
+/**
+ * 要抹掉的记号节点。
+ *
+ * `ListMark`（`-` `1.`）**不在里面** —— 列表的圆点和序号是靠它画出来的，
+ * 抹了整份列表就没有标记了。`LinkMark` 也不在：链接是整段换成一个部件，
+ * 它自己管着显示。
+ */
+const MARKS = new Set([
+  'EmphasisMark',      // * ** _ __
+  'StrikethroughMark', // ~~
+  'HighlightMark',     // ==  (来自 atomic-editor 的 highlightMarkdown)
+  'HeaderMark',        // # ## ###
+  'QuoteMark',         // >
+  'CodeMark',          // ` 和 ```
+  'CommentBlock',      // <!-- -->
+])
+
+const hide = Decoration.replace({})
+
+export const hideMarks = ViewPlugin.fromClass(class {
+  decorations: DecorationSet
+  constructor(view: EditorView) { this.decorations = build(view) }
+  update(u: ViewUpdate) {
+    if (u.docChanged || u.viewportChanged || u.selectionSet) this.decorations = build(u.view)
+  }
+}, { decorations: (v) => v.decorations })
+
+function build(view: EditorView): DecorationSet {
+  const b = new RangeSetBuilder<Decoration>()
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from,
+      to,
+      enter: (node) => {
+        if (!MARKS.has(node.name) || node.to <= node.from) return
+        /*
+          围栏代码块那三个反引号要留着 —— 它带着语言名（```vue），
+          而且代码块本来就是「原样展示」的东西，把围栏抹掉反而看不出边界。
+          行内的单反引号才藏。
+        */
+        if (node.name === 'CodeMark' && node.to - node.from >= 3) return
+        b.add(node.from, node.to, hide)
+      },
+    })
+  }
+  return b.finish()
+}
+
+/**
+ * 库在「你正在一对 `**` 中间打字」时会临时补一组样式类，那条路不走语法树，
+ * 上面抹不到。它只是给字符上色不是替换，所以这里把字缩成看不见。
+ *
+ * 用 `font-size: 0` 而不是 `display: none`：记号在文档里仍然占着字符位置，
+ * 盒子整个没了会让光标落点算错。
+ */
+export const hideMarksTheme = EditorView.theme({
+  '.cm-atomic-strong-mark, .cm-atomic-em-mark, .cm-atomic-strike-mark, .cm-atomic-highlight-mark': {
+    fontSize: '0 !important',
+  },
+})

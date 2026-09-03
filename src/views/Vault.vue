@@ -85,6 +85,8 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { open as openExternal } from '@tauri-apps/plugin-shell'
 import { chat, chatReady, sendPrompt } from '@/composables/useDshChat'
 import PendingCard from '@/components/agent/PendingCard.vue'
+import ShortcutsDialog from '@/components/vault/ShortcutsDialog.vue'
+import { INK_COLORS, type InkColor } from '@/components/editor/markdownShortcuts'
 
 const { t } = useI18n()
 
@@ -377,6 +379,11 @@ const toggleAll = () => (anyExpanded.value ? collapseAll() : expandAll())
  * 文件树或标签条上时也该管用。
  */
 function onGlobalKey(e: KeyboardEvent) {
+  if (e.key === 'F1') {
+    e.preventDefault()
+    shortcutsOpen.value = !shortcutsOpen.value
+    return
+  }
   if (!(e.ctrlKey || e.metaKey)) return
   const k = e.key.toLowerCase()
   if (k === 'w' && vault.activeTab) {
@@ -461,6 +468,15 @@ const outline = computed<Heading[]>(() => {
   用户某次调完格式关掉应用,下次打开发现笔记全是灰的,得先想半天这是怎么了。
 */
 const sourceMode = ref(false)
+
+/**
+ * 编辑器最后拿到的那一档。
+ *
+ * 「源码模式」是临时的（上面那段），「露不露记号」是长期口味（存在设置里），
+ * 两者合成一个值交给编辑器 —— 开着源码模式时它最大，盖过另一个。
+ */
+const markMode = computed<'source' | 'reveal' | 'clean'>(() =>
+  sourceMode.value ? 'source' : settings.vaultMarkMode)
 
 /*
   禅模式 = 只剩「一篇笔记」。
@@ -1299,6 +1315,52 @@ const crumbs = computed(() => {
 
 const moreOpen = ref(false)
 
+/*
+  右键菜单的开关。
+
+  颜色那一排是**普通按钮**,不是 ContextMenuItem —— 七颗要摆成一行,
+  而 ContextMenuItem 一颗占一行。代价是它们不会像菜单项那样点完自动收起,
+  所以这里自己把菜单关掉:选完颜色人是要看效果的,菜单杵在那儿正好挡着。
+*/
+const ctxOpen = ref(false)
+function pickColor(c: InkColor | null) {
+  ed.value?.color(c)
+  ctxOpen.value = false
+}
+
+/*
+  文本格式那八颗。
+
+  写成一张表而不是八段一样的模板 —— 它们只差「图标、名字、干什么」三样,
+  排成表之后加一件、换个顺序都是改一行数据。
+  `clear` 单独一类:它不是包一对标记,是把标记全剥掉。
+*/
+const FORMAT_BTNS = [
+  { key: 'fmtBold', icon: 'icon-[lucide--bold]', mark: '**' },
+  { key: 'fmtItalic', icon: 'icon-[lucide--italic]', mark: '*' },
+  { key: 'fmtStrike', icon: 'icon-[lucide--strikethrough]', mark: '~~' },
+  { key: 'fmtHighlight', icon: 'icon-[lucide--highlighter]', mark: '==' },
+  { key: 'fmtCode', icon: 'icon-[lucide--code]', mark: '`' },
+  { key: 'fmtMath', icon: 'icon-[lucide--sigma]', mark: '$' },
+  { key: 'fmtComment', icon: 'icon-[lucide--message-square-off]', mark: '%%' },
+  { key: 'fmtClear', icon: 'icon-[lucide--eraser]', mark: null },
+] as const
+
+/** 和颜色那排一样:点完把菜单收起来,好让人看见效果 */
+function runFormat(f: (typeof FORMAT_BTNS)[number]) {
+  if (f.mark) ed.value?.wrap(f.mark)
+  else ed.value?.clearFormat()
+  ctxOpen.value = false
+}
+
+/**
+ * 快捷键一览。
+ *
+ * F1 是这台机器上唯一还空着、又人人都会去按的键 —— Ctrl+/ 已经被
+ * CodeMirror 的「注释」占了，Ctrl+? 在中文键盘上要按三个键。
+ */
+const shortcutsOpen = ref(false)
+
 /** 当前标签对应的树条目形状 —— 重命名和删除那两个函数吃的是 Entry */
 const tabEntry = computed(() => {
   const t = activeTab.value
@@ -1856,10 +1918,37 @@ async function sendFromVault() {
                 </button>
 
                 <div class="h-px bg-border my-1 mx-1" />
-                <button class="menu-row" @click="sourceMode = !sourceMode">
-                  <span class="icon-[lucide--check] w-4 h-4" :class="sourceMode ? '' : 'opacity-0'" />
-                  {{ t('vault.sourceMode') }}
+                <button class="menu-row" @click="menu(() => (shortcutsOpen = true))">
+                  <span class="icon-[lucide--keyboard] w-4 h-4" />
+                  <span class="flex-1 text-left">{{ t('vault.shortcuts') }}</span>
+                  <kbd class="text-[10.5px] text-muted-foreground">F1</kbd>
                 </button>
+
+                <!--
+                  记号（`**`、`==`、`<span style="color:red">` 这些）露不露，三选一。
+
+                  做成三个并排的单选而不是「源码模式」一个开关：
+                  「点上才露」和「点上也不露」是两种读写姿势，不是同一件事的开和关。
+                  「源码模式」只管当次会话，另外两个是长期口味（存设置）——
+                  所以点前者不动设置，点后两个会顺手把源码模式关掉。
+                -->
+                <div class="h-px bg-border my-1 mx-1" />
+                <p class="px-2 py-1 text-[11px] text-muted-foreground">{{ t('vault.markMode') }}</p>
+                <button class="menu-row" :title="t('vault.markRevealTip')"
+                  @click="sourceMode = false; settings.vaultMarkMode = 'reveal'">
+                  <span class="icon-[lucide--check] w-4 h-4" :class="markMode === 'reveal' ? '' : 'opacity-0'" />
+                  <span class="flex-1 text-left">{{ t('vault.markReveal') }}</span>
+                </button>
+                <button class="menu-row" :title="t('vault.markCleanTip')"
+                  @click="sourceMode = false; settings.vaultMarkMode = 'clean'">
+                  <span class="icon-[lucide--check] w-4 h-4" :class="markMode === 'clean' ? '' : 'opacity-0'" />
+                  <span class="flex-1 text-left">{{ t('vault.markClean') }}</span>
+                </button>
+                <button class="menu-row" :title="t('vault.sourceModeTip')" @click="sourceMode = true">
+                  <span class="icon-[lucide--check] w-4 h-4" :class="markMode === 'source' ? '' : 'opacity-0'" />
+                  <span class="flex-1 text-left">{{ t('vault.sourceMode') }}</span>
+                </button>
+                <div class="h-px bg-border my-1 mx-1" />
                 <button class="menu-row" @click="settings.vaultStatusBar = !settings.vaultStatusBar">
                   <span class="icon-[lucide--check] w-4 h-4"
                     :class="settings.vaultStatusBar ? '' : 'opacity-0'" />
@@ -1981,7 +2070,8 @@ async function sendFromVault() {
           Ctrl+S 挂在外层 —— CodeMirror 的按键事件会冒泡上来。
         -->
         <!-- 字体、字号、行宽都由编辑器内部的 CSS 变量驱动,这里只负责把值传进去 -->
-        <ContextMenu v-else-if="activeTab.kind === 'markdown'" @update:open="onCtxOpen">
+        <ContextMenu v-else-if="activeTab.kind === 'markdown'" v-model:open="ctxOpen"
+          @update:open="onCtxOpen">
           <ContextMenuTrigger as-child>
             <div @keydown="onEditorKey" class="flex-1 min-h-0 overflow-hidden">
               <MarkdownEditor ref="editor" v-model="activeTab.content"
@@ -1992,63 +2082,61 @@ async function sendFromVault() {
                 :font="settings.vaultFont" :font-size="settings.vaultFontSize"
                 :full-width="effectiveFullWidth"
                 :color-headings="settings.vaultColorHeadings"
-                :source-mode="sourceMode" :typewriter="zenMode"
+                :mark-mode="markMode" :typewriter="zenMode"
                 :status-bar="settings.vaultStatusBar"
                 :on-open-link="(u: string) => { void openExternal(u) }"
                 :wiki-suggest="wikiSuggest" :on-open-wiki="openWiki" />
             </div>
           </ContextMenuTrigger>
 
+          <!--
+            菜单的排法。
+
+            **最上面两格是四列两行的图标格子,不是一条条的菜单项。**
+            上色和加粗这类事是「点一下就走」的高频操作,一条条排下去要滑很远;
+            铺成格子之后八个入口在一块巴掌大的地方,眼睛一扫就到。
+            名字挂在 title 上,鼠标停一下才出来 —— 图标本身认得出来,
+            平时不需要那行字占地方。
+
+            往下只保留「段落」「插入」两个二级菜单,以及一个「更多」把链接、
+            剪切复制粘贴那些收起来。**整张菜单固定四行**,不会因为功能变多就越长越离谱。
+          -->
           <ContextMenuContent class="w-auto min-w-52 whitespace-nowrap">
-            <ContextMenuItem @select="ed?.wrap('[[', ']]')">
-              <span class="icon-[lucide--link] w-4 h-4 mr-2" />{{ t('vault.ctxWikiLink') }}
-            </ContextMenuItem>
-            <ContextMenuItem @select="ed?.wrap('[', '](https://)')">
-              <span class="icon-[lucide--external-link] w-4 h-4 mr-2" />{{ t('vault.ctxExtLink') }}
-            </ContextMenuItem>
-            <!-- 有选中文字才给「查找」—— 没选中的话这条没有宾语 -->
-            <ContextMenuItem v-if="selText" @select="searchSelection">
-              <span class="icon-[lucide--search] w-4 h-4 mr-2" />
-              {{ t('vault.ctxFind', { q: selText.length > 12 ? selText.slice(0, 12) + '…' : selText }) }}
-            </ContextMenuItem>
+            <!--
+              颜色。第一颗是「默认颜色」= 把颜色去掉,所以它长得就是正文的颜色。
+              摆在第一位是因为「改回去」和「改成红色」是同一类动作,
+              不该让它跑到七颗后面去。
+
+              只写颜色名不写十六进制:颜色名会被换成 `--xg-ink-*`,亮暗各一套。
+              「能给几种」= 我们定义了几个 ink 变量。
+            -->
+            <div class="grid grid-cols-4 gap-1.5 px-2 py-2">
+              <button type="button" :title="t('vault.fmtColorDefault')" @click="pickColor(null)"
+                class="h-6 flex items-center justify-center rounded-md transition-colors hover:bg-muted">
+                <span class="w-[18px] h-[18px] rounded-full border border-border/70"
+                  :style="{ background: 'var(--foreground)' }" />
+              </button>
+              <button v-for="c in INK_COLORS" :key="c" type="button"
+                :title="t('vault.ink_' + c)" @click="pickColor(c)"
+                class="h-6 flex items-center justify-center rounded-md transition-colors hover:bg-muted">
+                <span class="w-[18px] h-[18px] rounded-full border border-border/70"
+                  :style="{ background: `var(--xg-ink-${c})` }" />
+              </button>
+            </div>
 
             <ContextMenuSeparator />
 
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                <span class="icon-[lucide--type] w-4 h-4 mr-2" />{{ t('vault.ctxFormat') }}
-              </ContextMenuSubTrigger>
-              <ContextMenuPortal>
-                <ContextMenuSubContent class="w-auto min-w-36 whitespace-nowrap">
-                  <ContextMenuItem @select="ed?.wrap('**')">
-                    <span class="icon-[lucide--bold] w-4 h-4 mr-2" />{{ t('vault.fmtBold') }}
-                  </ContextMenuItem>
-                  <ContextMenuItem @select="ed?.wrap('*')">
-                    <span class="icon-[lucide--italic] w-4 h-4 mr-2" />{{ t('vault.fmtItalic') }}
-                  </ContextMenuItem>
-                  <ContextMenuItem @select="ed?.wrap('~~')">
-                    <span class="icon-[lucide--strikethrough] w-4 h-4 mr-2" />{{ t('vault.fmtStrike') }}
-                  </ContextMenuItem>
-                  <ContextMenuItem @select="ed?.wrap('==')">
-                    <span class="icon-[lucide--highlighter] w-4 h-4 mr-2" />{{ t('vault.fmtHighlight') }}
-                  </ContextMenuItem>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem @select="ed?.wrap('`')">
-                    <span class="icon-[lucide--code] w-4 h-4 mr-2" />{{ t('vault.fmtCode') }}
-                  </ContextMenuItem>
-                  <ContextMenuItem @select="ed?.wrap('$')">
-                    <span class="icon-[lucide--sigma] w-4 h-4 mr-2" />{{ t('vault.fmtMath') }}
-                  </ContextMenuItem>
-                  <ContextMenuItem @select="ed?.wrap('%%')">
-                    <span class="icon-[lucide--message-square-off] w-4 h-4 mr-2" />{{ t('vault.fmtComment') }}
-                  </ContextMenuItem>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem @select="ed?.clearFormat()">
-                    <span class="icon-[lucide--eraser] w-4 h-4 mr-2" />{{ t('vault.fmtClear') }}
-                  </ContextMenuItem>
-                </ContextMenuSubContent>
-              </ContextMenuPortal>
-            </ContextMenuSub>
+            <!-- 文本格式:七件 + 一颗橡皮,同样四列两行 -->
+            <div class="grid grid-cols-4 gap-1.5 px-2 py-2">
+              <button v-for="f in FORMAT_BTNS" :key="f.key" type="button"
+                :title="t('vault.' + f.key)" @click="runFormat(f)"
+                class="h-7 flex items-center justify-center rounded-md text-muted-foreground
+                       transition-colors hover:bg-muted hover:text-foreground">
+                <span :class="f.icon" class="w-4 h-4" />
+              </button>
+            </div>
+
+            <ContextMenuSeparator />
 
             <ContextMenuSub>
               <ContextMenuSubTrigger>
@@ -2107,23 +2195,49 @@ async function sendFromVault() {
               </ContextMenuPortal>
             </ContextMenuSub>
 
-            <ContextMenuSeparator />
+            <!--
+              链接、查找、剪切复制粘贴全收进这一层。
 
-            <ContextMenuItem @select="ed?.clip(true)">
-              <span class="icon-[lucide--scissors] w-4 h-4 mr-2" />{{ t('vault.ctxCut') }}
-            </ContextMenuItem>
-            <ContextMenuItem @select="ed?.clip()">
-              <span class="icon-[lucide--copy] w-4 h-4 mr-2" />{{ t('vault.ctxCopy') }}
-            </ContextMenuItem>
-            <ContextMenuItem @select="ed?.paste()">
-              <span class="icon-[lucide--clipboard] w-4 h-4 mr-2" />{{ t('vault.ctxPaste') }}
-            </ContextMenuItem>
-            <ContextMenuItem @select="ed?.paste(true)">
-              <span class="icon-[lucide--clipboard-type] w-4 h-4 mr-2" />{{ t('vault.ctxPastePlain') }}
-            </ContextMenuItem>
-            <ContextMenuItem @select="ed?.selectAll()">
-              <span class="icon-[lucide--text-select] w-4 h-4 mr-2" />{{ t('vault.ctxSelectAll') }}
-            </ContextMenuItem>
+              它们不是「常用」而是「偶尔要」—— 剪切复制粘贴人人都有键盘上那三个键,
+              新增链接一天用不了几次。摆在外面的话这张菜单会长出一屏,
+              而上面那两格格子才是你右键的真正理由。
+            -->
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <span class="icon-[lucide--ellipsis] w-4 h-4 mr-2" />{{ t('vault.ctxMore') }}
+              </ContextMenuSubTrigger>
+              <ContextMenuPortal>
+                <ContextMenuSubContent class="w-auto min-w-40 whitespace-nowrap">
+                  <ContextMenuItem @select="ed?.wrap('[[', ']]')">
+                    <span class="icon-[lucide--link] w-4 h-4 mr-2" />{{ t('vault.ctxWikiLink') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.wrap('[', '](https://)')">
+                    <span class="icon-[lucide--external-link] w-4 h-4 mr-2" />{{ t('vault.ctxExtLink') }}
+                  </ContextMenuItem>
+                  <!-- 有选中文字才给「查找」—— 没选中的话这条没有宾语 -->
+                  <ContextMenuItem v-if="selText" @select="searchSelection">
+                    <span class="icon-[lucide--search] w-4 h-4 mr-2" />
+                    {{ t('vault.ctxFind', { q: selText.length > 12 ? selText.slice(0, 12) + '…' : selText }) }}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem @select="ed?.clip(true)">
+                    <span class="icon-[lucide--scissors] w-4 h-4 mr-2" />{{ t('vault.ctxCut') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.clip()">
+                    <span class="icon-[lucide--copy] w-4 h-4 mr-2" />{{ t('vault.ctxCopy') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.paste()">
+                    <span class="icon-[lucide--clipboard] w-4 h-4 mr-2" />{{ t('vault.ctxPaste') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.paste(true)">
+                    <span class="icon-[lucide--clipboard-type] w-4 h-4 mr-2" />{{ t('vault.ctxPastePlain') }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="ed?.selectAll()">
+                    <span class="icon-[lucide--text-select] w-4 h-4 mr-2" />{{ t('vault.ctxSelectAll') }}
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuPortal>
+            </ContextMenuSub>
           </ContextMenuContent>
         </ContextMenu>
 
@@ -2673,6 +2787,8 @@ async function sendFromVault() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    <ShortcutsDialog v-model:open="shortcutsOpen" />
   </div>
 </template>
 

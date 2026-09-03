@@ -327,6 +327,7 @@ button:not(:disabled),
   --xg-ink-green: #15803d;
   --xg-ink-cyan: #0e7490;
   --xg-ink-blue: #1d4ed8;
+  --xg-ink-indigo: #4338ca;
   --xg-ink-purple: #7c3aed;
   --xg-ink-pink: #db2777;
   --xg-ink-brown: #92400e;
@@ -340,6 +341,7 @@ button:not(:disabled),
   --xg-ink-green: #56d364;
   --xg-ink-cyan: #56d4dd;
   --xg-ink-blue: #79b8ff;
+  --xg-ink-indigo: #a5b4fc;
   --xg-ink-purple: #d2a8ff;
   --xg-ink-pink: #ff9bce;
   --xg-ink-brown: #d3a06a;

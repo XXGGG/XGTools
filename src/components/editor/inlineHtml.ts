@@ -44,6 +44,7 @@ const INK: Record<string, string> = {
   red: 'red', orange: 'orange', yellow: 'yellow', gold: 'yellow',
   green: 'green', lime: 'green', teal: 'cyan', cyan: 'cyan', aqua: 'cyan',
   blue: 'blue', navy: 'blue', royalblue: 'blue', dodgerblue: 'blue',
+  indigo: 'indigo', slateblue: 'indigo',
   purple: 'purple', violet: 'purple', magenta: 'pink', pink: 'pink',
   brown: 'brown', gray: 'gray', grey: 'gray',
 }
@@ -96,7 +97,14 @@ function touched(view: EditorView, from: number, to: number): boolean {
   return view.state.selection.ranges.some((r) => r.from <= to && r.to >= from)
 }
 
-export const inlineHtmlStyles = ViewPlugin.fromClass(
+/**
+ * `clean = true` 时**点上去也不露标签**（笔记设置里的「只看效果」那一档）。
+ *
+ * 只影响我们自己认出来的行内 HTML —— 代码块里的 `<span style="color:red">`
+ * 天生不受影响：那段在语法树里是 `CodeText`，压根不会走到这里来。
+ * 「别把代码块里的也藏了」这个陷阱是靠解析器躲开的，不是靠正则去猜。
+ */
+export const inlineHtmlStyles = (clean = false) => ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
 
@@ -141,7 +149,7 @@ export const inlineHtmlStyles = ViewPlugin.fromClass(
                   })
                 }
                 // 一对标签都不在光标底下时,把尖括号收起来,只留效果
-                if (!touched(view, open.tagFrom, node.to)) {
+                if (clean || !touched(view, open.tagFrom, node.to)) {
                   marks.push({ from: open.tagFrom, to: open.tagTo, deco: Decoration.replace({}) })
                   marks.push({ from: node.from, to: node.to, deco: Decoration.replace({}) })
                 }
@@ -168,3 +176,24 @@ export const inlineHtmlStyles = ViewPlugin.fromClass(
   },
   { decorations: (v) => v.decorations },
 )
+
+/**
+ * 让颜色**穿透到里面那一层**。
+ *
+ * # 这一条不加会怎样
+ *
+ * `<span style="color:red">241241</span>` 写在**列表项**里一点颜色都没有，
+ * 同一句话写在段落里就是红的。查出来的差别是：列表项里那段正文，
+ * 语法高亮又在我们的颜色 span **里面**套了一层 `<span class="ͼ13">`，
+ * 而那个类自己带 color —— **子元素的颜色永远赢过祖先的**，
+ * 这跟选择器强不强、加不加 `!important` 都没关系（`!important` 只在同一个元素上比）。
+ *
+ * 所以只能反过来：谁身上带着行内的 color，就让它里面的 span 一律继承。
+ *
+ * 探针量到的两份 DOM（留个证据，免得以后又猜）：
+ *   列表：`<span style="color:…"><span class="ͼ13">241241</span></span>`
+ *   段落：`<span style="color:…">34567</span>`
+ */
+export const inlineHtmlTheme = EditorView.theme({
+  '.cm-line [style*="color"] span': { color: 'inherit !important' },
+})

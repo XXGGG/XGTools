@@ -52,8 +52,11 @@ import { isDarkNow, settings, VAULT_FONT_STACK, type VaultFont } from '@/composa
 import { mathAndDiagrams, resetMermaidTheme } from './editor/mathBlocks'
 import { tableAffordances } from './editor/tableTools'
 import { listIndent, listBackspace, taskSpace } from './editor/listTools'
+import { markdownShortcuts, applyColor, type InkColor } from './editor/markdownShortcuts'
+import { markdownComments, markdownCommentsTheme } from './editor/comments'
+import { hideMarks, hideMarksTheme } from './editor/hideMarks'
 import { codeAffordances, codeAffordanceTheme } from './editor/codeAffordances'
-import { inlineHtmlStyles } from './editor/inlineHtml'
+import { inlineHtmlStyles, inlineHtmlTheme } from './editor/inlineHtml'
 import { scrollMemory, foldMemory } from './editor/viewMemory'
 import { htmlPasteToMarkdown } from './editor/htmlPaste'
 import { caretAfterInsert } from './editor/caretAfterInsert'
@@ -82,8 +85,14 @@ const props = withDefaults(defineProps<{
   fullWidth?: boolean
   /** 标题和引用要不要上色。关掉就全是正文色,只靠字号粗细分层 */
   colorHeadings?: boolean
-  /** 源码模式:关掉所有实时渲染装饰,看纯 Markdown 原文 */
-  sourceMode?: boolean
+  /**
+   * 记号什么时候露出来。
+   *
+   * · `source` —— 关掉所有实时渲染装饰,看纯 Markdown 原文(和 VSCode 一样)
+   * · `reveal` —— 平时收起来,光标点到那一段才露出原文给你改
+   * · `clean`  —— 点上也不露,只看效果
+   */
+  markMode?: 'source' | 'reveal' | 'clean'
   /** 打字机滚动:光标行始终保持在视口中间。禅模式下打开 */
   typewriter?: boolean
   /** 底部有没有浮着状态栏。有的话正文要多留一截,不然最后一行被压住 */
@@ -108,7 +117,12 @@ const props = withDefaults(defineProps<{
    */
   onPasteImage?: (file: File) => Promise<string>
 }>(), { readOnly: false, accent: '#8b6cef', font: 'default', fontSize: 16, fullWidth: false,
-   colorHeadings: true, sourceMode: false, typewriter: false, statusBar: false })
+   colorHeadings: true, markMode: 'reveal', typewriter: false, statusBar: false })
+
+/** 这一档要不要「点上也不露」。三处装饰都问它 */
+const cleanMarks = () => props.markMode === 'clean'
+/** 装饰整批:源码模式给一套只上色不渲染的,其余两档给完整的实时渲染 */
+const modeExtensions = () => (props.markMode === 'source' ? sourceMarks : decorations(cleanMarks()))
 
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
@@ -522,7 +536,14 @@ const sourceMarks = ViewPlugin.fromClass(class {
   }
 }, { decorations: (v) => v.decorations })
 
-function decorations() {
+/**
+ * 实时渲染那一整套装饰。
+ *
+ * `clean` = 「点上也不露记号」那一档。它只传给**我们自己写的**那两个插件
+ * （行内 HTML、`%%注释%%`）—— 库自带的 inlinePreview 没有这个开关，
+ * 那几种记号（`**` `==` `~~`）走 CSS 把露出来的那截藏掉，见样式里的 `.is-clean`。
+ */
+function decorations(clean = false) {
   const openLink = (url: string) => props.onOpenLink?.(url)
   return [
     atomicMarkdownSyntax,
@@ -541,7 +562,16 @@ function decorations() {
     codeAffordances({ copy: t('vault.codeCopy'), copied: t('vault.codeCopied') }),
     codeAffordanceTheme,
     // 行内 HTML:<span style="color:blue"> 这类真的按样式画出来
-    inlineHtmlStyles,
+    inlineHtmlStyles(clean),
+    inlineHtmlTheme,
+    // `%%注释%%` 压暗 + 收起标记(右键菜单里那一项塞的就是这个,不认它等于那一项白给)
+    markdownComments(clean),
+    /*
+      阅读模式:`**` `==` `#` 这些记号点上去也不露。
+      **必须排在 inlinePreview 之后** —— 我们抹的正是它「因为光标在这儿」
+      而特意留出来的那几个字符。
+    */
+    ...(clean ? [hideMarks, hideMarksTheme] : []),
     // 输入法打出来的字,光标要落在它后面(空列表项里打全角标点会跑到前面)
     caretAfterInsert,
     wikiLinks({
@@ -665,6 +695,14 @@ function extensions() {
         atomic-editor 的 wiki 链接和表格各自挂了 highest / high 的退格。)
       */
       { key: 'Backspace', run: listBackspace },
+      /*
+        格式快捷键排在 defaultKeymap 前面。
+
+        重叠的其实只有一个:macOS 的 defaultKeymap 里 Ctrl-b 是「光标左移一格」
+        (那套 emacs 键位),而我们要拿它当加粗。排在前面就够了 ——
+        不需要 Prec.high,上面那些 Tab / Backspace 才是真会打架的。
+      */
+      ...markdownShortcuts,
       ...closeBracketsKeymap,
       ...historyKeymap,
       ...searchKeymap,
@@ -672,8 +710,9 @@ function extensions() {
       indentWithTab,
       ...defaultKeymap,
     ]),
-    // 装饰整批放进格子里,源码模式一次性撤掉
-    decoCompartment.of(props.sourceMode ? sourceMarks : decorations()),
+    // 装饰整批放进格子里:换显示档位时整批换掉(源码模式一次性撤光)
+    markdownCommentsTheme,
+    decoCompartment.of(modeExtensions()),
     /*
       粘贴图片。
 
@@ -829,14 +868,12 @@ watch(themeAttr, () => {
   // 否则深色界面里嵌着一张白底图
   resetMermaidTheme()
   view.value?.dispatch({
-    effects: decoCompartment.reconfigure(props.sourceMode ? sourceMarks : decorations()),
+    effects: decoCompartment.reconfigure(modeExtensions()),
   })
 })
 
-watch(() => props.sourceMode, (src) => {
-  view.value?.dispatch({
-    effects: decoCompartment.reconfigure(src ? sourceMarks : decorations()),
-  })
+watch(() => props.markMode, () => {
+  view.value?.dispatch({ effects: decoCompartment.reconfigure(modeExtensions()) })
 })
 
 watch(() => props.readOnly, (ro) => {
@@ -869,11 +906,23 @@ function target() {
   return { from: line.from + a, to: line.from + b }
 }
 
-/** 用 `mark` 把选中的内容裹起来;已经裹着就脱掉(再点一次取消加粗) */
+/**
+ * 用 `mark` 把选中的内容裹起来;已经裹着就脱掉(再点一次取消加粗)。
+ *
+ * ⚠ **两头的空白必须先剪掉。** markdown 的强调标记**紧贴空格就不成立** ——
+ * `**加粗 **` 里闭合的那对星号前面是空格,解析器不认,屏幕上原样显示四个星号、
+ * 字一点没加粗。而刮选时多带一个尾空格太常见了,用的人只会觉得「加粗按了没用」。
+ * (踩过:`- [ ]  1**3112312 **`)
+ */
 function wrap(mark: string, endMark = mark) {
   const ed = view.value
-  const t = target()
-  if (!ed || !t) return
+  const t0 = target()
+  if (!ed || !t0) return
+  const raw = ed.state.sliceDoc(t0.from, t0.to)
+  const head = raw.length - raw.replace(/^\s+/, '').length
+  const tail = raw.length - raw.replace(/\s+$/, '').length
+  const t = { from: t0.from + head, to: t0.to - tail }
+  if (t.from >= t.to) return
   const inner = ed.state.sliceDoc(t.from, t.to)
   const outer = ed.state.sliceDoc(
     Math.max(0, t.from - mark.length),
@@ -890,6 +939,22 @@ function wrap(mark: string, endMark = mark) {
     ed.dispatch({ changes: { from: t.from, to: t.to, insert: mark + inner + endMark },
       selection: { anchor: t.from + mark.length, head: t.to + mark.length } })
   }
+  ed.focus()
+}
+
+/**
+ * 给选中的字上色。传 null 就是把颜色去掉。
+ *
+ * markdown 没有「颜色」这回事,一律是夹一段行内 HTML
+ * (`<span style="color:red">`) —— Obsidian、GitHub 都这么写,
+ * 我们的渲染层也认得(见 editor/inlineHtml.ts)。
+ * **只写颜色名不写十六进制**:颜色名会被换成 `--xg-ink-*`,亮暗各一套;
+ * 写死 `#ff0000` 的话暗色模式下那抹红又暗又闷。
+ */
+function color(c: InkColor | null) {
+  const ed = view.value
+  if (!ed) return
+  applyColor(c)({ state: ed.state, dispatch: (tr) => ed.dispatch(tr) })
   ed.focus()
 }
 
@@ -1240,7 +1305,7 @@ defineExpose({
     const to = ed.state.doc.lineAt(sel.to).number
     return { from, to, empty: sel.empty }
   },
-  wrap, setBlock, insertBlock, paste, clip, selectedText,
+  wrap, color, setBlock, insertBlock, paste, clip, selectedText,
   selectAll: () => {
     const ed = view.value
     if (!ed) return
@@ -1260,7 +1325,9 @@ defineExpose({
 
 <template>
   <div ref="host" class="xg-md-editor h-full min-h-0 overflow-hidden"
-    :class="[fullWidth ? 'is-wide' : '', colorHeadings ? 'is-colored' : '', sourceMode ? 'is-source' : '', statusBar ? 'has-statusbar' : '']"
+    :class="[fullWidth ? 'is-wide' : '', colorHeadings ? 'is-colored' : '',
+             markMode === 'source' ? 'is-source' : '', markMode === 'clean' ? 'is-clean' : '',
+             statusBar ? 'has-statusbar' : '']"
     :data-theme="themeAttr" :style="cssVars" />
 </template>
 
@@ -1686,6 +1753,8 @@ defineExpose({
 
 /* 源码模式下折叠把手没有意义:那时候标题只是一行 # 开头的文字 */
 .xg-md-editor.is-source :deep(.xg-fold-handle) { display: none; }
+
+/* 阅读模式的记号隐藏不在这儿 —— 它得从语法树下手，见 editor/hideMarks.ts */
 
 
 /*
