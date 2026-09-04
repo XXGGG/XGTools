@@ -1910,14 +1910,14 @@ async function sendFromVault() {
             为了几个用不上的按钮压掉一条画布,不值 —— 无限画布的价值就在于铺满。
           -->
           <div v-if="activeTab && !isCanvas"
-            class="absolute left-2 right-2 top-2 z-10 h-11 flex items-center gap-1 px-1.5
+            class="absolute left-2 right-2 top-2 z-10 h-11 flex items-center gap-1 px-[7px]
                    rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl">
             <button @click="go(-1)" :disabled="!canBack" :title="t('vault.back')"
-              class="tool-btn size-9 disabled:opacity-30 disabled:pointer-events-none">
+              class="tool-btn top-btn disabled:opacity-30 disabled:pointer-events-none">
               <span class="icon-[lucide--arrow-left] w-4 h-4" />
             </button>
             <button @click="go(1)" :disabled="!canForward" :title="t('vault.forward')"
-              class="tool-btn size-9 disabled:opacity-30 disabled:pointer-events-none">
+              class="tool-btn top-btn disabled:opacity-30 disabled:pointer-events-none">
               <span class="icon-[lucide--arrow-right] w-4 h-4" />
             </button>
 
@@ -1941,19 +1941,19 @@ async function sendFromVault() {
               收了十几段之后一个个点回去太费事,这是那种情形的出口。
             -->
             <button v-if="anyFolded" @click="expandAllHeadings" :title="t('vault.expandFolds')"
-              class="tool-btn size-9">
+              class="tool-btn top-btn">
               <span class="icon-[lucide--unfold-vertical] w-4 h-4" />
             </button>
 
             <button @click="toggleSide('chat')"
               :title="chatOpen ? t('vault.hideAssistant') : t('vault.showAssistant')"
-              class="tool-btn size-9" :class="chatOpen ? 'text-foreground' : ''">
+              class="tool-btn top-btn" :class="chatOpen ? 'text-foreground' : ''">
               <span class="icon-[ri--deepseek-line] w-4 h-4" />
             </button>
 
             <Popover v-model:open="moreOpen">
               <PopoverTrigger as-child>
-                <button :title="t('vault.more')" class="tool-btn size-9">
+                <button :title="t('vault.more')" class="tool-btn top-btn">
                   <span class="icon-[lucide--more-horizontal] w-4 h-4" />
                 </button>
               </PopoverTrigger>
@@ -2891,4 +2891,6 @@ async function sendFromVault() {
   background: color-mix(in srgb, var(--foreground) 8%, transparent);
   color: var(--foreground);
 }
+/* 文档顶栏 44px 高，里面的按钮 30px：上下各留 7px，和目录栏顶部 58px 里放 44px 按钮的留白一样 */
+.tool-btn.top-btn { width: 30px; height: 30px; border-radius: 9px; }
 </style>
