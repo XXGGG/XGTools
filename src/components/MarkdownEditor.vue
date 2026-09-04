@@ -227,7 +227,7 @@ const cssVars = computed(() => ({
     box-sizing 是 border-box,内边距算在 max-width 里面 —— 不补回去的话,
     给收窄模式加上外边距之后阅读宽度会凭空少一截。
   */
-  '--atomic-editor-measure': props.fullWidth ? 'none' : 'calc(45em + 90px)',
+  '--atomic-editor-measure': props.fullWidth ? 'none' : '45em',
 }))
 
 
@@ -1574,18 +1574,22 @@ defineExpose({
 
   所以右边比左边宽一截 —— 那不是排版失误,是给大纲条腾的位置。
 
-  收窄模式的阅读宽度不受影响:box-sizing 是 border-box,内边距算在
-  max-width 里面,measure 那个变量已经把这 90px 加回去了
-  (见 cssVars 里的 --atomic-editor-measure)。
+  收窄模式的列宽由 measure 卡着(cssVars 里的 --atomic-editor-measure),
+  留白在它外面,不占列宽。
+
+  **留白放在 .cm-scroller 上,不放 .cm-content 上。** drawSelection 画选区时,中间那些整行
+  是从 .cm-content 的左边缘一直铺到右边缘的 —— 留白要是算在 content 里,刮选一大段,
+  两侧的空白也会被一起涂成紫色(用户报的「刮选把左右两边很多空的刮进来」)。
+  挪到 scroller 上之后 content 的边就是正文的边,选区只盖住文字那一列。
 */
-.xg-md-editor :deep(.cm-content) {
+.xg-md-editor :deep(.cm-scroller) {
   padding-left: 38px;
   padding-right: 52px;
 }
 
 /* 这一栏本来就窄的时候,左边收到 20px;右边不能收,大纲条还在那儿 */
 @container (max-width: 560px) {
-  .xg-md-editor :deep(.cm-content) { padding-left: 20px; }
+  .xg-md-editor :deep(.cm-scroller) { padding-left: 20px; }
 }
 
 /*
