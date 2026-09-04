@@ -313,6 +313,15 @@ export class AnnotationManager {
     return true
   }
 
+  /** 画到一半按 Esc：丢掉正在画的这一笔（还没进 annotations，不用撤销栈） */
+  cancelDrawing(): boolean {
+    if (!this.isDrawing) return false
+    this.isDrawing = false
+    this.tempAnnotation = null
+    this.tempPoints = []
+    return true
+  }
+
   handleMouseUp(e: MouseEvent): boolean {
     // 结束缩放
     if (this.isResizing) {

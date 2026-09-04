@@ -1711,6 +1711,8 @@ function onKeyDown(e: KeyboardEvent) {
 
   // Esc
   if (e.key === 'Escape') {
+    // 画到一半按 Esc：丢掉正在画的这一笔就够了，别顺手把工具也退了
+    if (annMgr.cancelDrawing()) { redraw(); return }
     // 先取消选中
     if (annMgr.selectedId) {
       annMgr.deselect()
