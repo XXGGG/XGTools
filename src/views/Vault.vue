@@ -525,14 +525,18 @@ function outlineStyle(level: number): Record<string, string> {
   }
 }
 
-/** 右缘那一列短横线,颜色跟着同一套层级走,和面板对得上 */
+/**
+ * 右缘那一列短横线。**平时是灰的，只有「正在看的那一节」亮主题色。**
+ *
+ * 以前整列都按层级上主题色，满屏紫线常年亮着 —— 它是索引不是内容，
+ * 一直亮着就分不清哪一条是现在。层级差异只靠深浅和长短，颜色留给「当前」。
+ * 面板里那份（outlineStyle）不动，那儿有文字，层级要靠颜色分。
+ */
 function outlineBarColor(level: number): string {
-  const a = settings.vaultAccent
-  if (level <= 2) return `color-mix(in srgb, ${a} 80%, var(--foreground))`
-  if (level === 3) return a
-  if (level === 4) return `color-mix(in srgb, ${a} 50%, var(--muted-foreground))`
-  if (level === 5) return 'color-mix(in srgb, var(--foreground) 45%, transparent)'
-  return 'color-mix(in srgb, var(--muted-foreground) 45%, transparent)'
+  if (level <= 2) return 'color-mix(in srgb, var(--foreground) 55%, transparent)'
+  if (level === 3) return 'color-mix(in srgb, var(--foreground) 40%, transparent)'
+  if (level === 4) return 'color-mix(in srgb, var(--foreground) 30%, transparent)'
+  return 'color-mix(in srgb, var(--muted-foreground) 40%, transparent)'
 }
 
 /** 大纲里最浅的那一级。整篇都是 ## 开头时,不该让它们全部缩进一格 */
