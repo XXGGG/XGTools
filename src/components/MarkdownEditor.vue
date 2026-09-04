@@ -61,6 +61,7 @@ import { markdownComments, markdownCommentsTheme } from './editor/comments'
 import { hideMarks, hideMarksTheme, markerAtomicRanges } from './editor/hideMarks'
 import { codeAffordances, codeAffordanceTheme } from './editor/codeAffordances'
 import { plainCodeText } from './editor/plainCodeText'
+import { EXTRA_CODE_LANGUAGES } from './editor/extraCodeLanguages'
 import { inlineHtmlStyles, inlineHtmlTheme } from './editor/inlineHtml'
 import { scrollMemory, foldMemory } from './editor/viewMemory'
 import { htmlPasteToMarkdown } from './editor/htmlPaste'
@@ -668,7 +669,7 @@ function extensions() {
     */
     markdown({
       base: markdownLanguage,
-      codeLanguages: [...ATOMIC_CODE_LANGUAGES],
+      codeLanguages: [...ATOMIC_CODE_LANGUAGES, ...EXTRA_CODE_LANGUAGES],
       extensions: [highlightMarkdown, strictLists, strictHeadings],
     }),
     /*
