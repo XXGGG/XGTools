@@ -60,6 +60,7 @@ import {
 import { markdownComments, markdownCommentsTheme } from './editor/comments'
 import { hideMarks, hideMarksTheme, markerAtomicRanges } from './editor/hideMarks'
 import { codeAffordances, codeAffordanceTheme } from './editor/codeAffordances'
+import { plainCodeText } from './editor/plainCodeText'
 import { inlineHtmlStyles, inlineHtmlTheme } from './editor/inlineHtml'
 import { scrollMemory, foldMemory } from './editor/viewMemory'
 import { htmlPasteToMarkdown } from './editor/htmlPaste'
@@ -568,6 +569,7 @@ function decorations(clean = false) {
     // 代码块右上角的复制按钮(写了语言就显示语言名,点它同样是复制)
     codeAffordances({ copy: t('vault.codeCopy'), copied: t('vault.codeCopied') }),
     codeAffordanceTheme,
+    plainCodeText,
     // 行内 HTML:<span style="color:blue"> 这类真的按样式画出来
     inlineHtmlStyles(clean),
     inlineHtmlTheme,
