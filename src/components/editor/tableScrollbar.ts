@@ -27,8 +27,8 @@
 import { EditorView, ViewPlugin } from '@codemirror/view'
 import type { ViewUpdate } from '@codemirror/view'
 
-const TRACK_H = 10
-const MIN_THUMB = 28
+const TRACK_H = 20
+const MIN_THUMB = 36
 
 type Proxy = {
   host: HTMLElement
@@ -193,9 +193,9 @@ export const tableScrollbarTheme = EditorView.theme({
     position: 'absolute',
     height: `${TRACK_H}px`,
     zIndex: '5',
-    borderRadius: '5px',
+    borderRadius: '10px',
     boxSizing: 'border-box',
-    padding: '2px',
+    padding: '4px',
     background: 'transparent',
     transition: 'background-color 140ms ease, box-shadow 140ms ease',
   },
@@ -207,7 +207,7 @@ export const tableScrollbarTheme = EditorView.theme({
   },
   '.xg-tbl-thumb': {
     height: '100%',
-    borderRadius: '3px',
+    borderRadius: '6px',
     background: 'color-mix(in srgb, var(--foreground) 22%, transparent)',
     cursor: 'grab',
     transition: 'background-color 140ms ease',
