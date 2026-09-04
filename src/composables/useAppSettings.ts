@@ -242,7 +242,7 @@ const DEFAULTS: AppSettings = {
   vaultPageWidth: {},
   vaultSidePanel: 'chat' as 'none' | 'chat',
   vaultColorHeadings: true,
-  vaultMarkMode: 'reveal',
+  vaultMarkMode: 'clean',
   vaultStatusBar: true,
   vaultSpellcheck: false,
   vaultWebp: true,
