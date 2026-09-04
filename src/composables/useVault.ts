@@ -546,6 +546,30 @@ export function closeTab(rel: string) {
  */
 const lastWritten = new Map<string, string>()
 
+/** 把所有有改动的标签都存了。「关闭全部」之前用 —— 关掉再问就晚了 */
+export async function saveAllTabs() {
+  for (const t of vault.tabs) {
+    if (t.content === t.saved) continue
+    try {
+      const snapshot = t.content
+      await invoke('vault_write', { root: vault.root, rel: t.path, content: snapshot })
+      lastWritten.set(t.path, snapshot)
+      t.saved = snapshot
+      t.preview = false
+    } catch (e) {
+      vault.error = String(e)
+    }
+  }
+}
+
+/** 全关。先存后关，不丢东西 */
+export async function closeAllTabs() {
+  await saveAllTabs()
+  vault.tabs = []
+  vault.activeTab = ''
+  persistTabs()
+}
+
 export async function saveActive() {
   const t = activeTab.value
   if (!t || t.content === t.saved) return

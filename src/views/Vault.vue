@@ -12,7 +12,7 @@ import { useI18n } from '@/i18n'
 import {
   vault, hasVault, activeTab, dirtyPaths, fileBadge, displayName,
   restoreVault, bindVaultEvents, pickVault, toggleDir, collapseAll, expandAll, setSort,
-  openFile, closeTab, saveActive, createEntry, createWithContent, clearVault,
+  openFile, closeTab, closeAllTabs, saveActive, createEntry, createWithContent, clearVault,
   renameEntry, deleteEntry, moveEntry, revealEntry, copyPath, markEdited,
   trashList, trashRestore, trashPurge, type TrashItem,
   snapshot, historyList, historyRead, historyClear, type Snapshot,
@@ -1315,6 +1315,46 @@ const crumbs = computed(() => {
 
 const moreOpen = ref(false)
 
+/** 关闭全部标签的确认框。三个以上才给这颗按钮 —— 两个手点也就两下 */
+const confirmCloseAll = ref(false)
+async function doCloseAll() {
+  confirmCloseAll.value = false
+  await closeAllTabs()
+}
+
+/*
+  ── 标题原地改名 ──
+
+  双击顶栏的文件名，那一段变成输入框，回车改名、Esc 放弃。
+  和 Obsidian 一样：改名不该要先去目录树里找到它再右键。
+*/
+const titleEditing = ref(false)
+const titleDraft = ref('')
+// 这个 ref 在 v-for 里面，Vue 会把它收成数组 —— 取第一个
+const titleInput = ref<HTMLInputElement[] | HTMLInputElement | null>(null)
+function startTitleEdit() {
+  const p = activeTab.value?.path
+  if (!p || activeTab.value?.kind === 'canvas') return
+  const name = p.split('/').pop() ?? ''
+  titleDraft.value = displayName(name)
+  titleEditing.value = true
+  nextTick(() => {
+    const el = Array.isArray(titleInput.value) ? titleInput.value[0] : titleInput.value
+    el?.focus(); el?.select()
+  })
+}
+async function commitTitleEdit() {
+  if (!titleEditing.value) return
+  titleEditing.value = false
+  const p = activeTab.value?.path
+  const stem = titleDraft.value.trim()
+  if (!p || !stem) return
+  const name = p.split('/').pop() ?? ''
+  const i = name.lastIndexOf('.')
+  const ext = i > 0 ? name.slice(i) : ''
+  if (stem + ext !== name) await renameEntry(p, stem + ext)
+}
+
 /*
   右键菜单的开关。
 
@@ -1554,8 +1594,8 @@ async function sendFromVault() {
           目录栏最显眼的位置,而真正天天点的新建/排序反而被挤到上面那张卡里。
           现在换过来:常用的常驻,搜索按需展开。
         -->
-        <div class="relative px-2 py-2 h-[52px] shrink-0">
-          <div class="flex items-center gap-1 h-9">
+        <div class="relative px-2 py-1.5 h-[56px] shrink-0">
+          <div class="flex items-center gap-1 h-11">
             <button @click="openSearch" :title="t('vault.search')" class="tool-btn">
               <span class="icon-[lucide--search] w-4 h-4" />
             </button>
@@ -1839,6 +1879,11 @@ async function sendFromVault() {
                 :class="tb.content !== tb.saved ? 'hidden group-hover:inline-block' : ''" />
             </button>
           </div>
+          <!-- 关闭全部。三个以上才出现，贴在标签条最右；关之前确认 -->
+          <button v-if="vault.tabs.length > 2" @click="confirmCloseAll = true" :title="t('vault.closeAllTabs')"
+            class="tool-btn ml-auto shrink-0 sticky right-0 bg-card">
+            <span class="icon-[lucide--x-circle] w-4 h-4" />
+          </button>
           </div>
         </div>
 
@@ -1861,21 +1906,28 @@ async function sendFromVault() {
             为了几个用不上的按钮压掉一条画布,不值 —— 无限画布的价值就在于铺满。
           -->
           <div v-if="activeTab && !isCanvas"
-            class="absolute left-2 right-2 top-2 z-10 h-9 flex items-center gap-1 px-1.5
-                   rounded-lg border border-border/40 bg-card/55 backdrop-blur-xl">
+            class="absolute left-2 right-2 top-2 z-10 h-11 flex items-center gap-1 px-1.5
+                   rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl">
             <button @click="go(-1)" :disabled="!canBack" :title="t('vault.back')"
-              class="tool-btn size-7 disabled:opacity-30 disabled:pointer-events-none">
+              class="tool-btn size-9 disabled:opacity-30 disabled:pointer-events-none">
               <span class="icon-[lucide--arrow-left] w-4 h-4" />
             </button>
             <button @click="go(1)" :disabled="!canForward" :title="t('vault.forward')"
-              class="tool-btn size-7 disabled:opacity-30 disabled:pointer-events-none">
+              class="tool-btn size-9 disabled:opacity-30 disabled:pointer-events-none">
               <span class="icon-[lucide--arrow-right] w-4 h-4" />
             </button>
 
             <div class="flex-1 min-w-0 flex items-center justify-center gap-1 text-[12px] text-muted-foreground">
               <template v-for="(c, i) in crumbs" :key="i">
                 <span v-if="i" class="opacity-40">/</span>
-                <span class="truncate" :class="i === crumbs.length - 1 ? 'text-foreground' : ''">{{ c }}</span>
+                <!-- 最后一段是文件名：双击原地改名 -->
+                <input v-if="i === crumbs.length - 1 && titleEditing" ref="titleInput" v-model="titleDraft"
+                  @keydown.enter.prevent="commitTitleEdit" @keydown.esc.prevent="titleEditing = false"
+                  @blur="commitTitleEdit"
+                  class="h-7 px-2 rounded-md bg-background border border-border text-[13px] text-foreground
+                         focus:outline-none focus:border-foreground/30 min-w-40" />
+                <span v-else class="truncate" :class="i === crumbs.length - 1 ? 'text-foreground cursor-text' : ''"
+                  @dblclick="i === crumbs.length - 1 && startTitleEdit()">{{ c }}</span>
               </template>
             </div>
 
@@ -1885,19 +1937,19 @@ async function sendFromVault() {
               收了十几段之后一个个点回去太费事,这是那种情形的出口。
             -->
             <button v-if="anyFolded" @click="expandAllHeadings" :title="t('vault.expandFolds')"
-              class="tool-btn size-7">
+              class="tool-btn size-9">
               <span class="icon-[lucide--unfold-vertical] w-4 h-4" />
             </button>
 
             <button @click="toggleSide('chat')"
               :title="chatOpen ? t('vault.hideAssistant') : t('vault.showAssistant')"
-              class="tool-btn size-7" :class="chatOpen ? 'text-foreground' : ''">
+              class="tool-btn size-9" :class="chatOpen ? 'text-foreground' : ''">
               <span class="icon-[ri--deepseek-line] w-4 h-4" />
             </button>
 
             <Popover v-model:open="moreOpen">
               <PopoverTrigger as-child>
-                <button :title="t('vault.more')" class="tool-btn size-7">
+                <button :title="t('vault.more')" class="tool-btn size-9">
                   <span class="icon-[lucide--more-horizontal] w-4 h-4" />
                 </button>
               </PopoverTrigger>
@@ -2354,8 +2406,8 @@ async function sendFromVault() {
           正文一直铺到底。
         -->
         <div v-if="activeTab?.kind === 'markdown' && settings.vaultStatusBar"
-          class="absolute right-2 bottom-2 z-10 h-9 flex items-center gap-3 px-3
-                 rounded-lg border border-border/40 bg-card/55 backdrop-blur-xl
+          class="absolute right-2 bottom-2 z-10 h-11 flex items-center gap-3 px-4
+                 rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl
                  text-[11px] text-muted-foreground/70 tabular-nums select-none pointer-events-none">
           <span>{{ t('vault.statWords', { n: docStats.words }) }}</span>
           <span class="opacity-40">·</span>
@@ -2511,12 +2563,12 @@ async function sendFromVault() {
               <span class="text-[11px] text-muted-foreground shrink-0 tabular-nums">
                 {{ ago(it.deletedAt) }}
               </span>
-              <button @click="doRestore(it)" class="tool-btn size-7 opacity-0 group-hover:opacity-100"
+              <button @click="doRestore(it)" class="tool-btn size-9 opacity-0 group-hover:opacity-100"
                 :title="t('vault.trashRestore')">
                 <span class="icon-[lucide--undo-2] w-4 h-4" />
               </button>
               <button @click="askPurge(it.id)" :title="t('vault.trashPurge')"
-                class="tool-btn size-7 opacity-0 group-hover:opacity-100 text-destructive">
+                class="tool-btn size-9 opacity-0 group-hover:opacity-100 text-destructive">
                 <span class="icon-[lucide--x] w-4 h-4" />
               </button>
             </div>
@@ -2760,6 +2812,19 @@ async function sendFromVault() {
     </Dialog>
 
     <!-- 删除 -->
+    <AlertDialog :open="confirmCloseAll" @update:open="(v: boolean) => { confirmCloseAll = v }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ t('vault.closeAllTitle', { n: String(vault.tabs.length) }) }}</AlertDialogTitle>
+          <AlertDialogDescription>{{ t('vault.closeAllBody') }}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ t('common.cancel') }}</AlertDialogCancel>
+          <AlertDialogAction @click="doCloseAll">{{ t('vault.closeAllTabs') }}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
     <AlertDialog :open="confirmClear" @update:open="(v: boolean) => { confirmClear = v }">
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -2811,9 +2876,10 @@ async function sendFromVault() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 0.5rem;
+  /* 44×44，和智能体那边栏目顶部的按钮一样大 */
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
   color: var(--muted-foreground);
   transition: background-color 140ms ease, color 140ms ease;
 }

@@ -21,6 +21,7 @@
 import { Decoration, EditorView, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { RangeSetBuilder } from '@codemirror/state'
+import type { EditorState } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import { blockPrefixLen } from './markdownShortcuts'
 
@@ -42,6 +43,19 @@ const MARKS = new Set([
 ])
 
 const hide = Decoration.replace({})
+
+/**
+ * **只有「井号 + 空格 + 字」才算标题，光一个 `#` 不藏。**
+ *
+ * CommonMark 允许空标题：一行只写 `#`，解析器照样给出 ATXHeading。
+ * 于是刚敲下一个井号它就被当成标题记号藏掉了 —— 人看到的是「我打的字没了」。
+ * 判据：记号后面还有没有正文。没有就当普通字符，露着。
+ */
+function emptyHeading(state: EditorState, node: { name: string; from: number; to: number }): boolean {
+  if (node.name !== 'HeaderMark') return false
+  const line = state.doc.lineAt(node.from)
+  return line.text.slice(node.to - line.from).trim() === ''
+}
 
 export const hideMarks = ViewPlugin.fromClass(class {
   decorations: DecorationSet
@@ -65,6 +79,7 @@ function build(view: EditorView): DecorationSet {
           行内的单反引号才藏。
         */
         if (node.name === 'CodeMark' && node.to - node.from >= 3) return
+        if (emptyHeading(view.state, node)) return
         b.add(node.from, node.to, hide)
       },
     })
@@ -120,6 +135,7 @@ export const markerAtomicRanges = EditorView.atomicRanges.of((view) => {
       enter: (node) => {
         if (!MARKS.has(node.name) || node.to <= node.from) return
         if (node.name === 'CodeMark' && node.to - node.from >= 3) return
+        if (emptyHeading(view.state, node)) return
         // 光标正压在这个记号上 —— 那它现在是露着的，别挡
         if (sel.from <= node.to && sel.to >= node.from) return
         rs.push({ from: node.from, to: node.to })

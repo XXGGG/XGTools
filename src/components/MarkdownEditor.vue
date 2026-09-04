@@ -51,6 +51,8 @@ import type { WikiLinkSuggestion } from '@atomic-editor/editor'
 import { isDarkNow, settings, VAULT_FONT_STACK, type VaultFont } from '@/composables/useAppSettings'
 import { mathAndDiagrams, resetMermaidTheme } from './editor/mathBlocks'
 import { tableAffordances } from './editor/tableTools'
+import { tableScrollbars, tableScrollbarTheme } from './editor/tableScrollbar'
+import { strictHeadings } from './editor/strictHeadings'
 import { listIndent, listBackspace, taskSpace } from './editor/listTools'
 import {
   markdownShortcuts, applyColor, togglePair, clearInlineFormat, type InkColor,
@@ -560,6 +562,9 @@ function decorations(clean = false) {
     // 排在前面的话行内那些装饰会先把 $...$ 里的字符啃掉
     mathAndDiagrams(isDarkNow),
     tableAffordances(),
+    // 宽表格的横向滚动条：跟着表格走、到底就贴底。规矩见那个文件
+    tableScrollbars,
+    tableScrollbarTheme,
     // 代码块右上角的复制按钮(写了语言就显示语言名,点它同样是复制)
     codeAffordances({ copy: t('vault.codeCopy'), copied: t('vault.codeCopied') }),
     codeAffordanceTheme,
@@ -662,7 +667,7 @@ function extensions() {
     markdown({
       base: markdownLanguage,
       codeLanguages: [...ATOMIC_CODE_LANGUAGES],
-      extensions: [highlightMarkdown, strictLists],
+      extensions: [highlightMarkdown, strictLists, strictHeadings],
     }),
     /*
       括号自动配对扩展到 Markdown 的成对符号上。

@@ -31,7 +31,35 @@ const ALLOWED = new Set([
   'font-weight',
   'font-style',
   'text-decoration',
+  'font-size',
+  'vertical-align',
+  'font-family',
 ])
+
+/**
+ * 光靠标签名就有含义的那些。写笔记的人不会给 `<b>` 再配一个 style，
+ * 所以这张表就是它们的样式 —— 和浏览器默认的一致，别自作主张。
+ *
+ * `<center>` 不在里面：它是块级的（整行居中），行内装饰做不到，硬做会歪。
+ */
+const TAG_STYLE: Record<string, string> = {
+  b: 'font-weight:700',
+  strong: 'font-weight:700',
+  i: 'font-style:italic',
+  em: 'font-style:italic',
+  u: 'text-decoration:underline',
+  ins: 'text-decoration:underline',
+  s: 'text-decoration:line-through',
+  del: 'text-decoration:line-through',
+  strike: 'text-decoration:line-through',
+  small: 'font-size:0.85em',
+  big: 'font-size:1.2em',
+  sub: 'vertical-align:sub;font-size:0.8em',
+  sup: 'vertical-align:super;font-size:0.8em',
+  mark: 'background:color-mix(in srgb, var(--xg-ink-yellow, #e8c547) 35%, transparent)',
+  kbd: 'font-family:ui-monospace,monospace;font-size:0.9em;padding:0 .3em;border-radius:4px;background:color-mix(in srgb, var(--foreground) 10%, transparent)',
+  font: '',   // 只靠 color="…" 属性，styleOfTag 会读
+}
 
 /*
   颜色名换成随主题走的那一套。
@@ -71,10 +99,12 @@ function safeStyle(style: string): string {
   return out.join(';')
 }
 
-/** 从一段开标签原文里抠出样式。认 style="…",也认老写法 color="red" */
+/** 从一段开标签原文里抠出样式。认 style="…",也认老写法 color="red"，也认 <b> 这类只靠名字的 */
 function styleOfTag(tag: string): string | null {
   const style = /\sstyle\s*=\s*"([^"]*)"|\sstyle\s*=\s*'([^']*)'/i.exec(tag)
   const parts: string[] = []
+  const byName = TAG_STYLE[tagName(tag)]
+  if (byName) parts.push(byName)
   if (style) {
     const safe = safeStyle(style[1] ?? style[2] ?? '')
     if (safe) parts.push(safe)
@@ -159,8 +189,8 @@ export const inlineHtmlStyles = (clean = false) => ViewPlugin.fromClass(
             }
 
             if (isSelfClosing(raw)) return
-            const style = styleOfTag(raw)
-            if (!style) return      // 没有能用的样式就当普通文本,别去动它
+            const style = styleOfTag(raw) ?? (name in TAG_STYLE ? '' : null)
+            if (style === null) return      // 不认识又没样式的标签当普通文本,别去动它
             stack.push({ name, style, contentFrom: node.to, tagFrom: node.from, tagTo: node.to })
           },
         })
