@@ -1,6 +1,6 @@
 [package]
 name = "xgtools"
-version = "0.9.0"
+version = "0.9.1"
 description = "A Tools"
 authors = ["xxg"]
 edition = "2021"
