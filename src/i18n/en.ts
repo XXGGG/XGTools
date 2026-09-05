@@ -821,6 +821,18 @@ export const en: Messages = {
     refreshing: 'Refreshing…',
     collapse: 'Collapse',
   },
+  ls: {
+    start: 'Scrolling screenshot',
+    screens: 'screens',
+    manual: 'I will scroll',
+    manualTip: 'If auto-scrolling goes wrong, scroll it yourself and I keep stitching',
+    scrollYourself: 'Scroll it — I am stitching',
+    finish: 'Done',
+    discard: 'Discard',
+    saving: 'Stitching',
+    stoppedByYou: 'stopped by you',
+    openFolder: 'Show in folder',
+  },
   rec: {
     start: 'Record',
     stop: 'Stop',

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 /**
- * 录制时套在选区外面的那圈框。
+ * 套在选区外面的那圈框。**录屏和长截图共用这一个**。
+
+ * 两件事的处境是一样的：遮罩必须让开（一个要抓桌面真实画面，一个要抓被截的窗口），
+ * 让开之后屏幕上就没有任何标记了，人不知道正在处理哪一块。区别只有颜色和
+ * 「什么时候自己关掉」，都从 init 事件里带过来。
  *
  * # 为什么要单独一个窗口
  *
@@ -37,14 +41,31 @@ const PAD = 1
 
 const win = getCurrentWindow()
 const ready = ref(false)
+/** 框的颜色。录屏是琥珀色，长截图是青色 —— 一眼分得出现在在干嘛 */
+const accent = ref('#e8952f')
+/** 录屏时呼吸闪烁（提示"正在录"），长截图不闪：它本来就在动，再闪就吵 */
+const breathe = ref(true)
 let unlisten: (() => void)[] = []
+
+type FrameInit = {
+  x: number; y: number; w: number; h: number
+  accent?: string
+  breathe?: boolean
+  /** 收到其中任何一个就自己关掉 */
+  closeOn?: string[]
+}
 
 onMounted(async () => {
   document.body.classList.add('recorder-frame-window')
 
   unlisten.push(
-    await listen<{ x: number; y: number; w: number; h: number }>('rec-frame-init', async (e) => {
+    await listen<FrameInit>('rec-frame-init', async (e) => {
       const { x, y, w, h } = e.payload
+      if (e.payload.accent) accent.value = e.payload.accent
+      if (e.payload.breathe === false) breathe.value = false
+      for (const ev of e.payload.closeOn ?? []) {
+        unlisten.push(await listen(ev, () => win.destroy().catch(() => {})))
+      }
       // 先关掉开窗动画：默认那个「从中心放大」会把框的头几帧画进选区里面，
       // 而那正是 gdigrab 抓的地方 —— 成品视频开头就多一圈往外扩的边
       await invoke('disable_window_transitions').catch(() => {})
@@ -76,7 +97,12 @@ onUnmounted(() => unlisten.forEach((f) => f()))
     整窗透明，只有 border 是实的。box-sizing 用 border-box：
     窗口尺寸已经算进了两条边，内容区剩下的正好是选区那么大。
   -->
-  <div v-show="ready" class="rec-frame" />
+  <div
+    v-show="ready"
+    class="rec-frame"
+    :class="{ breathe }"
+    :style="{ '--accent': accent }"
+  />
 </template>
 
 <style>
@@ -91,14 +117,14 @@ body.recorder-frame-window {
   box-sizing: border-box;
   /* 外面 1px 透明的空档,边只画在里面那一圈 —— 见上面 PAD 的注释 */
   border: 1px solid transparent;
-  outline: 3px solid #e8952f;
+  outline: 3px solid var(--accent, #e8952f);
   outline-offset: -4px;
-  /* 录制中呼吸一下,一眼能看出"正在录"而不是"框在那儿" */
-  animation: rec-breathe 1.6s ease-in-out infinite;
   pointer-events: none;
 }
+/* 录制中呼吸一下,一眼能看出"正在录"而不是"框在那儿" */
+.rec-frame.breathe { animation: rec-breathe 1.6s ease-in-out infinite; }
 @keyframes rec-breathe {
-  0%, 100% { outline-color: #e8952f; }
-  50% { outline-color: #ffbe6b; }
+  0%, 100% { outline-color: var(--accent, #e8952f); }
+  50% { filter: brightness(1.45); }
 }
 </style>

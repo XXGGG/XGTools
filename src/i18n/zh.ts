@@ -815,6 +815,18 @@ export const zh = {
     refreshing: '刷新中…',
     collapse: '收起',
   },
+  ls: {
+    start: '长截图',
+    screens: '屏',
+    manual: '自己滚',
+    manualTip: '自动滚得不对就改成你自己滚，我接着拼',
+    scrollYourself: '你来滚，我接着拼',
+    finish: '完成',
+    discard: '不要这张',
+    saving: '拼图中',
+    stoppedByYou: '你停的',
+    openFolder: '打开所在文件夹',
+  },
   rec: {
     start: '开始录制',
     stop: '停止',

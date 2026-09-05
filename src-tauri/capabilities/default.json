@@ -11,7 +11,8 @@
     "pin_*",
     "tray-menu",
     "rec_frame",
-    "rec_bar"
+    "rec_bar",
+    "ls_bar"
   ],
   "permissions": [
     "core:default",

@@ -559,7 +559,7 @@ pub fn shutdown(app: &AppHandle) {
 }
 
 /// 文件名里的时间戳。直接问系统要本地时间，不自己算时区
-fn chrono_stamp() -> String {
+pub fn chrono_stamp() -> String {
     #[cfg(windows)]
     unsafe {
         let t = windows::Win32::System::SystemInformation::GetLocalTime();

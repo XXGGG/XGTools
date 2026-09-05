@@ -79,6 +79,7 @@ import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
 import RecorderFrame from './screenshot/RecorderFrame.vue'
 import RecorderBar from './screenshot/RecorderBar.vue'
+import LongShotBar from './screenshot/LongShotBar.vue'
 
 const { t } = useI18n()
 /*
@@ -133,6 +134,7 @@ const isScreenshotWindow = ref(false)
 const isPinWindow = ref(false)
 const isRecFrame = ref(false)
 const isRecBar = ref(false)
+const isLsBar = ref(false)
 
 const shortcutWarning = ref('')
 
@@ -168,6 +170,7 @@ onMounted(async () => {
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
   if (win.label === 'rec_frame') { isRecFrame.value = true; return }
   if (win.label === 'rec_bar') { isRecBar.value = true; return }
+  if (win.label === 'ls_bar') { isLsBar.value = true; return }
 
   /*
     主窗口一建出来就显示(tauri.conf.json 里没有 visible:false)。
@@ -276,6 +279,7 @@ onMounted(async () => {
   <PinWindow v-else-if="isPinWindow" />
   <RecorderFrame v-else-if="isRecFrame" />
   <RecorderBar v-else-if="isRecBar" />
+  <LongShotBar v-else-if="isLsBar" />
 
   <!--
     布局:内容层铺满整窗,顶栏和侧栏作为浮层压在它上面。

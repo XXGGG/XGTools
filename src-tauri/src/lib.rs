@@ -6,6 +6,8 @@ mod translate_commands;
 mod convert_commands;
 mod record_commands;
 mod audio_loopback;
+mod long_shot_stitch;
+mod long_shot;
 mod foreign_projects;
 mod window_effects;
 mod dsh_commands;
@@ -161,6 +163,7 @@ pub fn run() {
             cancel_flags: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
         .manage(record_commands::RecordState::default())
+        .manage(long_shot::LongShotState::default())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -291,6 +294,11 @@ pub fn run() {
             record_commands::recording_status,
             record_commands::recording_to_gif,
             record_commands::reveal_in_explorer,
+            long_shot::start_long_shot,
+            long_shot::stop_long_shot,
+            long_shot::long_shot_manual,
+            long_shot::take_long_shot,
+            long_shot::cancel_long_shot,
             foreign_projects::scan_claude_sessions,
             foreign_projects::read_claude_session,
             disable_window_transitions,

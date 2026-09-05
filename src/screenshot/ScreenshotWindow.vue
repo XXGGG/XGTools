@@ -1115,6 +1115,100 @@ async function openRecorderWindows(rect: { x: number; y: number; w: number; h: n
   }
 }
 
+// ============ 长截图 ============
+
+/**
+ * 开始长截图。
+ *
+ * 和开录一样：**先让遮罩整个下去，再开始抓**。遮罩上盖的是一张冻住的截图，
+ * 留着不动的话抓到的每一帧都一模一样 —— 拼接器只会说"没滚动"，一行都接不出来。
+ */
+async function startLongShot() {
+  if (!selMgr || selMgr.state !== SelectState.Selected) return
+  const r = selMgr.rect
+  const sf = scaleFactor
+
+  // 和录屏一样：给后端的是屏幕绝对物理坐标，副屏才不会抓错
+  const px = Math.round(r.x * sf) + monitorX
+  const py = Math.round(r.y * sf) + monitorY
+  const pw = Math.round(r.w * sf)
+  const ph = Math.round(r.h * sf)
+  if (pw < 40 || ph < 80) return
+
+  cancelCapture()
+  await new Promise((res) => setTimeout(res, 120))
+
+  const rect = { x: px, y: py, w: pw, h: ph }
+  await openLongShotWindows(rect)
+
+  try {
+    await invoke('start_long_shot', { x: rect.x, y: rect.y, width: rect.w, height: rect.h })
+  } catch (e) {
+    console.error('start_long_shot failed:', e)
+    await tauriEmit('long-shot-cancelled', {})
+  }
+}
+
+/**
+ * 那圈框 + 那条控制条。
+ *
+ * 框复用录屏那个窗口（`rec_frame`）—— 两件事不可能同时进行，而它要干的活
+ * 一模一样：在让开的遮罩原处标出"正在处理这一块"。颜色和关闭时机从 init 带过去。
+ */
+async function openLongShotWindows(rect: { x: number; y: number; w: number; h: number }) {
+  // 上一轮留下的同名窗口先拆掉,不然 new WebviewWindow 撞标签,建不出来还不报错
+  for (const label of ['rec_frame', 'ls_bar']) {
+    const old = await WebviewWindow.getByLabel(label)
+    if (old) await old.destroy().catch(() => {})
+  }
+
+  const mk = async (label: string, readyEvent: string, initEvent: string, payload: unknown) => {
+    const un = await listen(readyEvent, async () => {
+      un()
+      await tauriEmit(initEvent, payload)
+    })
+    new WebviewWindow(label, {
+      url: 'index.html',
+      title: 'XGTools Long Shot',
+      decorations: false,
+      shadow: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      focus: false,
+      visible: false,
+      width: 1,
+      height: 1,
+    })
+  }
+
+  const shown = (ev: string) =>
+    new Promise<void>((resolve) => {
+      let done = false
+      listen(ev, () => { if (!done) { done = true; resolve() } }).then((un) => {
+        // 兜底：某个窗口没起来也别把整件事卡死在这儿
+        setTimeout(() => { if (!done) { done = true; resolve() } ; un() }, 2000)
+      })
+    })
+
+  try {
+    const waits = [shown('rec-frame-shown'), shown('ls-bar-shown')]
+    await mk('rec_frame', 'rec-frame-ready', 'rec-frame-init', {
+      ...rect,
+      accent: '#2ec4b6',
+      // 抓的时候画面一直在动,框再闪就吵
+      breathe: false,
+      closeOn: ['long-shot-ended', 'long-shot-cancelled'],
+    })
+    await mk('ls_bar', 'ls-bar-ready', 'ls-bar-init', rect)
+    await Promise.all(waits)
+    await new Promise((res) => setTimeout(res, 80))
+  } catch (err) {
+    console.error('Failed to create long-shot windows:', err)
+  }
+}
+
 // ============ OCR ============
 
 interface OcrTextBlock {
@@ -2247,6 +2341,14 @@ function pickFromGroup(gid: string, tool: DrawTool) {
         <span class="icon-[lucide--circle-dot] tb-icon" />
       </button>
       <!--
+        长截图。和录制并排：框好之后「拿它干嘛」的又一件事。
+        内容超出一屏时才有意义,但这里不做判断 —— 判断不了(选区里是什么应用、
+        能不能滚,截图这边无从得知),给个按钮让人自己决定就好。
+      -->
+      <button class="tb action-longshot" :title="t('ls.start')" @click="startLongShot">
+        <span class="icon-[lucide--gallery-vertical-end] tb-icon" />
+      </button>
+      <!--
         这一次要不要背景投影。改的是本次截图,不写回设置 ——
         为一张图去设置页翻开关、截完还得改回来,那才是麻烦。
       -->
@@ -2812,6 +2914,9 @@ function pickFromGroup(gid: string, tool: DrawTool) {
 .action-copy:hover { background: #4096ff; color: #fff; }
 .action-record { color: #e8952f; }
 .action-record:hover { background: #e8952f; color: #fff; }
+/* 长截图用青色，和录制的琥珀分开 —— 两颗挨着，颜色一样会点错 */
+.action-longshot { color: #2ec4b6; }
+.action-longshot:hover { background: #2ec4b6; color: #06302c; }
 .action-close { color: #ff4d4f; }
 .action-close:hover { background: #ff4d4f; color: #fff; }
 
