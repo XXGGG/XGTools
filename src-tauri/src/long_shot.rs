@@ -396,17 +396,42 @@ pub async fn take_long_shot(
     }
 
     tokio::task::spawn_blocking(move || {
+        /*
+            默认存「下载\Screenshots」，和录屏那边一个道理：长截图是随手抓完
+            就发出去的东西，堆在桌面上碍眼，下载夹本来就是这种「拿了就走」的暂存处。
+        */
         let dir = match dir.as_deref().map(str::trim) {
             Some(s) if !s.is_empty() => std::path::PathBuf::from(s),
-            _ => dirs::desktop_dir().ok_or("找不到桌面目录")?.join("Screenshots"),
+            _ => dirs::download_dir()
+                .or_else(dirs::desktop_dir)
+                .ok_or("找不到下载目录")?
+                .join("Screenshots"),
         };
         std::fs::create_dir_all(&dir).map_err(|e| format!("建目录失败: {e}"))?;
         let path = dir.join(format!("long_{}.png", crate::record_commands::chrono_stamp()));
 
+        /*
+            **先存盘再进剪贴板。**
+
+            剪贴板是可能失败的（被别的程序占着、图太大），而文件是成果本身。
+            顺序反过来的话，剪贴板一出错就白抓一场。
+        */
         let img = image::RgbaImage::from_raw(w as u32, h as u32, px)
             .ok_or("像素数对不上，拼接结果坏了")?;
         img.save(&path).map_err(|e| format!("存 PNG 失败: {e}"))?;
-        Ok(path.to_string_lossy().to_string())
+
+        let copied = arboard::Clipboard::new()
+            .and_then(|mut c| {
+                c.set_image(arboard::ImageData {
+                    width: w,
+                    height: h,
+                    bytes: img.into_raw().into(),
+                })
+            })
+            .map_err(|e| eprintln!("[longshot] 没能进剪贴板（文件已经存好了）: {e}"))
+            .is_ok();
+
+        Ok(LongShotResult { path: path.to_string_lossy().to_string(), copied })
     })
     .await
     .map_err(|e| format!("任务出错: {e}"))?
