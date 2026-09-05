@@ -546,8 +546,9 @@ mod tests {
 
     /// 端到端跑一遍真实文件操作:建、列、读写、改名、搜索。
     /// 这些命令直接动用户的笔记,单靠类型检查不足以放心。
-    #[test]
-    fn vault_roundtrip() {
+    // vault_search 后来改成 async 了，这个测试没跟着改，测试目标一直编译不过
+    #[tokio::test]
+    async fn vault_roundtrip() {
         let tmp = std::env::temp_dir().join(format!("xg-vault-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -576,13 +577,13 @@ mod tests {
         assert!(text.contains("apple"));
 
         // 全文搜索命中正文
-        let hits = vault_search(root.clone(), "apple".into(), 10).unwrap();
+        let hits = vault_search(root.clone(), "apple".into(), 10).await.unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].path, "笔记/今天.md");
         assert!(hits[0].line > 0);
 
         // 搜文件名也要命中
-        let by_name = vault_search(root.clone(), "今天".into(), 10).unwrap();
+        let by_name = vault_search(root.clone(), "今天".into(), 10).await.unwrap();
         assert_eq!(by_name.len(), 1);
 
         // 改名
