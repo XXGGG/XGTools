@@ -17,7 +17,7 @@ English | [官话 - 简体中文](README-cmn_CN.md) | [官話 - 繁體中文](RE
   <img src="https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vue.js" />
   <img src="https://img.shields.io/badge/Rust-2021-DEA584?style=flat-square&logo=rust" />
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat-square&logo=typescript" />
-  <img src="https://img.shields.io/badge/version-v0.8.3-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/version-v0.8.4-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-blue?style=flat-square" />
 </p>
 
