@@ -156,7 +156,7 @@ pub async fn start_recording(
         Windows 上 ffmpeg 可以像读文件一样读命名管道。
     */
     let pipe_name = if with_audio {
-        Some(format!(r"\\.\pipe\xgtools_rec_{}", std::process::id()))
+        Some(format!("{PIPE_PREFIX}xgtools_rec_{}", std::process::id()))
     } else {
         None
     };
@@ -165,6 +165,8 @@ pub async fn start_recording(
         "-hide_banner".into(),
         "-loglevel".into(), "warning".into(),
         "-f".into(), "gdigrab".into(),
+        // 另一路输入偶尔堵一下时，画面这边先攒着，别跟着丢帧
+        "-thread_queue_size".into(), "1024".into(),
         "-framerate".into(), fps.to_string(),
         "-offset_x".into(), x.to_string(),
         "-offset_y".into(), y.to_string(),
@@ -177,6 +179,19 @@ pub async fn start_recording(
             "-f".into(), "f32le".into(),
             "-ar".into(), crate::audio_loopback::SAMPLE_RATE.to_string(),
             "-ac".into(), crate::audio_loopback::CHANNELS.to_string(),
+            /*
+                **别去探测这一路。**
+
+                ffmpeg 打开输入时默认要先读一段样本猜格式（analyzeduration 默认 5 秒）。
+                管道里的声音是**实时**流出来的，想读够 5 秒就得真等 5 秒 ——
+                而这期间它顾不上读屏幕，gdigrab 已经抓下的那两三帧就一直定在那儿：
+                录出来开头卡住好几秒（实测 3.8 秒），正是这么来的。
+
+                采样率、声道数、位深上面全写死了，本来就没什么可猜的，关掉。
+            */
+            "-probesize".into(), "32".into(),
+            "-analyzeduration".into(), "0".into(),
+            "-thread_queue_size".into(), "1024".into(),
             "-i".into(), pipe.clone(),
         ]);
     }
@@ -439,18 +454,36 @@ pub async fn recording_to_gif(
 }
 
 /// 把声音那几个参数拆掉（抓不到声音时的退路）
+/// 命名管道路径的前缀。认这一路输入靠它，别在两处各写一遍字面量。
+const PIPE_PREFIX: &str = r"\\.\pipe\";
+
 fn strip_audio_args(args: Vec<String>) -> Vec<String> {
+    /*
+        整块砍，不要按名字一个个挑。
+
+        声音那一路输入是**连续的一段**：从 `-f f32le` 一直到 `-i` 那个管道，
+        中间的 `-ar` `-ac` `-probesize` `-analyzeduration` `-thread_queue_size`
+        都是给它的。按名字挑的话，以后往里加一个选项就得记得回来改这儿 ——
+        漏一个就会留下一个没主的参数，ffmpeg 当场报错，整段录制失败。
+        而且 `-thread_queue_size` 画面那一路也在用，按名字挑还会误伤。
+    */
+    let pipe_i = args.iter().position(|a| a.starts_with(PIPE_PREFIX));
+    let block = pipe_i.and_then(|end| {
+        let start = args[..end].iter().rposition(|a| a == "-f")?;
+        Some((start, end)) // end 是管道路径本身，含在内
+    });
+
     let mut out = Vec::with_capacity(args.len());
     let mut i = 0;
     while i < args.len() {
+        if let Some((s, e)) = block {
+            if i >= s && i <= e {
+                i += 1;
+                continue;
+            }
+        }
         let a = &args[i];
-        let drop_pair = a == "-ar"
-            || a == "-ac"
-            || a == "-c:a"
-            || a == "-b:a"
-            || (a == "-f" && args.get(i + 1).map(|s| s == "f32le").unwrap_or(false))
-            || (a == "-i" && args.get(i + 1).map(|s| s.starts_with(r"\\.\pipe\")).unwrap_or(false));
-        if drop_pair {
+        if a == "-c:a" || a == "-b:a" {
             i += 2;
             continue;
         }
@@ -470,7 +503,17 @@ fn spawn_audio_pipe(pipe: &str) -> Result<crate::audio_loopback::Handle, String>
         .create(pipe)
         .map_err(|e| format!("建管道失败: {e}"))?;
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+    /*
+        **无界通道**：抓声音那条线程一秒都不能被堵住。
+
+        原来是 64 格的有界通道（约 640ms）。ffmpeg 读管道读得慢一点，通道就满，
+        抓声音的线程卡在 send 上不再去取 WASAPI 的包 —— 而设备那头的环形缓冲区
+        转眼就被新数据盖掉，那几百毫秒的声音**永久丢了**，回过神来只能补静音。
+        音轨里那些整段的数字零、以及接回来时的「啪」，就是这么来的。
+
+        声音一秒才 384KB，backlog 再大也就几 MB，比丢声音划算得多。
+    */
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
     let handle = crate::audio_loopback::start(tx);
 
     tokio::spawn(async move {
@@ -532,5 +575,66 @@ fn chrono_stamp() -> String {
             "{}",
             SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 管道没建起来时的退路：声音那一路的参数必须**整块**消失，
+    /// 一个都不能剩 —— 剩下的会变成没主的参数，ffmpeg 当场报错。
+    #[test]
+    fn strip_audio_args_removes_whole_audio_input() {
+        let args: Vec<String> = [
+            "-f", "gdigrab",
+            "-thread_queue_size", "1024",
+            "-framerate", "30",
+            "-i", "desktop",
+            "-f", "f32le",
+            "-ar", "48000",
+            "-ac", "2",
+            "-probesize", "32",
+            "-analyzeduration", "0",
+            "-thread_queue_size", "1024",
+            "-i", concat!(r"\\.\pipe\", "xgtools_rec_1234"),
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-b:a", "160k",
+            "-y", "out.mp4",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        let out = strip_audio_args(args);
+
+        // 画面那一路原封不动，连它自己的 thread_queue_size 也要留着
+        assert_eq!(
+            out,
+            vec![
+                "-f", "gdigrab",
+                "-thread_queue_size", "1024",
+                "-framerate", "30",
+                "-i", "desktop",
+                "-c:v", "libx264",
+                "-y", "out.mp4",
+            ]
+        );
+        // 声音那一路的痕迹一点不剩
+        for leftover in ["f32le", "-ar", "-ac", "-probesize", "-analyzeduration", "-c:a", "-b:a"] {
+            assert!(!out.iter().any(|a| a == leftover), "还剩下 {leftover}");
+        }
+        assert!(!out.iter().any(|a| a.starts_with(PIPE_PREFIX)));
+    }
+
+    /// 本来就没开声音时，别乱动参数
+    #[test]
+    fn strip_audio_args_is_a_noop_without_audio() {
+        let args: Vec<String> = ["-f", "gdigrab", "-i", "desktop", "-c:v", "libx264", "-y", "out.mp4"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(strip_audio_args(args.clone()), args);
     }
 }

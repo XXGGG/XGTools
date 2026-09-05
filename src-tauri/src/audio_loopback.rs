@@ -53,7 +53,7 @@ impl Handle {
 /// 起一条线程抓声音，抓到的原始 PCM 从 `tx` 出去。
 ///
 /// 返回的 Handle 一丢（或者调 stop）线程就收工。
-pub fn start(tx: tokio::sync::mpsc::Sender<Vec<u8>>) -> Handle {
+pub fn start(tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>) -> Handle {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
 
@@ -73,7 +73,7 @@ pub fn start(tx: tokio::sync::mpsc::Sender<Vec<u8>>) -> Handle {
 
 fn capture_loop(
     stop: &AtomicBool,
-    tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
+    tx: &tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // COM 得在这条线程上自己初始化
     initialize_mta().ok()?;
@@ -106,7 +106,20 @@ fn capture_loop(
     while !stop.load(Ordering::Relaxed) {
         // 拿不到事件不算错：设备闲着的时候本来就不会响
         let _ = event.wait_for_event(200);
-        let _ = capture.read_from_device_to_deque(&mut queue);
+
+        /*
+            **把攒着的包一次读干净**，别一轮只读一个。
+
+            `read_from_device_to_deque` 一次只取一个包。设备那头的环形缓冲区就那么大，
+            这一轮没取走的，下一轮不一定还在 —— 满了它直接盖掉，那段声音就没了。
+            而丢掉的部分下面对账时会被当成「缺帧」补上静音：听起来就是**声音被剪掉一截**，
+            接回来的地方还「啪」一下（用户报的爆音）。
+        */
+        while matches!(capture.get_next_packet_size(), Ok(Some(n)) if n > 0) {
+            if capture.read_from_device_to_deque(&mut queue).is_err() {
+                break;
+            }
+        }
 
         /*
             对账：到现在为止本来该有多少帧？少的那些补零。
@@ -126,7 +139,7 @@ fn capture_loop(
             let chunk: Vec<u8> = queue.drain(..CHUNK_FRAMES * BLOCK).collect();
             frames_sent += CHUNK_FRAMES as u64;
             // 管道那头断了（ffmpeg 退了）就没必要再抓了
-            if tx.blocking_send(chunk).is_err() {
+            if tx.send(chunk).is_err() {
                 let _ = client.stop_stream();
                 return Ok(());
             }
@@ -141,14 +154,14 @@ fn capture_loop(
 ///
 /// 直接不写的话 ffmpeg 会卡在读管道上，整段录像跟着一起完蛋 ——
 /// 宁可出一条没声音的音轨，也不能把画面也搭进去。
-fn fill_silence_until_stopped(stop: &AtomicBool, tx: &tokio::sync::mpsc::Sender<Vec<u8>>) {
+fn fill_silence_until_stopped(stop: &AtomicBool, tx: &tokio::sync::mpsc::UnboundedSender<Vec<u8>>) {
     let started = Instant::now();
     let mut frames_sent: u64 = 0;
     while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(std::time::Duration::from_millis(10));
         let target = (started.elapsed().as_secs_f64() * SAMPLE_RATE as f64) as u64;
         while frames_sent + CHUNK_FRAMES as u64 <= target {
-            if tx.blocking_send(vec![0u8; CHUNK_FRAMES * BLOCK]).is_err() {
+            if tx.send(vec![0u8; CHUNK_FRAMES * BLOCK]).is_err() {
                 return;
             }
             frames_sent += CHUNK_FRAMES as u64;
