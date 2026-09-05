@@ -366,12 +366,20 @@ pub fn long_shot_manual(state: tauri::State<'_, LongShotState>) -> Result<(), St
     Ok(())
 }
 
-/// 把接好的长图存成 PNG，返回路径。取完这一次会话就结束了
+/// 抓完之后的结果
+#[derive(Serialize)]
+pub struct LongShotResult {
+    pub path: String,
+    /// 有没有进剪贴板。**进不去不算失败** —— 文件才是成果
+    pub copied: bool,
+}
+
+/// 把接好的长图存成 PNG 并放进剪贴板，返回路径。取完这一次会话就结束了
 #[tauri::command]
 pub async fn take_long_shot(
     state: tauri::State<'_, LongShotState>,
     dir: Option<String>,
-) -> Result<String, String> {
+) -> Result<LongShotResult, String> {
     let taken = {
         let mut guard = state.inner.lock().unwrap();
         let s = guard.as_ref().ok_or("没有正在进行的长截图")?;
