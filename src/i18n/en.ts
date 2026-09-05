@@ -822,6 +822,7 @@ export const en: Messages = {
     collapse: 'Collapse',
   },
   ls: {
+    copied: 'copied',
     start: 'Scrolling screenshot',
     screens: 'screens',
     manual: 'I will scroll',

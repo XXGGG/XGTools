@@ -816,6 +816,7 @@ export const zh = {
     collapse: '收起',
   },
   ls: {
+    copied: '已复制',
     start: '长截图',
     screens: '屏',
     manual: '自己滚',

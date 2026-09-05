@@ -28,6 +28,7 @@ const mode = ref<'auto' | 'manual'>('auto')
 const height = ref(0)
 const width = ref(0)
 const outPath = ref('')
+const copied = ref(false)
 const errMsg = ref('')
 const ready = ref(false)
 /** 后端说滚到底了（不是人点的完成）。结果条上要说一声 */
@@ -117,7 +118,9 @@ async function finish() {
 async function save() {
   phase.value = 'saving'
   try {
-    outPath.value = await invoke<string>('take_long_shot', { dir: null })
+    const r = await invoke<{ path: string; copied: boolean }>('take_long_shot', { dir: null })
+    outPath.value = r.path
+    copied.value = r.copied
     phase.value = 'done'
     await growForResult()
   } catch (e) {
@@ -127,11 +130,17 @@ async function save() {
   }
 }
 
-/** 结果条比进行条要宽一点：多了文件名和「打开文件夹」 */
+/**
+ * 结果条比进行条宽不少：要摆下文件名、高度、「已复制」和一颗「打开所在文件夹」。
+ * 宽度不够的话按钮里的字会折行、顶出按钮外面（踩过）。
+ * 顺手往左挪一点、别让加宽的部分顶出屏幕。
+ */
 async function growForResult() {
   const p = await win.outerPosition()
-  await win.setSize(new PhysicalSize(400, 44))
-  await win.setPosition(new PhysicalPosition(Math.max(0, p.x - 30), p.y))
+  const bw = 470
+  const sw = window.screen.width * window.devicePixelRatio
+  await win.setSize(new PhysicalSize(bw, 52))
+  await win.setPosition(new PhysicalPosition(Math.max(0, Math.min(p.x - 65, sw - bw)), p.y))
 }
 
 async function toManual() {
@@ -181,7 +190,8 @@ async function close() {
       <span class="icon-[lucide--check] ic ok" />
       <span class="name" :title="outPath">{{ fileName }}</span>
       <span class="size">{{ height }}px</span>
-      <span v-if="!reachedEnd" class="size">· {{ t('ls.stoppedByYou') }}</span>
+      <span v-if="copied" class="size">· {{ t('ls.copied') }}</span>
+      <span v-else-if="!reachedEnd" class="size">· {{ t('ls.stoppedByYou') }}</span>
       <span class="spacer" />
       <button class="btn" @click="reveal">{{ t('ls.openFolder') }}</button>
       <button class="btn ghost" @click="close"><span class="icon-[lucide--x] ic" /></button>
@@ -226,7 +236,8 @@ body.recorder-bar-window { margin: 0; background: transparent !important; overfl
 .clock { font-variant-numeric: tabular-nums; font-size: 14px; letter-spacing: 0.02em; }
 .size { color: rgba(255, 255, 255, 0.45); font-variant-numeric: tabular-nums; }
 .hint { color: #2ec4b6; }
-.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.size { white-space: nowrap; }
 .spacer { flex: 1 1 auto; }
 
 .btn {
@@ -235,6 +246,8 @@ body.recorder-bar-window { margin: 0; background: transparent !important; overfl
   border: none; border-radius: 7px;
   background: rgba(255, 255, 255, 0.08);
   color: inherit; font-size: 12.5px; cursor: pointer;
+  /* 「打开所在文件夹」在窄条里会折成两行、顶出按钮外面 */
+  white-space: nowrap;
   transition: background 0.12s;
 }
 .btn:hover { background: rgba(255, 255, 255, 0.16); }
