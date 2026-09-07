@@ -262,6 +262,7 @@ pub fn run() {
             screenshot_commands::save_screenshot,
             screenshot_commands::save_screenshot_to_path,
             screenshot_commands::save_screenshot_file,
+            screenshot_commands::default_screenshot_dir,
             screenshot_commands::cleanup_temp_screenshot,
             // OCR commands
             ocr_commands::ocr_init,

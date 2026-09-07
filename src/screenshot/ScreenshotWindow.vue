@@ -897,7 +897,7 @@ async function saveToFile(fast = false) {
   const uint8 = new Uint8Array(arrayBuffer)
 
   if (fast) {
-    // 快速保存：桌面/Screenshots/
+    // 快速保存：下载/Screenshots/
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const filename = `screenshot_${timestamp}.png`
     try {
@@ -906,9 +906,17 @@ async function saveToFile(fast = false) {
       console.error('Fast save failed:', err)
     }
   } else {
-    // 对话框保存
+    /*
+      对话框保存。**默认落点给到「下载\Screenshots」** ——
+      不给目录的话，对话框每次开在系统上次用过的地方，截个图还得自己翻目录。
+      取不到就退回只给文件名，让系统自己决定。
+      路径用正斜杠拼：Windows 的文件对话框照样认，省得为一个反斜杠在模板字符串里
+      跟转义较劲（这儿踩过一次，`\` 把 `${}` 的美元符号转义掉了）。
+    */
+    const dir = await invoke<string>('default_screenshot_dir').catch(() => '')
+    const name = `screenshot_${Date.now()}.png`
     const filePath = await save({
-      defaultPath: `screenshot_${Date.now()}.png`,
+      defaultPath: dir ? [dir, name].join('/') : name,
       filters: [{ name: 'PNG', extensions: ['png'] }, { name: 'WebP', extensions: ['webp'] }, { name: 'JPEG', extensions: ['jpg', 'jpeg'] }],
     })
     if (filePath) {

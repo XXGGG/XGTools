@@ -215,12 +215,36 @@ pub async fn save_screenshot_to_path(data: Vec<u8>, path: String) -> Result<(), 
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
-/// 快速保存截图到桌面/Screenshots/目录
+/// 截图默认存哪：「下载\Screenshots」，顺手建好。
+///
+/// 保存走的是系统对话框，这个值是给它当**默认落点**用的 —— 不给的话对话框
+/// 每次开在系统上次用过的地方，截个图还要自己翻目录。
+/// 和录屏、长截图一个道理：随手截完就发出去的东西，下载夹是这种「拿了就走」的暂存处。
+#[tauri::command]
+pub async fn default_screenshot_dir() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let dir = dirs::download_dir()
+            .or_else(dirs::desktop_dir)
+            .ok_or("Cannot find download dir")?
+            .join("Screenshots");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {e}"))?;
+        Ok(dir.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// 快速保存截图到「下载\Screenshots」。
+///
+/// 和录屏、长截图一个道理：截完随手就发出去的东西，堆在桌面上碍眼，
+/// 下载夹本来就是这种「拿了就走」的暂存处。找不到下载夹才退回桌面。
 #[tauri::command]
 pub async fn save_screenshot_file(data: Vec<u8>, filename: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        let desktop = dirs::desktop_dir().ok_or("Cannot find desktop dir")?;
-        let dir = desktop.join("Screenshots");
+        let base = dirs::download_dir()
+            .or_else(dirs::desktop_dir)
+            .ok_or("Cannot find download dir")?;
+        let dir = base.join("Screenshots");
         std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {}", e))?;
         let path = dir.join(&filename);
         std::fs::write(&path, &data).map_err(|e| format!("Failed to save: {}", e))?;
