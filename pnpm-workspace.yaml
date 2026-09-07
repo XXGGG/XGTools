@@ -1,0 +1,6 @@
+# pnpm 12 起，带安装脚本的依赖要显式放行，否则每次 install 都以失败告终。
+# 这两个的脚本都是正事：esbuild 把自己那份平台二进制装到位，
+# vue-demi 按装到的 Vue 版本切换它的 shim。
+allowBuilds:
+  esbuild: true
+  vue-demi: true
