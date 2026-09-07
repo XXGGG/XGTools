@@ -2819,7 +2819,13 @@ function pickFromGroup(gid: string, tool: DrawTool) {
 /* 录屏那条只有一颗主按钮，给它文字和琥珀黄底，和截图工具条的图标按钮区分开 */
 .rec-go {
   width: auto !important;
-  padding: 0 16px;
+  /*
+    **必须 !important。** `.tb { padding: 0 }` 写在下面，同权重后来居上，
+    不加就把这行盖掉了 —— 按钮变成零左右内边距，文字直接顶到边上被切掉。
+    flex 也钉死：工具条是 flex 容器，默认允许压缩，压下去一样切字。
+  */
+  padding: 0 18px !important;
+  flex: none;
   gap: 7px;
   background: #e8952f !important;
   color: #fff !important;
