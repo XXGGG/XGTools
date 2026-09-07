@@ -1022,8 +1022,8 @@ async function startRecording() {
   const audio = ((await settingsStore.get<boolean>('record_audio')) ?? true) as boolean
   const maxMinutes = ((await settingsStore.get<number>('record_max_min')) ?? 30) as number
 
-  cancelCapture()
-  // 等一帧，让遮罩真的从屏幕上下去了再开录
+  // 等遮罩**真的**从屏幕上下去了再开录，然后再多给 DWM 两帧去重画桌面
+  await cancelCapture()
   await new Promise((res) => setTimeout(res, 120))
 
   const rect = { x: px, y: py, w: (pw >> 1) << 1, h: (ph >> 1) << 1 }
@@ -1135,7 +1135,7 @@ async function startLongShot() {
   const ph = Math.round(r.h * sf)
   if (pw < 40 || ph < 80) return
 
-  cancelCapture()
+  await cancelCapture()
   await new Promise((res) => setTimeout(res, 120))
 
   const rect = { x: px, y: py, w: pw, h: ph }
@@ -1386,7 +1386,7 @@ function getOcrBlockStyle(block: OcrTextBlock) {
 
 // ============ 取消截图 ============
 
-function cancelCapture() {
+function cancelCapture(): Promise<void> {
   capturing.value = false
   showToolbar.value = false
   showOptions.value = false
@@ -1406,10 +1406,24 @@ function cancelCapture() {
   if (containerRef.value) {
     containerRef.value.style.cursor = ''
   }
-  // 先移到屏幕外再隐藏，避免下次 show 时闪烁旧内容
-  appWindow.setAlwaysOnTop(false).catch(() => {})
-  appWindow.setPosition(new PhysicalPosition(-10000, -10000)).catch(() => {})
-  appWindow.hide().catch(() => {})
+  return hideOverlay()
+}
+
+/**
+ * 把遮罩从屏幕上撤掉，**返回一个真的等得到的 promise**。
+ *
+ * 先移到屏幕外再隐藏，避免下次 show 时闪烁旧内容。
+ *
+ * 这三步以前是发出去就不管的（`.catch()` 挂着，没人 await）。录屏那条路上这是个坑：
+ * 遮罩上盖的是一张**冻住的截图**，而 gdigrab 抓的是桌面真实画面 —— 遮罩还没真的
+ * 下去就开录，头几帧录到的就是那张静止图，看着像视频开头卡了一下。
+ * 以前 ffmpeg 起步慢（要探测音频那一路，三四秒），这个时间差被盖住了；
+ * 探测关掉之后它起得飞快，就露出来了。
+ */
+async function hideOverlay() {
+  await appWindow.setAlwaysOnTop(false).catch(() => {})
+  await appWindow.setPosition(new PhysicalPosition(-10000, -10000)).catch(() => {})
+  await appWindow.hide().catch(() => {})
 }
 
 // ============ 鼠标事件 ============
