@@ -453,6 +453,116 @@ pub async fn recording_to_gif(
     Ok(out_str)
 }
 
+/// 这一段录像有没有声音轨
+#[tauri::command]
+pub async fn recording_has_audio(app: AppHandle, input: String) -> Result<bool, String> {
+    let ff = ffmpeg_path(&app)?;
+    let mut cmd = tokio::process::Command::new(&ff);
+    // 没有 ffprobe 就拿 ffmpeg 顶：它把输入的流信息打在 stderr 上
+    cmd.args(["-hide_banner", "-i", &input])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000);
+    let o = cmd.output().await.map_err(|e| format!("起 ffmpeg 失败: {e}"))?;
+    let info = String::from_utf8_lossy(&o.stderr);
+    Ok(info.contains("Audio:"))
+}
+
+/*
+    这一段录像要不要留声音。**去掉之后还能加回来。**
+
+    去掉：`-c copy -an` 重新封装一遍，不重编码，几百毫秒的事，画质一帧不动。
+    原文件挪去 `<名字>.withaudio.mp4` 存着 —— 这就是「加回来」的依据。
+    加回来：把存着的那份挪回原位。
+
+    为什么不直接删原文件：用户按这颗按钮是在**试**，试完发现还是要声音是常事。
+    多留一个文件的代价，比「删了找不回来」小得多。这份备份在结果条关掉时清掉
+    （见 `drop_audio_backup`）。
+
+    注意「加回来」只对**本来就录了声音**的那段有意义 —— 当初没录，
+    这里再怎么弄也变不出声音来。所以前端只在这一段有音轨时才给按钮。
+*/
+fn audio_backup_of(path: &std::path::Path) -> PathBuf {
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    path.with_file_name(format!("{stem}.withaudio.mp4"))
+}
+
+#[tauri::command]
+pub async fn set_recording_audio(
+    app: AppHandle,
+    input: String,
+    keep: bool,
+) -> Result<(), String> {
+    let src = PathBuf::from(&input);
+    if !src.exists() {
+        return Err("文件不见了".into());
+    }
+    let backup = audio_backup_of(&src);
+
+    if keep {
+        // 加回来：把当初存着的那份挪回原位
+        if !backup.exists() {
+            return Err("没有留底，加不回来了".into());
+        }
+        std::fs::remove_file(&src).map_err(|e| format!("换回来失败: {e}"))?;
+        std::fs::rename(&backup, &src).map_err(|e| format!("换回来失败: {e}"))?;
+        return Ok(());
+    }
+
+    if backup.exists() {
+        return Ok(()); // 已经是没声音的了
+    }
+
+    let ff = ffmpeg_path(&app)?;
+    let tmp = src.with_file_name(format!(
+        "{}.mute.tmp.mp4",
+        src.file_stem().unwrap_or_default().to_string_lossy()
+    ));
+    let tmp_str = tmp.to_string_lossy().to_string();
+
+    let mut cmd = tokio::process::Command::new(&ff);
+    cmd.args([
+        "-hide_banner", "-loglevel", "error",
+        "-i", &input,
+        // 只是重新封装：画面原样拷过去，声音那一路整个不要
+        "-c", "copy", "-an",
+        "-movflags", "+faststart",
+        "-y", &tmp_str,
+    ])
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000);
+
+    let o = cmd.output().await.map_err(|e| format!("起 ffmpeg 失败: {e}"))?;
+    if !o.status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        let msg = String::from_utf8_lossy(&o.stderr);
+        return Err(format!("去声音失败: {}", msg.lines().last().unwrap_or("").trim()));
+    }
+
+    // 先把原件挪去留底，再把新的顶上 —— 中间任何一步失败都还能找回来
+    std::fs::rename(&src, &backup).map_err(|e| format!("留底失败: {e}"))?;
+    if let Err(e) = std::fs::rename(&tmp, &src) {
+        let _ = std::fs::rename(&backup, &src); // 顶不上就把原件放回去
+        return Err(format!("换文件失败: {e}"));
+    }
+    Ok(())
+}
+
+/// 结果条关掉了：留底的那份没人要了
+#[tauri::command]
+pub fn drop_audio_backup(input: String) -> Result<(), String> {
+    let backup = audio_backup_of(&PathBuf::from(&input));
+    if backup.exists() {
+        let _ = std::fs::remove_file(&backup);
+    }
+    Ok(())
+}
+
 /// 把声音那几个参数拆掉（抓不到声音时的退路）
 /// 命名管道路径的前缀。认这一路输入靠它，别在两处各写一遍字面量。
 const PIPE_PREFIX: &str = r"\\.\pipe\";

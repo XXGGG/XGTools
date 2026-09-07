@@ -23,6 +23,11 @@ const outPath = ref('')
 const errMsg = ref('')
 const gifBusy = ref(false)
 const gifDone = ref(false)
+/** 成品里现在有没有声音轨。录完才知道 —— 中途声音可能根本没接上 */
+const hasAudio = ref(false)
+/** 用户在结果条上把声音关掉了。文件已经换成没声音的那份，原件留着 */
+const audioOff = ref(false)
+const audioBusy = ref(false)
 const ready = ref(false)
 /** 这一段有没有在录声音。只是给人看的标记，真正开关在设置里 */
 const withAudio = ref(false)
@@ -81,6 +86,7 @@ onMounted(async () => {
     outPath.value = e.payload
     autoStopped.value = true
     phase.value = 'done'
+    void checkAudio()
     await growForResult()
   }))
   await tauriEmit('rec-bar-ready', {})
@@ -134,6 +140,7 @@ async function stop() {
   try {
     outPath.value = await invoke<string>('stop_recording')
     phase.value = 'done'
+    void checkAudio()
     // 那圈框的窗口靠这个事件自己收摊
     await tauriEmit('record-stopped', outPath.value)
     await growForResult()
@@ -178,7 +185,44 @@ async function reveal() {
   try { await invoke('reveal_in_explorer', { path: outPath.value }) } catch { /* 打不开就算了 */ }
 }
 
-function close() { win.destroy().catch(() => {}) }
+/**
+ * 去掉声音 / 加回来。
+ *
+ * 去掉是 `-c copy -an` 重新封装一遍，画质一帧不动、几百毫秒；原件挪去旁边留底，
+ * 所以能再点一次加回来。留底那份在关掉这条时清掉。
+ */
+/*
+    成品里到底有没有声音轨，**得问文件，不能看设置**：
+    设置里开着，可是抓声音那条线程没起来的话，录出来照样是没声音的
+    （那种情况后端会把声音参数整段拆掉）。看设置就会给一段没声音的录像
+    摆一颗"去掉声音"的按钮。
+*/
+async function checkAudio() {
+  if (!outPath.value) return
+  hasAudio.value = await invoke<boolean>('recording_has_audio', { input: outPath.value }).catch(() => false)
+}
+
+async function toggleAudio() {
+  if (audioBusy.value || !outPath.value) return
+  audioBusy.value = true
+  try {
+    await invoke('set_recording_audio', { input: outPath.value, keep: audioOff.value })
+    audioOff.value = !audioOff.value
+  } catch (e) {
+    errMsg.value = String(e)
+    phase.value = 'error'
+  } finally {
+    audioBusy.value = false
+  }
+}
+
+function close() {
+  // 留底那份没人要了。关窗之前发出去就行，不用等它
+  if (audioOff.value && outPath.value) {
+    invoke('drop_audio_backup', { input: outPath.value }).catch(() => {})
+  }
+  win.destroy().catch(() => {})
+}
 </script>
 
 <template>
@@ -207,6 +251,15 @@ function close() { win.destroy().catch(() => {}) }
       <div class="spacer" />
       <button class="btn ghost" :title="t('rec.openFolder')" @click="reveal">
         <span class="icon-[lucide--folder-open] ic" />
+      </button>
+      <!--
+        录完了还能把声音去掉 / 加回来。
+        只有这一段**真的录到声音**时才出现 —— 当初没录，这儿再怎么点也变不出来。
+      -->
+      <button v-if="hasAudio" class="btn ghost" :disabled="audioBusy"
+        :title="audioOff ? t('rec.audioRestore') : t('rec.audioDrop')" @click="toggleAudio">
+        <span v-if="audioBusy" class="icon-[lucide--loader-2] ic spin" />
+        <span v-else class="ic" :class="audioOff ? 'icon-[lucide--volume-x]' : 'icon-[lucide--volume-2]'" />
       </button>
       <button class="btn ghost" :disabled="gifBusy" @click="toGif">
         <span v-if="gifBusy" class="icon-[lucide--loader-2] ic spin" />

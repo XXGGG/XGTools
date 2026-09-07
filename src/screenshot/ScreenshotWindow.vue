@@ -1003,6 +1003,7 @@ async function startRecording() {
   if (!selMgr || selMgr.state !== SelectState.Selected) return
   // 从截图工具条点进来的，选区还是截图那套蓝；那圈框是琥珀色的，先对上
   recordMode.value = true
+  recAudio.value = ((await settingsStore.get<boolean>('record_audio')) ?? true) as boolean
   setSelectionLook('record')
   const r = selMgr.rect
   const sf = scaleFactor
@@ -1019,7 +1020,7 @@ async function startRecording() {
 
   const fps = ((await settingsStore.get<number>('record_fps')) ?? 30) as number
   const dir = ((await settingsStore.get<string>('record_dir')) ?? '') as string
-  const audio = ((await settingsStore.get<boolean>('record_audio')) ?? true) as boolean
+  const audio = recAudio.value
   const maxMinutes = ((await settingsStore.get<number>('record_max_min')) ?? 30) as number
 
   // 等遮罩**真的**从屏幕上下去了再开录，然后再多给 DWM 两帧去重画桌面
@@ -1268,6 +1269,14 @@ const translateMode = ref(false)
   而且两边迟早会不一样。
 */
 const recordMode = ref(false)
+/** 这一段要不要录声音。工具条上那颗喇叭，和设置页是同一个值 */
+const recAudio = ref(true)
+
+async function toggleRecAudio() {
+  recAudio.value = !recAudio.value
+  await settingsStore.set('record_audio', recAudio.value)
+  await settingsStore.save().catch(() => {})
+}
 const translateResults = ref<TranslateBlock[]>([])
 const translateLoading = ref(false)
 
@@ -2119,6 +2128,7 @@ onMounted(async () => {
     } catch { /* 后端没应声就当没在录 */ }
     translateMode.value = false
     recordMode.value = true
+    recAudio.value = ((await settingsStore.get<boolean>('record_audio')) ?? true) as boolean
     setSelectionLook('record')
     executeScreenshot()
   }))
@@ -2282,6 +2292,16 @@ function pickFromGroup(gid: string, tool: DrawTool) {
       <button class="tb rec-go" :title="t('rec.start')" @click="startRecording">
         <span class="icon-[lucide--circle-dot] tb-icon" />
         <span class="rec-go-text">{{ t('rec.start') }}</span>
+      </button>
+      <!--
+        这一段要不要声音。开录前最后一个能改的地方 —— 设置页在另一个窗口里，
+        框都框好了再跑去翻设置，回来选区早没了。
+        **这颗写回设置**（跟背景投影那颗不一样）：带不带声音是长期口味，
+        不是一次一换的东西。
+      -->
+      <button class="tb" :class="{ active: recAudio }"
+        :title="recAudio ? t('rec.audioOn') : t('rec.audioOff')" @click="toggleRecAudio">
+        <span class="tb-icon" :class="recAudio ? 'icon-[lucide--volume-2]' : 'icon-[lucide--volume-x]'" />
       </button>
       <button class="tb action-close" :title="t('shot.close')" @click="cancelCapture">
         <span class="icon-[lucide--x] tb-icon" />

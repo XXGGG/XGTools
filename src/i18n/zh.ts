@@ -829,6 +829,10 @@ export const zh = {
     openFolder: '打开所在文件夹',
   },
   rec: {
+    audioOn: '这一段录声音',
+    audioOff: '这一段不录声音',
+    audioDrop: '把声音去掉',
+    audioRestore: '把声音加回来',
     start: '开始录制',
     stop: '停止',
     saving: '收尾中',

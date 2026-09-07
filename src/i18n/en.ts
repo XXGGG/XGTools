@@ -835,6 +835,10 @@ export const en: Messages = {
     openFolder: 'Show in folder',
   },
   rec: {
+    audioOn: 'This take records sound',
+    audioOff: 'This take has no sound',
+    audioDrop: 'Drop the audio',
+    audioRestore: 'Put the audio back',
     start: 'Record',
     stop: 'Stop',
     saving: 'Saving',
