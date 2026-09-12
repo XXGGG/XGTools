@@ -115,6 +115,14 @@ export type AppSettings = {
   vaultPageWidth: Record<string, 'wide' | 'narrow'>
   /** 右边那一栏开着没有。现在只有智能体会占它,大纲改成贴右缘的悬浮层了 */
   vaultSidePanel: 'none' | 'chat'
+  /** 音频试听页挂上的工作区（绝对路径），可以好几个 */
+  audioRoots: string[]
+  /** 音频试听页上次选中的文件夹。下次进来还停在这 */
+  audioSelected: string
+  /** 裁过的片段拖出去、拖回目录树生成新文件时用的格式。默认 WAV：游戏引擎最省心 */
+  audioExportFormat: 'wav' | 'ogg' | 'mp3' | 'flac' | 'original'
+  /** 右边列表：只看当前这一层（false），还是连所有子文件夹里的一起列（true） */
+  audioDeep: boolean
   /**
    * 标题、引用这些块要不要上色。
    *
@@ -241,6 +249,10 @@ const DEFAULTS: AppSettings = {
   vaultFullWidth: false,
   vaultPageWidth: {},
   vaultSidePanel: 'chat' as 'none' | 'chat',
+  audioRoots: [] as string[],
+  audioSelected: '',
+  audioExportFormat: 'wav' as 'wav' | 'ogg' | 'mp3' | 'flac' | 'original',
+  audioDeep: false,
   vaultColorHeadings: true,
   vaultMarkMode: 'clean',
   vaultStatusBar: true,

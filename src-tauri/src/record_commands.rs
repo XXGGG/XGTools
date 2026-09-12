@@ -63,7 +63,7 @@ pub struct RecordStatus {
 
 // ─── 工具 ──────────────────────────────────────
 
-fn ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .resource_dir()

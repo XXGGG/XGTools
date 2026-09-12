@@ -8,6 +8,7 @@ mod record_commands;
 mod audio_loopback;
 mod long_shot_stitch;
 mod long_shot;
+mod audio_commands;
 mod foreign_projects;
 mod window_effects;
 mod dsh_commands;
@@ -171,6 +172,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        // 系统级拖出：把音频直接拖进 Godot 这类软件（HTML5 拖拽拖不出窗口）
+        .plugin(tauri_plugin_drag::init())
         .invoke_handler(tauri::generate_handler![
             // 窗口背景特效(云母/亚克力/模糊)
             window_effects::set_window_effect,
@@ -303,6 +306,15 @@ pub fn run() {
             long_shot::long_shot_manual,
             long_shot::take_long_shot,
             long_shot::cancel_long_shot,
+            audio_commands::audio_list_dir,
+            audio_commands::audio_allow_dir,
+            audio_commands::audio_export,
+            audio_commands::audio_classify,
+            audio_commands::audio_copy_into,
+            audio_commands::audio_make_dir,
+            audio_commands::audio_rename,
+            audio_commands::audio_list_deep,
+            audio_commands::audio_move,
             foreign_projects::scan_claude_sessions,
             foreign_projects::read_claude_session,
             disable_window_transitions,
