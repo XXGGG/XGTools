@@ -4,6 +4,24 @@
 @plugin "@iconify/tailwind4";
 
 @custom-variant dark (&:is(.dark *));
+/* 扁平版界面(设置 → 界面风格)。写法 flat:xxx,只在根节点 data-ui="flat" 时生效,浮空版不受影响 */
+@custom-variant flat (&:where([data-ui="flat"], [data-ui="flat"] *));
+
+/* ============ 扁平版的可调参数 ============
+   想调扁平版的尺寸就改这里,别的地方都是引用这几个数。改完重新打包才生效。 */
+:root {
+  --flat-bar-h: 40px;      /* 顶栏高度 = 各页最上面那一行(标签条、目录栏工具行)的高度 */
+  --flat-side-w: 40px;     /* 左侧导航栏宽度 */
+  --flat-nav-btn: 32px;    /* 导航栏里每个图标格的大小 */
+  --flat-nav-icon: 18px;   /* 导航栏图标大小 */
+  --flat-ctrl-w: 44px;     /* 右上角每个控制点格子的宽度(Windows 自带的是 46,用户嫌点与点隔太开,收了 2) */
+  --flat-ctrl-gap: 16px;   /* 页面第一行最右边的按钮和红绿灯之间再空出多少,免得看着像第四颗点 */
+  --flat-dot: 14px;        /* 控制点(红黄绿)直径 */
+  --flat-dot-hover: 1.25;  /* 鼠标移到控制点上时放大几倍 */
+  --flat-btn: 28px;        /* 页面工具行里的按钮大小 */
+  --flat-tab-h: 28px;      /* 标签 / 页签的高度 */
+  --flat-doc-top: 24px;    /* 笔记正文第一行离工具行的距离 */
+}
 
 /*
   手写体现在统一走 Excalifont + 小赖(见 public/fonts/handwriting.css,由
@@ -281,6 +299,89 @@ body.vibrancy .shadow-lg {
   box-shadow:
     0 2px 4px rgb(0 0 0 / 0.05),   /* 接触影变淡:离开底面了 */
     0 10px 24px rgb(0 0 0 / 0.09); /* 环境影摊开:偏移和模糊都变大 */
+}
+
+/* 扁平版:所有面板(浮空卡片)透明、不要边框,直接透出窗口底面 —— 开了云母/亚克力就是材质本身。
+   第二行是给云母/亚克力的:上面 body.vibrancy .bg-card 会把卡片刷回 92% 实心,优先级更高,得单独压住。
+
+   **盖在内容上面的不能透**,不然字和底下的内容糊成一片:
+   窄窗口时拉出来的目录栏(.tree-drawer)、字体详情(.font-drawer),以及标了 flat-keep 的(右下角提示)。 */
+[data-ui="flat"] .float-card:not(.flat-keep, .tree-drawer, .font-drawer):not(:is(.tree-drawer, .font-drawer, .flat-keep) *),
+[data-ui="flat"] body.vibrancy .float-card:not(.flat-keep, .tree-drawer, .font-drawer):not(:is(.tree-drawer, .font-drawer, .flat-keep) *) {
+  background-color: transparent;
+  border-color: transparent;
+  /* 云母/亚克力下卡片还叠着一层毛玻璃(上面 body.vibrancy .bg-card 那条)。
+     只去底色不去这层,不透明度拉满时一块块面板照样显形 —— 2026-09-17 用户截图报的 */
+  backdrop-filter: none;
+}
+/* 不是卡片、只想去掉底色的(设置 → 导航里能拖的那几排):只清底色和毛玻璃,行与行之间的分隔线留着 */
+[data-ui="flat"] .flat-clear,
+[data-ui="flat"] body.vibrancy .flat-clear {
+  background-color: transparent;
+  backdrop-filter: none;
+}
+
+/* 拖动排序时跟着鼠标走的那一份克隆(设置 → 导航)要有底,不然只有字飘在半空 */
+[data-ui="flat"] .sortable-fallback.flat-clear,
+[data-ui="flat"] body.vibrancy .sortable-fallback.flat-clear {
+  background-color: var(--popover);
+}
+
+/* 右上角三颗控制点:三格等宽、整条顶栏那么高,点在格子里居中,鼠标移上去点稍微放大 */
+[data-ui="flat"] .xg-ctrl {
+  width: var(--flat-ctrl-w);
+  height: auto;
+  border-radius: 0;
+}
+[data-ui="flat"] .xg-ctrl-dot {
+  width: var(--flat-dot);
+  height: var(--flat-dot);
+  transition: transform 140ms ease;
+}
+[data-ui="flat"] .xg-ctrl:hover .xg-ctrl-dot {
+  transform: scale(var(--flat-dot-hover));
+}
+/* 点里的小图标(− / 放大 / ×):浮空版是移到胶囊上三颗一起亮(照 Mac);
+   扁平版三格是分开的按钮,只亮鼠标所在的那一颗 */
+[data-ui="flat"] .xg-ctrl .xg-ctrl-glyph {
+  opacity: 0;
+}
+[data-ui="flat"] .xg-ctrl:hover .xg-ctrl-glyph {
+  opacity: 1;
+}
+
+/* 扁平版:笔记 / 音频 / 字体库工具行里的按钮(.tool-btn)一律缩小,尺寸见上面 --flat-btn。
+   **必须写在这里,不能写进 .vue 的 scoped 样式**:`:global([data-ui="flat"]) .tool-btn` 会被 Vue 编译成
+   光秃秃的 `[data-ui=flat]{...}`,后半截整个丢掉 —— 结果是把 28×28 套到了 <html> 上,
+   全窗口点哪儿都点不中(2026-09-17 v0.12.3 踩过)。
+   :root 是为了压过各页 scoped 的 .tool-btn.top-btn(30px)。 */
+:root[data-ui="flat"] .tool-btn:not(.size-6) {
+  width: var(--flat-btn);
+  height: var(--flat-btn);
+  border-radius: 6px;
+}
+
+/* 笔记正文:扁平版的工具行不再浮在正文上面,首尾不用再让出那一大截 */
+[data-ui="flat"] .xg-md-editor .cm-content {
+  padding-top: var(--flat-doc-top) !important;
+}
+[data-ui="flat"] .xg-md-editor.has-statusbar .cm-content {
+  padding-bottom: var(--flat-doc-top) !important;
+}
+
+/* 扁平版:没有东西是浮起来的,影子一律不要 */
+[data-ui="flat"] .float-card,
+[data-ui="flat"] .float-card:hover {
+  box-shadow: none;
+}
+
+/* 扁平版顶栏只有 40 高,各页塞进来的页签(h-11 px-4 rounded-xl)要跟着收小。
+   写在图层外面才压得过页面上那几个工具类。 */
+[data-ui="flat"] .xg-tb-tabs > [data-slot="tabs-trigger"] {
+  height: var(--flat-tab-h);
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 13px;
 }
 
 /* 自制图标:走和 iconify 一样的"遮罩 + currentColor"路子,只是 SVG 是本地文件。

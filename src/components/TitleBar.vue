@@ -47,9 +47,10 @@ onMounted(async () => {
 
     真正需要交互的子元素各自 pointer-events-auto 打开。
   -->
-  <div class="h-[58px] shrink-0 flex items-center select-none z-50 pointer-events-none">
+  <!-- 扁平版不要 Logo(2026-09-17 用户定的):左上角交给侧栏,侧栏从最顶上开始 -->
+  <div class="h-[58px] shrink-0 flex items-center select-none z-50 pointer-events-none flat:h-[var(--flat-bar-h)]">
     <button @click="emit('logo')" :class="[
-      'pointer-events-auto',
+      'pointer-events-auto flat:hidden',
       'w-[58px] shrink-0 flex items-center justify-center transition-colors',
       active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
     ]">
@@ -83,24 +84,31 @@ onMounted(async () => {
       所以这里只保证右边距 10px，高度按视觉走。
     -->
     <!-- 根容器关了指针事件,这张卡片要自己打开,否则三颗控制点也点不动 -->
-    <div class="float-card group rounded-full border bg-card p-[5px] flex items-center pointer-events-auto">
+    <!--
+      扁平版:不要胶囊,三颗点贴在窗口右上角,像 Windows 自带的那三个按钮一样**三格等宽**、
+      整条顶栏那么高,最右那格贴着窗口边 —— 最大化时鼠标往右上角一甩就是关闭。
+      格宽、点径、悬停放大倍数都在 style.css 顶部(--flat-ctrl-w / --flat-dot / --flat-dot-hover),
+      样式本体在 .xg-ctrl / .xg-ctrl-dot。
+    -->
+    <div class="float-card group rounded-full border bg-card p-[5px] flex items-center pointer-events-auto
+                flat:self-stretch flat:items-stretch flat:rounded-none flat:border-0 flat:bg-transparent flat:p-0">
       <button @click="minimize" :title="t('window.minimize')"
-        class="size-9 rounded-full flex items-center justify-center">
-        <span class="size-3.5 rounded-full bg-[#28c840] flex items-center justify-center">
-        <span class="icon-[lucide--minus] w-2.5 h-2.5 text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
+        class="xg-ctrl size-9 rounded-full flex items-center justify-center">
+        <span class="xg-ctrl-dot size-3.5 rounded-full bg-[#28c840] flex items-center justify-center">
+        <span class="icon-[lucide--minus] w-2.5 h-2.5 xg-ctrl-glyph text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
         </span>
       </button>
       <button @click="toggleMaximize" :title="isMaximized ? t('window.restore') : t('window.maximize')"
-        class="size-9 rounded-full flex items-center justify-center">
-        <span class="size-3.5 rounded-full bg-[#febc2e] flex items-center justify-center">
+        class="xg-ctrl size-9 rounded-full flex items-center justify-center">
+        <span class="xg-ctrl-dot size-3.5 rounded-full bg-[#febc2e] flex items-center justify-center">
         <span :class="isMaximized ? 'icon-[lucide--chevrons-down-up]' : 'icon-[lucide--chevrons-up-down]'"
-          class="w-2.5 h-2.5 text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
+          class="w-2.5 h-2.5 xg-ctrl-glyph text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
         </span>
       </button>
       <button @click="close" :title="t('window.close')"
-        class="size-9 rounded-full flex items-center justify-center">
-        <span class="size-3.5 rounded-full bg-[#ff5f57] flex items-center justify-center">
-        <span class="icon-[lucide--x] w-2.5 h-2.5 text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
+        class="xg-ctrl size-9 rounded-full flex items-center justify-center">
+        <span class="xg-ctrl-dot size-3.5 rounded-full bg-[#ff5f57] flex items-center justify-center">
+        <span class="icon-[lucide--x] w-2.5 h-2.5 xg-ctrl-glyph text-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
         </span>
       </button>
     </div>

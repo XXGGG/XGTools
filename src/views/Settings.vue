@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { VAULT_FONT_SIZE, VAULT_ACCENTS, VAULT_FONTS, VAULT_FONT_STACK, settings, applyWindowEffect, applyTheme,
-  type BlurKind, type ThemeMode } from '@/composables/useAppSettings'
+  applyUiStyle, type BlurKind, type ThemeMode, type UiStyle } from '@/composables/useAppSettings'
 import { useI18n, detectLocale, type Locale } from '@/i18n'
 import { MENU_ITEMS, orderedAll, type MenuItem } from '@/lib/sidebar-prefs'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
@@ -95,6 +95,15 @@ function setBlurOpacity(v?: number[]) {
 }
 
 // 主题:三档。改完要重新应用材质 —— 深浅属性是跟着主题走的。
+const UI_STYLES: { key: UiStyle; labelKey: string; icon: string }[] = [
+  { key: 'float', labelKey: 'settings.uiFloat', icon: 'icon-[lucide--layers-2]' },
+  { key: 'flat', labelKey: 'settings.uiFlat', icon: 'icon-[lucide--panel-top]' },
+]
+function setUiStyle(v: UiStyle) {
+  settings.uiStyle = v
+  applyUiStyle()
+}
+
 const THEMES: { key: ThemeMode; labelKey: string; icon: string }[] = [
   { key: 'auto',  labelKey: 'settings.themeAuto',  icon: 'icon-[lucide--monitor]' },
   { key: 'light', labelKey: 'settings.themeLight', icon: 'icon-[lucide--sun]' },
@@ -333,6 +342,22 @@ onUnmounted(() => {
             </div>
 
             <div class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--app-window] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.uiStyle') }}</div>
+              </div>
+              <div class="flex items-center gap-1 rounded-lg border p-1">
+                <button v-for="s in UI_STYLES" :key="s.key" @click="setUiStyle(s.key)" :class="[
+                  'flex items-center gap-1.5 px-3 py-1 rounded-md text-sm transition-colors',
+                  settings.uiStyle === s.key ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
+                ]">
+                  <span :class="s.icon" class="w-4 h-4" />
+                  {{ t(s.labelKey) }}
+                </button>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-4 px-4 py-3.5">
               <span class="icon-[lucide--languages] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.language') }}</div>
@@ -504,7 +529,7 @@ onUnmounted(() => {
               filter=".no-drag" :prevent-on-filter="false" ghost-class="opacity-30" @end="persistOrder"
               class="rounded-xl border divide-y overflow-hidden min-h-16">
               <div v-for="item in toolList" :key="item.id"
-                class="flex items-center gap-4 px-4 py-4 bg-background cursor-grab active:cursor-grabbing">
+                class="flex items-center gap-4 px-4 py-4 bg-background flat-clear cursor-grab active:cursor-grabbing">
                 <span class="icon-[lucide--grip-vertical] w-4 h-4 shrink-0 text-muted-foreground" />
                 <span :class="item.icon" class="w-5 h-5 shrink-0"
                   :style="{ opacity: hiddenSet.has(item.id) ? 0.4 : 1 }" />
@@ -530,7 +555,7 @@ onUnmounted(() => {
               filter=".no-drag" :prevent-on-filter="false" ghost-class="opacity-30" @end="persistOrder"
               class="rounded-xl border divide-y overflow-hidden min-h-16">
               <div v-for="item in configList" :key="item.id"
-                class="flex items-center gap-4 px-4 py-4 bg-background cursor-grab active:cursor-grabbing">
+                class="flex items-center gap-4 px-4 py-4 bg-background flat-clear cursor-grab active:cursor-grabbing">
                 <span class="icon-[lucide--grip-vertical] w-4 h-4 shrink-0 text-muted-foreground" />
                 <span :class="item.icon" class="w-5 h-5 shrink-0"
                   :style="{ opacity: hiddenSet.has(item.id) ? 0.4 : 1 }" />

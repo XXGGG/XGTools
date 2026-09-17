@@ -8,10 +8,16 @@
 import { reactive, watch } from 'vue'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { detectLocale, setLocale, type Locale } from '@/i18n'
 
 // 没有 'blur':apply_blur 走的是 Win11 已废弃的 ACCENT_ENABLE_BLURBEHIND,渲染成一层压死的暗色,不可用
 export type BlurKind = 'none' | 'mica' | 'acrylic'
+/**
+ * 界面风格。float = 浮空卡片、四周留白（一直以来这套）；
+ * flat = 顶栏侧栏贴边、没有浮空卡片和分割线（2026-09 起逐步做）。
+ */
+export type UiStyle = 'float' | 'flat'
 
 export type AppSettings = {
   /** 配置格式版本。语义变了(而不只是加字段)时 +1,并在 loadSettings 里做一次性迁移。 */
@@ -21,6 +27,7 @@ export type AppSettings = {
   /** 主题。'auto' = 跟随系统深浅色,并在系统切换时实时跟着变。 */
   theme: ThemeMode
   blurKind: BlurKind
+  uiStyle: UiStyle
   /** 亚克力/模糊的不透明度 0~100:越小越通透,越大越接近实心 */
   blurOpacity: number
   sidebarOrder: string[]
@@ -218,6 +225,7 @@ const DEFAULTS: AppSettings = {
   v: SETTINGS_VERSION,
   language: 'auto',
   theme: 'auto',
+  uiStyle: 'float' as UiStyle,
   blurKind: 'none',
   blurOpacity: 40,
   sidebarOrder: [],
@@ -311,6 +319,7 @@ export async function loadSettings() {
     // 语言:选了 auto 就每次启动重新看系统语言,否则用存档里选定的那个
     setLocale(settings.language === 'auto' ? detectLocale() : settings.language)
     applyTheme()
+    applyUiStyle()
     watchSystemTheme()
     settingsReady.value = true
     startAutoSave()
@@ -436,6 +445,17 @@ export async function applyWindowEffect(
     // 把错误消息回传而不是吞掉:设置页要把具体原因显示给用户(比如"云母不可用")
     return String(e?.message ?? e)
   }
+}
+
+/**
+ * 界面风格落到根节点的 data-ui 上。扁平版的样式一律挂在 `[data-ui="flat"]` 底下,
+ * 浮空那套不用改一个字 —— 两套并存,切换就是换这一个属性。
+ */
+export function applyUiStyle() {
+  if (settings.uiStyle !== 'float' && settings.uiStyle !== 'flat') settings.uiStyle = 'float'
+  // 只管主窗口。命令面板、托盘菜单这些本来就是浮在桌面上的小窗,影子要留着
+  if (getCurrentWindow().label !== 'main') return
+  document.documentElement.dataset.ui = settings.uiStyle
 }
 
 /** 系统深浅色变化时,只有 auto 模式需要跟着动。 */

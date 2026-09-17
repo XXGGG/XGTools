@@ -33,7 +33,9 @@ onMounted(() => { ready.value = true })
       别给插槽加回 relative:那样基准会变成插槽自己,而插槽宽度为 0,
       居中就成了"以插槽那个点为心向两边长",卡片一宽就往左漫过去把 Logo 压住。
     -->
-    <TabsList class="float-card absolute left-1/2 -translate-x-1/2 h-[58px] w-max rounded-[14px] border bg-card p-1.5 gap-1">
+    <!-- 扁平版:不要卡片,页签直接摆在 40 高的顶栏正中(页签本身的尺寸在 style.css 的 .xg-tb-tabs) -->
+    <TabsList class="xg-tb-tabs float-card absolute left-1/2 -translate-x-1/2 h-[58px] w-max rounded-[14px] border bg-card p-1.5 gap-1
+                     flat:h-[var(--flat-bar-h)] flat:p-0 flat:gap-0.5 flat:rounded-none flat:border-0 flat:bg-transparent">
       <slot />
     </TabsList>
   </Teleport>

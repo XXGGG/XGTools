@@ -20,10 +20,16 @@ import { useI18n } from './i18n'
  * 只有 default/auto 才是"这里没东西",才拖窗口。cursor 是继承属性,
  * 所以按钮里的那个 <span> 图标也会拿到 pointer,不会误判。
  */
-const TOP_BAND = 78   // 10 外缩 + 58 卡片 + 10 间距,和页面 pt-/pl- 同一个数
+/**
+ * 顶部能拖窗口的那一条有多高。浮空版:10 外缩 + 58 卡片 + 10 间距(和页面 pt-/pl- 同一个数);
+ * 扁平版就是顶栏高度,读 style.css 里的 --flat-bar-h,改那一处就行。
+ */
+const topBand = () => settings.uiStyle === 'flat'
+  ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--flat-bar-h')) || 40
+  : 78
 
 function isBlankSpot(e: MouseEvent) {
-  if (e.button !== 0 || e.clientY > TOP_BAND) return false
+  if (e.button !== 0 || e.clientY > topBand()) return false
   const el = e.target as HTMLElement | null
   if (!el) return false
   const c = getComputedStyle(el).cursor
@@ -336,9 +342,14 @@ onMounted(async () => {
           enter-from-class="opacity-0 scale-95" enter-to-class="opacity-100 scale-100"
           leave-active-class="hidden"
           :duration="{ enter: 300, leave: 0 }">
-          <!-- 那两截内边距是给顶栏和侧栏让的位;它们藏起来了就不该还留着 -->
+          <!--
+            那两截内边距是给顶栏和侧栏让的位;它们藏起来了就不该还留着。
+            扁平版:整层从侧栏右边开始、顶到窗口最上沿,上面只留顶栏那么高的内边距。
+            普通页面(设置、翻译…)照着内边距从顶栏下面排;笔记、音频、字体库这几个 absolute inset-0 的页面
+            不吃内边距,直接顶到最上面 —— 它们的第一行(标签条、目录栏工具行)就和红绿灯在同一行,和 Notion 一样。
+          -->
           <div :key="currentView" class="absolute inset-0 overflow-auto"
-            :class="zen.on ? 'pt-2.5 pl-2.5' : 'pt-[4.875rem] pl-[4.875rem]'">
+            :class="zen.on ? 'pt-2.5 pl-2.5' : 'pt-[4.875rem] pl-[4.875rem] flat:left-[var(--flat-side-w)] flat:pt-[var(--flat-bar-h)] flat:pl-0'">
             <HomeView v-if="currentView === 'Home'" />
             <VaultView v-else-if="currentView === 'Vault'" />
             <SettingsView v-else-if="currentView === 'Settings'" />
@@ -356,7 +367,7 @@ onMounted(async () => {
     </main>
 
     <!-- 禅模式:整条顶栏(含右上角三颗控制点)让开 -->
-    <TitleBar v-if="!zen.on" class="absolute top-2.5 left-2.5 right-2.5 z-50"
+    <TitleBar v-if="!zen.on" class="absolute top-2.5 left-2.5 right-2.5 z-50 flat:top-0 flat:left-0 flat:right-0"
       :active="currentView === 'Home'"
       @logo="currentView = 'Home'" />
 
@@ -371,7 +382,7 @@ onMounted(async () => {
       enter-from-class="opacity-0 translate-y-2" leave-active-class="transition-all duration-200 ease-in"
       leave-to-class="opacity-0 translate-y-2">
       <div v-if="shortcutWarning"
-        class="float-card fixed bottom-4 right-4 z-[60] max-w-sm rounded-[14px] border bg-card
+        class="float-card flat-keep fixed bottom-4 right-4 z-[60] max-w-sm rounded-[14px] border bg-card
                px-4 py-3 flex items-center gap-3 text-sm">
         <span class="icon-[lucide--triangle-alert] w-4 h-4 text-amber-500 shrink-0" />
         <span class="flex-1 leading-snug">{{ shortcutWarning }}</span>
@@ -404,15 +415,22 @@ onMounted(async () => {
         这个 4.875rem(78px) 也是 main 的 pt-/pl-,还有各页面的 pl- ——
         58 是全局模数,改它要连着 TitleBar 的 h-/w- 一起改。
       -->
+      <!--
+        扁平版:贴左边,从窗口最顶上一直到底(没有 Logo 了);没有卡片、没有分割线。
+        宽度 / 图标格 / 图标大小在 style.css 顶部(--flat-side-w / --flat-nav-btn / --flat-nav-icon),
+        四周留白 = (栏宽 - 格子) / 2,自动算。
+      -->
       <aside v-if="!zen.on"
-        class="absolute left-2.5 top-[4.875rem] bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto">
-        <nav v-if="tools.length" class="float-card rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1">
+        class="absolute left-2.5 top-[4.875rem] bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto
+               flat:left-0 flat:top-0 flat:bottom-0 flat:w-[var(--flat-side-w)]">
+        <nav v-if="tools.length" class="float-card rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1
+                                        flat:rounded-none flat:border-0 flat:bg-transparent flat:p-[calc((var(--flat-side-w)_-_var(--flat-nav-btn))/2)]">
           <!-- 笔记页选中时图标染成笔记主题色,其他页还是白的 —— 一眼看出现在在哪 -->
           <button v-for="item in tools" :key="item.id" @click="currentView = item.id" :title="t(item.labelKey)" :class="[
-            'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
+            'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors flat:size-[var(--flat-nav-btn)] flat:rounded-lg',
             currentView === item.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           ]">
-            <span :class="item.icon" class="w-6 h-6"
+            <span :class="item.icon" class="w-6 h-6 flat:w-[var(--flat-nav-icon)] flat:h-[var(--flat-nav-icon)]"
               :style="item.id === 'Vault' && currentView === 'Vault' ? { color: settings.vaultAccent } : undefined" />
           </button>
         </nav>
@@ -421,19 +439,20 @@ onMounted(async () => {
           设置常驻,所以这张卡片永远存在;上面那张在工具全关时整张消失(不留空壳)。
           mt-auto 而不是靠父级 justify-between:后者在只剩这一张卡片时会把它顶到最上面去。
         -->
-        <div class="float-card mt-auto rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1">
+        <div class="float-card mt-auto rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1
+                    flat:rounded-none flat:border-0 flat:bg-transparent flat:p-[calc((var(--flat-side-w)_-_var(--flat-nav-btn))/2)]">
           <button v-for="item in configs" :key="item.id" @click="currentView = item.id" :title="t(item.labelKey)" :class="[
-            'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
+            'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors flat:size-[var(--flat-nav-btn)] flat:rounded-lg',
             currentView === item.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           ]">
-            <span :class="item.icon" class="w-6 h-6" />
+            <span :class="item.icon" class="w-6 h-6 flat:w-[var(--flat-nav-icon)] flat:h-[var(--flat-nav-icon)]" />
           </button>
-          <div v-if="configs.length" class="w-7 h-px bg-border" />
+          <div v-if="configs.length" class="w-7 h-px bg-border flat:hidden" />
           <button @click="currentView = 'Settings'" :title="t('nav.settings')" :class="[
-            'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
+            'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors flat:size-[var(--flat-nav-btn)] flat:rounded-lg',
             currentView === 'Settings' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           ]">
-            <span class="icon-[lucide--settings] w-6 h-6" />
+            <span class="icon-[lucide--settings] w-6 h-6 flat:w-[var(--flat-nav-icon)] flat:h-[var(--flat-nav-icon)]" />
           </button>
         </div>
       </aside>

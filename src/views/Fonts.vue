@@ -565,22 +565,22 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="rootEl" class="absolute inset-0 pt-2.5 pr-2.5 pb-2.5 flex gap-2.5"
-    :class="zenMode ? 'pl-2.5' : 'pl-[4.875rem]'">
+  <div ref="rootEl" class="absolute inset-0 pt-2.5 pr-2.5 pb-2.5 flex gap-2.5 flat:pt-0 flat:pr-0 flat:pb-0 flat:gap-0"
+    :class="zenMode ? 'pl-2.5' : 'pl-[4.875rem] flat:pl-0'">
 
     <!-- 窄窗口下拉出分类栏时垫在底下的一层：点它就收回去 -->
     <div v-if="narrowTree && drawer" class="absolute inset-0 z-20" @pointerdown="drawer = false" />
 
     <!-- ═══════ 左：分类栏 ═══════ -->
-    <div v-if="treeVisible" class="w-[248px] flex flex-col gap-2.5"
+    <div v-if="treeVisible" class="w-[248px] flex flex-col gap-2.5 flat:gap-0"
       :class="treeInFlow ? 'shrink-0'
-        : ['font-drawer absolute z-30 top-2.5 bottom-2.5 drop-shadow-2xl', zenMode ? 'left-2.5' : 'left-[4.875rem]']">
-      <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3">
+        : ['font-drawer absolute z-30 top-2.5 bottom-2.5 drop-shadow-2xl flat:top-0 flat:bottom-0', zenMode ? 'left-2.5' : 'left-[4.875rem] flat:left-0']">
+      <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
         <!-- 收起放最左，和收起后那张「展开」方卡片同一个位置（笔记、音频试听也是这样） -->
         <button @click="hideTree" :title="t('fonts.hideTree')" class="tool-btn">
           <span class="icon-[lucide--panel-left-close] w-4 h-4" />
         </button>
-        <span class="w-px h-5 mx-1 shrink-0 bg-border" />
+        <span class="w-px h-5 mx-1 shrink-0 bg-border flat:bg-transparent" />
         <span class="icon-[lucide--search] w-4 h-4 shrink-0 text-muted-foreground" />
         <input v-model="query" :placeholder="t('fonts.searchPlaceholder')"
           class="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-muted-foreground/70" />
@@ -589,7 +589,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <aside class="float-card flex-1 min-h-0 rounded-[14px] border bg-card overflow-y-auto px-1.5 py-2 flex flex-col gap-3">
+      <aside class="float-card flex-1 min-h-0 rounded-[14px] border bg-card overflow-y-auto px-1.5 py-2 flex flex-col gap-3 flat:rounded-none">
         <!-- 协议体检：整台电脑一眼看完 -->
         <section>
           <div class="flex items-center gap-1 px-2 pb-1.5">
@@ -653,17 +653,18 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- ═══════ 右 ═══════ -->
-    <div class="flex-1 min-w-0 flex flex-col gap-2.5">
-      <div class="flex gap-2.5 shrink-0">
+    <div class="flex-1 min-w-0 flex flex-col gap-2.5 flat:gap-0">
+      <div class="flex gap-2.5 shrink-0 flat:gap-0">
         <button v-if="!treeVisible" @click="showTree" :title="t('fonts.showTree')"
-          class="float-card size-[58px] shrink-0 rounded-[14px] border bg-card flex items-center justify-center
+          class="float-card size-[58px] shrink-0 rounded-[14px] border bg-card flex items-center justify-center flat:size-[var(--flat-bar-h)] flat:rounded-none
                  text-muted-foreground transition-colors hover:text-foreground">
           <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
         </button>
 
         <!-- 顶卡：试字那句话、字号、底色、只看放心商用、对比。右边给窗口控制点让位 -->
-        <div class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4"
-          :class="zenMode ? '' : 'mr-[130px]'">
+        <div class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
+                 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-2 flat:gap-2"
+          :class="zenMode ? '' : 'mr-[130px] flat:mr-[calc(var(--flat-ctrl-w)*3_+_var(--flat-ctrl-gap))]'">
           <span class="icon-[lucide--type] w-4 h-4 shrink-0 text-muted-foreground" />
           <input v-model="settings.fontSample" :placeholder="t('fonts.samplePlaceholder')"
             class="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-muted-foreground/70" />
@@ -691,9 +692,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="flex-1 min-h-0 flex gap-2.5 relative">
+      <div class="flex-1 min-h-0 flex gap-2.5 relative flat:gap-0">
         <!-- ═══════ 列表 ═══════ -->
-        <div class="float-card flex-1 min-w-0 rounded-[14px] border bg-card overflow-y-auto p-2 flex flex-col"
+        <div class="float-card flex-1 min-w-0 rounded-[14px] border bg-card overflow-y-auto p-2 flex flex-col flat:rounded-none"
           :style="cat === 'trash' ? undefined : listStyle">
           <div class="flex items-center gap-2 px-3 pt-1 pb-2 shrink-0">
             <span class="text-[14px] font-medium">{{ catTitle }}</span>
@@ -760,7 +761,7 @@ onBeforeUnmount(() => {
 
         <!-- ═══════ 详情 / 对比 ═══════ -->
         <div v-if="detailOpen"
-          class="float-card w-[400px] max-w-full rounded-[14px] border bg-card overflow-y-auto px-4 py-4"
+          class="float-card w-[400px] max-w-full rounded-[14px] border bg-card overflow-y-auto px-4 py-4 flat:rounded-none"
           :class="narrowDetail ? 'font-drawer absolute right-0 top-0 bottom-0 z-20 drop-shadow-2xl' : 'shrink-0'">
           <template v-if="comparing && picked.size >= 2">
             <div class="flex items-center gap-2 mb-3">

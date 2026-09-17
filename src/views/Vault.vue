@@ -1501,8 +1501,9 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
     以前列宽是 72、卡片 58 居中,左右各留 7px,于是左边/上边实际留白 17
     而右边/下边只有 10,四边不等。那 7px 已经去掉,别再加回来。
   -->
-  <div ref="rootEl" class="absolute inset-0 pt-2.5 pr-2.5 pb-2.5 flex"
-    :class="[dragging ? 'select-none' : '', zenMode ? 'pl-2.5' : 'pl-[4.875rem]']">
+  <!-- 扁平版:四周不留白、面板之间不留缝,第一行直接顶到窗口最上沿(和红绿灯同一行) -->
+  <div ref="rootEl" class="absolute inset-0 pt-2.5 pr-2.5 pb-2.5 flex flat:pt-0 flat:pr-0 flat:pb-0"
+    :class="[dragging ? 'select-none' : '', zenMode ? 'pl-2.5' : 'pl-[4.875rem] flat:pl-0']">
 
     <!-- ═══════ 没选工作区 ═══════ -->
     <div v-if="!hasVault" class="flex-1 float-card rounded-[14px] border bg-card flex items-center justify-center">
@@ -1519,10 +1520,10 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
 
     <template v-else>
       <!-- ═══════ 文件树 ═══════ -->
-      <div v-if="treeOpen && !zenMode" class="shrink-0 flex flex-col gap-2.5" :style="{ width: settings.vaultTreeWidth + 'px' }">
+      <div v-if="treeOpen && !zenMode" class="shrink-0 flex flex-col gap-2.5 flat:gap-0" :style="{ width: settings.vaultTreeWidth + 'px' }">
 
         <!-- 卡片直接贴在 y=10,不再套一层更高的行 -->
-        <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3">
+        <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
           <!--
             收起目录栏放最左:收起后那张「展开」方卡片也在最左边,收和开在同一个位置,手不用找。
             后面一道细线隔开 —— 它是「这一栏要不要占地方」,和右边那几个「对这个库做什么」不是一类。
@@ -1530,7 +1531,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           <button @click="treeOpen = false" :title="t('vault.hideTree')" class="tool-btn">
             <span class="icon-[lucide--panel-left-close] w-4 h-4" />
           </button>
-          <span class="w-px h-5 mx-1 shrink-0 bg-border" />
+          <span class="w-px h-5 mx-1 shrink-0 bg-border flat:bg-transparent" />
           <!-- 工作区这一组:它决定了下面所有东西是什么,和「新建」不是一类操作 -->
           <button @click="pickVault" :title="t('vault.changeFolder')" class="tool-btn">
             <span class="icon-[lucide--folder-open] w-4 h-4" />
@@ -1544,7 +1545,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           </button>
         </div>
 
-      <aside class="float-card flex-1 min-h-0 rounded-[14px] border bg-card flex flex-col overflow-hidden">
+      <aside class="float-card flex-1 min-h-0 rounded-[14px] border bg-card flex flex-col overflow-hidden flat:rounded-none">
         <!--
           这一行平时是「搜索图标 + 四个常用操作」,点搜索才把输入框铺开盖住那四个。
 
@@ -1552,8 +1553,8 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           目录栏最显眼的位置,而真正天天点的新建/排序反而被挤到上面那张卡里。
           现在换过来:常用的常驻,搜索按需展开。
         -->
-        <div class="relative px-2 py-1.5 h-[56px] shrink-0">
-          <div class="flex items-center gap-1 h-11">
+        <div class="relative px-2 py-1.5 h-[56px] shrink-0 flat:h-[var(--flat-bar-h)] flat:py-0 flat:px-1.5">
+          <div class="flex items-center gap-1 h-11 flat:h-full flat:gap-0.5">
             <button @click="openSearch" :title="t('vault.search')" class="tool-btn">
               <span class="icon-[lucide--search] w-4 h-4" />
             </button>
@@ -1583,7 +1584,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
             以前输入框用的是半透明底,结果按钮的图标从搜索框里透出来,
             像是框里印了几个鬼影。圆角外面那点缝隙也要盖住,所以底垫在外层。
           -->
-          <div v-if="searchOpen" class="absolute inset-x-2 top-2 h-9 rounded-lg bg-card">
+          <div v-if="searchOpen" class="absolute inset-x-2 top-2 h-9 rounded-lg bg-card flat:inset-x-1 flat:top-0.5">
             <!-- z-10:输入框现在是实底的,不抬一层这个放大镜会被它盖住 -->
             <span class="icon-[lucide--search] w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 z-10
                          text-muted-foreground pointer-events-none" />
@@ -1767,12 +1768,14 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
       <div v-if="treeOpen && !zenMode" @pointerdown="startDrag($event)"
         class="w-2.5 shrink-0 cursor-col-resize flex items-center justify-center group">
         <!-- 常显,不是悬停才出现 —— 不然没人知道这两栏之间能拖 -->
-        <div class="w-0.5 h-10 rounded-full bg-border transition-colors group-hover:bg-foreground/40"
-          :class="dragging ? 'bg-foreground/60' : ''" />
+        <!-- 扁平版不要常显的竖线(没有分割线),鼠标移过来才出现 -->
+        <div class="w-0.5 h-10 rounded-full bg-border transition-colors group-hover:bg-foreground/40
+                    flat:opacity-0 flat:group-hover:opacity-100"
+          :class="dragging ? 'bg-foreground/60 flat:opacity-100' : ''" />
       </div>
 
       <!-- ═══════ 编辑器列 ═══════ -->
-      <div class="flex-1 min-w-0 flex flex-col gap-2.5">
+      <div class="flex-1 min-w-0 flex flex-col gap-2.5 flat:gap-0">
 
         <!--
           目录栏收起来之后,展开按钮变成标签条前面一张 58×58 的方卡片。
@@ -1788,7 +1791,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           用外边距而不是内边距 —— 内边距只是把内容推开,卡片本身还是顶到最右,
           看着像"标签栏一直延伸到控件底下"。130 = 控件卡片宽 120 + 间隔 10。
         -->
-        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5 mr-[130px]">
+        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5 mr-[130px] flat:mr-[calc(var(--flat-ctrl-w)*3_+_var(--flat-ctrl-gap))] flat:gap-0">
 
           <!--
             目录栏收起来之后,展开按钮变成标签条前面一张 58×58 的方卡片。
@@ -1797,7 +1800,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
             展开的入口留在目录栏原来的位置,比原先那颗浮在左下角的按钮好找。
           -->
           <button v-if="!treeOpen" @click="treeOpen = true" :title="t('vault.showTree')"
-            class="float-card size-[58px] shrink-0 rounded-[14px] border bg-card
+            class="float-card size-[58px] shrink-0 rounded-[14px] border bg-card flat:size-[var(--flat-bar-h)] flat:rounded-none
                    flex items-center justify-center text-muted-foreground
                    transition-colors hover:text-foreground">
             <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
@@ -1805,14 +1808,21 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
 
           <!-- 标签卡:和工具卡同高(58),同一条基线 -->
           <div
-            class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-1 px-2 overflow-x-auto">
+            class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-1 px-2
+                   flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1 flat:gap-0.5">
+          <!--
+            标签在这一段里自己横向滚动,「关闭全部」放在这一段外面。
+            以前它是 sticky 贴在滚动区最右边,标签多了会滚到它底下 —— 扁平版没有底色,
+            看着就是半截标签和按钮叠在一起(2026-09-17 用户报的)。
+          -->
+          <div class="flex-1 min-w-0 h-full flex items-center gap-1 overflow-x-auto flat:gap-0.5">
           <!--
             关闭做成**独立的 button**,不是 button 里套 span:
             嵌在按钮里的元素,点击区会被父按钮吃掉 —— 表现就是「点 × 只切换了标签页」。
             两个按钮并排放在同一个容器里,各管各的点击。
           -->
           <div v-for="tb in vault.tabs" :key="tb.path" :class="[
-            'group shrink-0 h-8 rounded-lg flex items-center transition-colors',
+            'group shrink-0 h-8 rounded-lg flex items-center transition-colors flat:h-[var(--flat-tab-h)] flat:rounded-md',
             vault.activeTab === tb.path ? 'bg-muted' : 'hover:bg-muted/50'
           ]">
             <button @click="vault.activeTab = tb.path"
@@ -1832,20 +1842,29 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
               class="h-full pr-2 pl-0.5 flex items-center">
               <!-- 有未存改动时是黄点,鼠标移上来才变成 × —— 和编辑器的通用行为一致 -->
               <span v-if="tb.content !== tb.saved" class="size-1.5 rounded-full bg-amber-500 group-hover:hidden" />
+              <!--
+                扁平版:没选中的标签平时不显示 ×,鼠标移上来才出现(用户要的)。
+                用 invisible 不用 hidden:位置照样占着,移上去时标签宽度不会跳一下。
+              -->
               <span class="icon-[lucide--x] w-3.5 h-3.5 opacity-50 hover:opacity-100"
-                :class="tb.content !== tb.saved ? 'hidden group-hover:inline-block' : ''" />
+                :class="tb.content !== tb.saved ? 'hidden group-hover:inline-block'
+                  : vault.activeTab !== tb.path ? 'flat:invisible flat:group-hover:visible' : ''" />
             </button>
           </div>
-          <!-- 关闭全部。三个以上才出现，贴在标签条最右；关之前确认 -->
+          </div>
+          <!--
+            关闭全部。三个以上才出现，在标签条最右、滚动区外面，和标签之间隔开一段；关之前确认。
+            扁平版往右多挪 2px(-mr-0.5),离红绿灯的距离由 style.css 的 --flat-ctrl-gap 管。
+          -->
           <button v-if="vault.tabs.length > 2" @click="confirmCloseAll = true" :title="t('vault.closeAllTabs')"
-            class="tool-btn ml-auto shrink-0 sticky right-0 bg-card">
+            class="tool-btn shrink-0 ml-2 flat:-mr-0.5">
             <span class="icon-[lucide--x-circle] w-4 h-4" />
           </button>
           </div>
         </div>
 
         <!-- relative:悬浮大纲要贴着这张卡片的右缘定位 -->
-        <section class="float-card relative flex-1 min-h-0 rounded-[14px] border bg-card flex flex-col overflow-hidden">
+        <section class="float-card relative flex-1 min-h-0 rounded-[14px] border bg-card flex flex-col overflow-hidden flat:rounded-none">
           <!--
             正文上面这一小行:左边前进后退,中间当前文件的路径,右边是全展开和更多。
             所有跟"这篇文档"有关的操作都在同一行,不用满屏找。
@@ -1863,7 +1882,9 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           -->
           <div v-if="activeTab && !isCanvas"
             class="absolute left-2 right-2 top-2 z-10 h-11 flex items-center gap-1 px-[7px]
-                   rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl">
+                   rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl
+                   flat:static flat:shrink-0 flat:h-[var(--flat-bar-h)] flat:px-1.5 flat:gap-0.5
+                   flat:rounded-none flat:border-0 flat:bg-transparent flat:backdrop-blur-none">
             <button @click="go(-1)" :disabled="!canBack" :title="t('vault.back')"
               class="tool-btn top-btn disabled:opacity-30 disabled:pointer-events-none">
               <span class="icon-[lucide--arrow-left] w-4 h-4" />
@@ -2358,7 +2379,9 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
         <div v-if="activeTab?.kind === 'markdown' && settings.vaultStatusBar"
           class="absolute right-2 bottom-2 z-10 h-11 flex items-center gap-3 px-4
                  rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl
-                 text-[11px] text-muted-foreground/70 tabular-nums select-none pointer-events-none">
+                 text-[11px] text-muted-foreground/70 tabular-nums select-none pointer-events-none
+                 flat:static flat:self-end flat:shrink-0 flat:h-7 flat:px-3
+                 flat:rounded-none flat:border-0 flat:bg-transparent flat:backdrop-blur-none">
           <span>{{ t('vault.statWords', { n: docStats.words }) }}</span>
           <span class="opacity-40">·</span>
           <span>{{ t('vault.statChars', { n: docStats.chars }) }}</span>
