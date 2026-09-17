@@ -54,6 +54,7 @@ import { tableAffordances } from './editor/tableTools'
 import { tableScrollbars, tableScrollbarTheme } from './editor/tableScrollbar'
 import { strictHeadings } from './editor/strictHeadings'
 import { listIndent, listBackspace, taskSpace } from './editor/listTools'
+import { headingEnter, headingBackspace } from './editor/headingKeys'
 import {
   markdownShortcuts, applyColor, togglePair, clearInlineFormat, type InkColor,
 } from './editor/markdownShortcuts'
@@ -692,7 +693,17 @@ function extensions() {
       于是空项被换成一行空白 —— 列表当场断成两截。listBackspace 只在真正该管的
       情形下返回 true,其余一律放行,所以拔到最高不会挡了别人的事。
     */
-    Prec.highest(keymap.of([{ key: 'Backspace', run: listBackspace }])),
+    /*
+      标题正文开头的回车、退格也拔到最高：lang-markdown 自己挂的是 Prec.high，
+      在标题上就是普通的换行 / 删字，会从藏起来的 `## ` 里下刀（理由见 headingKeys.ts）。
+      它们只在那一个位置返回 true，别处放行：列表的退格排在前面先认，
+      atomic-editor 的列表回车、双链退格照常工作。
+    */
+    Prec.highest(keymap.of([
+      { key: 'Backspace', run: listBackspace },
+      { key: 'Backspace', run: headingBackspace },
+      { key: 'Enter', run: headingEnter },
+    ])),
     keymap.of([
       /*
         列表的缩进要排在 indentWithTab **前面**。

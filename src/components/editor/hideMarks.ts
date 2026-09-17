@@ -142,15 +142,23 @@ export const markerAtomicRanges = EditorView.atomicRanges.of((view) => {
       },
     })
   }
-  // builder 要求升序，而上面是两轮扫出来的
+  /*
+    重叠的并成**一整段**，不能丢。
+
+    标题行首会扫出两段：`##`（记号）和 `## `（行首前缀，连着后面的空格）。
+    以前按「和前一段重叠就丢掉」处理，排序后短的在前，于是长的那段被丢了 ——
+    `##` 和空格之间成了光标能停的地方，在标题开头按退格删掉的就是那个空格，
+    变成 `##【游戏开发】`，标题当场失效（2026-09-13 用户踩到）。引用的 `>` 和 `> ` 同理。
+  */
   rs.sort((a, b2) => a.from - b2.from || a.to - b2.to)
-  const b = new RangeSetBuilder<Decoration>()
-  let last = -1
+  const merged: { from: number; to: number }[] = []
   for (const r of rs) {
-    if (r.from < last) continue      // 和前一段重叠的丢掉，builder 不接受
-    b.add(r.from, r.to, hide)
-    last = r.to
+    const last = merged[merged.length - 1]
+    if (last && r.from < last.to) last.to = Math.max(last.to, r.to)
+    else merged.push({ from: r.from, to: r.to })
   }
+  const b = new RangeSetBuilder<Decoration>()
+  for (const r of merged) b.add(r.from, r.to, hide)
   return b.finish()
 })
 
