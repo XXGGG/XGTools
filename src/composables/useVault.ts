@@ -907,8 +907,17 @@ export async function revealEntry(rel: string) {
   catch (e) { vault.error = String(e) }
 }
 
+/** 条目在磁盘上的绝对路径。分隔符跟着库根走（Windows 上是反斜杠） */
+export function absPath(rel: string): string {
+  const root = vault.root.replace(/[\\/]+$/, '')
+  if (!rel) return root
+  const sep = root.includes('\\') ? '\\' : '/'
+  return root + sep + rel.replace(/^[\\/]+/, '').replace(/[\\/]+/g, sep)
+}
+
+/** 复制绝对路径 —— 贴进资源管理器地址栏、别的软件的「打开」框、命令行都能直接用 */
 export async function copyPath(rel: string) {
-  try { await navigator.clipboard.writeText(rel) } catch { /* 没有剪贴板权限就算了 */ }
+  try { await navigator.clipboard.writeText(absPath(rel)) } catch { /* 没有剪贴板权限就算了 */ }
 }
 
 // ── 搜索 ──────────────────────────────────────────────
