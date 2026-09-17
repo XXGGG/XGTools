@@ -36,6 +36,7 @@ import { useI18n } from '@/i18n'
 import InfoTip from '@/components/InfoTip.vue'
 import AudioRow, { type Press } from '@/components/audio/AudioRow.vue'
 import type { AudioFile, Trim } from '@/lib/audioPeaks'
+import { menuFocusHandoff } from '@/lib/menuFocus'
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
 } from '@/components/ui/context-menu'
@@ -281,14 +282,20 @@ function onKey(e: KeyboardEvent) {
 const renaming = ref('')
 const renameText = ref('')
 const renameInput = ref<HTMLInputElement | HTMLInputElement[] | null>(null)
+/** 从右键菜单进改名时,别让菜单把焦点抢回去(详见 menuFocus.ts) */
+const menuFocus = menuFocusHandoff()
 
 async function startRename(path: string, name: string) {
+  menuFocus.arm()
   renaming.value = path
   renameText.value = name
   await nextTick()
   const el = Array.isArray(renameInput.value) ? renameInput.value[0] : renameInput.value
-  el?.focus()
-  el?.select()
+  if (!el) return
+  menuFocus.focusSoon(() => {
+    el.focus()
+    el.select()
+  })
 }
 
 /** 文件夹改名 / 挪走之后，选中、展开、裁剪这些状态跟着搬到新路径上 —— 不搬的话树会收起来、右边变空 */
@@ -313,6 +320,7 @@ async function reloadVisible() {
 async function commitRename() {
   const path = renaming.value
   if (!path) return
+  menuFocus.disarm()
   renaming.value = ''
   const name = renameText.value.trim()
   if (!name || name === baseName(path)) return
@@ -328,10 +336,12 @@ async function commitRename() {
 
 function onRenameKey(e: KeyboardEvent) {
   if (e.key === 'Enter') void commitRename()
-  else if (e.key === 'Escape') renaming.value = ''
+  else if (e.key === 'Escape') { menuFocus.disarm(); renaming.value = '' }
 }
 
 async function newFolderIn(dir: string) {
+  // 建完才进改名,那时菜单早收了 —— 现在就先挡住它归还焦点
+  menuFocus.arm()
   try {
     const p = await invoke<string>('audio_make_dir', { parent: dir, name: t('audio.newFolderName') })
     await load(dir)
@@ -899,7 +909,8 @@ onBeforeUnmount(() => {
                       class="icon-[lucide--triangle-alert] w-3.5 h-3.5 shrink-0 ml-auto text-destructive" />
                   </button>
                 </ContextMenuTrigger>
-                <ContextMenuContent class="w-auto min-w-44 whitespace-nowrap">
+                <ContextMenuContent class="w-auto min-w-44 whitespace-nowrap"
+                  @close-auto-focus="menuFocus.onCloseAutoFocus">
                   <ContextMenuItem @select="newFolderIn(r.path)">
                     <span class="icon-[lucide--folder-plus] w-4 h-4 mr-2" />{{ t('audio.newFolder') }}
                   </ContextMenuItem>

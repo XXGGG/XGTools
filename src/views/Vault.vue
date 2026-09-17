@@ -85,6 +85,7 @@ import { parseCanvas, updateCanvas, isCanvasContent } from '@/composables/useExc
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { open as openExternal } from '@tauri-apps/plugin-shell'
 import { chat, chatReady, sendPrompt } from '@/composables/useDshChat'
+import { menuFocusHandoff } from '@/lib/menuFocus'
 import PendingCard from '@/components/agent/PendingCard.vue'
 import ShortcutsDialog from '@/components/vault/ShortcutsDialog.vue'
 import { INK_COLORS, type InkColor } from '@/components/editor/markdownShortcuts'
@@ -213,34 +214,18 @@ const inlineInput = useTemplateRef<HTMLInputElement[] | HTMLInputElement>('inlin
 /** 防重入:回车提交之后紧接着还会来一次 blur,不挡的话会提交两遍 */
 let committing = false
 
-/*
-  菜单收起时,Radix 默认把焦点还给触发它的那个行按钮。
-  从菜单里进原地改名的话这就是灾难:焦点被抢走 → 输入框失焦 → 当场按"没改"提交,
-  用户眼睁睁看着刚弹出来的框自己关掉。等一帧也没用,它比一帧还晚。
-  所以进改名的时候直接把这次焦点归还挡掉 —— 焦点本来就该在输入框里。
-*/
-let keepFocus = false
-function onMenuClose(e: Event) {
-  if (!keepFocus) return
-  keepFocus = false
-  e.preventDefault()
-}
+/** 从右键菜单进改名时,别让菜单把焦点抢回去(详见 menuFocus.ts) */
+const menuFocus = menuFocusHandoff()
 
 async function startInline(path: string, name: string) {
-  keepFocus = true
+  menuFocus.arm()
   inlineEdit.value = path
   inlineText.value = name
   await nextTick()
   const el = Array.isArray(inlineInput.value) ? inlineInput.value[0] : inlineInput.value
   if (!el) return
-  /*
-    **要等一帧再聚焦。**
-
-    从右键菜单进来时,菜单关闭的那一下 Radix 会把焦点还给触发它的那个行按钮 ——
-    那件事发生在我们之后,于是刚设好的选区被抹掉(输入框看着是亮的,
-    里面却什么都没选中,用户一打字得先自己全选)。等到下一帧,菜单已经收完了。
-  */
-  requestAnimationFrame(() => {
+  // 从右键菜单进来时菜单还锁着焦点,现在聚焦会被拽回去,等它放开
+  menuFocus.focusSoon(() => {
     el.focus()
     // 只选中主干,扩展名留在后面不选 —— 改名基本都是改主干,
     // 全选中的话用户一打字就把 .md 一起覆盖掉了
@@ -255,7 +240,7 @@ function onInlineKey(e: KeyboardEvent) {
 }
 
 function cancelInline() {
-  keepFocus = false
+  menuFocus.disarm()
   committing = true
   inlineEdit.value = ''
   inlineText.value = ''
@@ -267,7 +252,7 @@ async function commitInline() {
   const path = inlineEdit.value
   const name = inlineText.value.trim()
   if (!path) return
-  keepFocus = false
+  menuFocus.disarm()
   committing = true
   inlineEdit.value = ''
   const old = path.split('/').pop() ?? path
@@ -1482,12 +1467,15 @@ function doClearVault() {
 
 /** 在某个文件夹里新建。建完展开它,不然新东西藏在收起的文件夹里看不见 */
 async function newIn(dir: string, isDir: boolean) {
+  // 建文件要时间,建完才进改名;菜单这时早就收了,所以现在就得先挡住它归还焦点
+  menuFocus.arm()
   selected.value = dir
   await created(await createEntry(dir, isDir, isDir ? t('vault.newFolderName') : t('vault.newNoteName')))
 }
 
 /** 空白处右键新建。都建在库根下 —— 右键的是空白,没有"当前目录"这个概念 */
 async function newAt(kind: 'note' | 'folder' | 'base' | 'canvas') {
+  menuFocus.arm()
   if (kind === 'note') return created(await createEntry('', false, t('vault.newNoteName')))
   if (kind === 'folder') return created(await createEntry('', true, t('vault.newFolderName')))
   if (kind === 'base') return created(await createWithContent('', t('vault.newBaseName'), BASE_TEMPLATE))
@@ -1751,7 +1739,7 @@ async function sendFromVault() {
             </ContextMenuTrigger>
 
             <ContextMenuContent class="w-auto min-w-44 whitespace-nowrap"
-              @close-auto-focus="onMenuClose">
+              @close-auto-focus="menuFocus.onCloseAutoFocus">
               <ContextMenuItem v-if="r.entry.isDir" @select="newIn(r.entry.path, false)">
                 <span class="icon-[lucide--file-plus] w-4 h-4 mr-2" />{{ t('vault.newNote') }}
               </ContextMenuItem>
@@ -1795,7 +1783,8 @@ async function sendFromVault() {
         </div>
 
           </ContextMenuTrigger>
-          <ContextMenuContent class="w-auto min-w-44 whitespace-nowrap">
+          <ContextMenuContent class="w-auto min-w-44 whitespace-nowrap"
+            @close-auto-focus="menuFocus.onCloseAutoFocus">
             <ContextMenuItem @select="newAt('note')">
               <span class="icon-[lucide--file-plus] w-4 h-4 mr-2" />{{ t('vault.newNote') }}
             </ContextMenuItem>
