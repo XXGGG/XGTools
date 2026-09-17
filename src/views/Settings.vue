@@ -172,13 +172,13 @@ function clearPageWidth(path: string) {
   能一键全部重新注册 —— 占着键的程序退出之后,不用重启我们这边也能把键抢回来。
   各功能页上原来的快捷键行还在,改哪边都是同一份数据。
 */
-const HK_META: Record<ShortcutKey, { icon: string; nameKey: string; descKey: string }> = {
-  palette: { icon: 'icon-[lucide--command]', nameKey: 'settings.keyPalette', descKey: 'settings.keyPaletteDesc' },
-  palette_translate: { icon: 'icon-[lucide--languages]', nameKey: 'settings.keyPaletteTranslate', descKey: 'settings.keyPaletteTranslateDesc' },
-  screenshot: { icon: 'icon-[lucide--camera]', nameKey: 'settings.keyScreenshot', descKey: 'settings.keyScreenshotDesc' },
-  screenshot_translate: { icon: 'icon-[lucide--scan-text]', nameKey: 'settings.keyScreenshotTranslate', descKey: 'settings.keyScreenshotTranslateDesc' },
-  record: { icon: 'icon-[lucide--video]', nameKey: 'settings.keyRecord', descKey: 'settings.keyRecordDesc' },
-  dock: { icon: 'icon-[lucide--layout-grid]', nameKey: 'settings.keyDock', descKey: 'settings.keyDockDesc' },
+const HK_META: Record<ShortcutKey, { icon: string; nameKey: string }> = {
+  palette: { icon: 'icon-[lucide--command]', nameKey: 'settings.keyPalette' },
+  palette_translate: { icon: 'icon-[lucide--languages]', nameKey: 'settings.keyPaletteTranslate' },
+  screenshot: { icon: 'icon-[lucide--camera]', nameKey: 'settings.keyScreenshot' },
+  screenshot_translate: { icon: 'icon-[lucide--scan-text]', nameKey: 'settings.keyScreenshotTranslate' },
+  record: { icon: 'icon-[lucide--video]', nameKey: 'settings.keyRecord' },
+  dock: { icon: 'icon-[lucide--layout-grid]', nameKey: 'settings.keyDock' },
 }
 type HkStatus = 'on' | 'taken' | 'off' | 'unset'
 const HK_STATUS: Record<HkStatus, { cls: string; textKey: string }> = {
@@ -317,7 +317,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--power] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.autostart') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.autostartDesc') }}</div>
               </div>
               <Switch :model-value="autostart" @update:model-value="setAutostart" />
             </div>
@@ -328,7 +327,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--palette] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.theme') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.themeDesc') }}</div>
               </div>
               <div class="flex items-center gap-1 rounded-lg border p-1">
                 <button v-for="m in THEMES" :key="m.key" @click="setTheme(m.key)" :title="t(m.labelKey)" :class="[
@@ -361,7 +359,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--languages] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.language') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.languageDesc') }}</div>
               </div>
               <div class="flex items-center gap-1 rounded-lg border p-1">
                 <button v-for="l in LANGS" :key="l.key" @click="setLanguage(l.key)" :class="[
@@ -419,14 +416,11 @@ onUnmounted(() => {
 
         <!-- ================= 导航 ================= -->
         <TabsContent value="keys" class="space-y-5">
-          <p class="text-xs text-muted-foreground">{{ t('settings.keysHint') }}</p>
-
           <div class="rounded-xl border divide-y">
             <div v-for="r in hkRows" :key="r.key" class="flex items-center gap-4 px-4 py-3.5">
               <span :class="[HK_META[r.key].icon, 'w-5 h-5 shrink-0 text-muted-foreground']" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t(HK_META[r.key].nameKey) }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t(HK_META[r.key].descKey) }}</div>
               </div>
               <span class="flex items-center gap-1.5 text-xs shrink-0" :class="HK_STATUS[hkStatus(r)].cls">
                 <span class="w-1.5 h-1.5 rounded-full bg-current" />
@@ -465,7 +459,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--refresh-cw] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.keysReregister') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.keysReregisterDesc') }}</div>
               </div>
               <button @click="reregisterHk" :disabled="hkBusy"
                 class="h-8 px-3.5 rounded-lg border border-border text-sm transition-colors hover:bg-muted disabled:opacity-50">
@@ -476,7 +469,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--rotate-ccw] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.keysResetAll') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.keysResetAllDesc') }}</div>
               </div>
               <button @click="hkResetOpen = true" :disabled="hkBusy"
                 class="h-8 px-3.5 rounded-lg border border-border text-sm transition-colors hover:bg-muted disabled:opacity-50">
@@ -488,10 +480,6 @@ onUnmounted(() => {
         </TabsContent>
 
         <TabsContent value="sidebar" class="space-y-5">
-          <p class="text-xs text-muted-foreground">
-            {{ t('settings.navHint') }}
-          </p>
-
           <!--
             候选只列**没被隐藏的**页:选一个自己关掉的页当启动页,
             结果只能是启动时被退回别的地方 —— 那就不该让人选得到。
@@ -501,7 +489,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--play] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.startPage') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.startPageDesc') }}</div>
               </div>
               <!--
                 用项目自己的 Select,不用原生 <select> —— 原生下拉是系统控件,
@@ -579,8 +566,6 @@ onUnmounted(() => {
 
         <!-- ================= 笔记 ================= -->
         <TabsContent value="vault" class="space-y-6">
-          <p class="text-xs text-muted-foreground">{{ t('settings.vaultHint') }}</p>
-
           <section class="space-y-2">
             <h3 class="text-sm font-medium">{{ t('settings.vaultSecLook') }}</h3>
             <div class="rounded-xl border divide-y">
@@ -589,14 +574,13 @@ onUnmounted(() => {
                 <span class="icon-[lucide--type] w-5 h-5 shrink-0 text-muted-foreground" />
                 <div class="flex-1 min-w-0">
                   <div class="text-sm">{{ t('settings.vaultFont') }}</div>
-                  <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultFontDesc') }}</div>
                 </div>
               </div>
               <!--
                 每一档用它自己的字体写自己的名字 —— 字体这种东西说再多也不如看一眼,
                 尤其后三档中文差别很大,光看「快乐体 / 智芒星 / 马善政」根本分不出来。
               -->
-              <div class="grid grid-cols-3 gap-2 pl-9">
+              <div class="grid grid-cols-5 gap-2 pl-9">
                 <button v-for="f in VAULT_FONTS" :key="f" @click="settings.vaultFont = f"
                   :style="{ fontFamily: VAULT_FONT_STACK[f] }" :class="[
                     'rounded-lg border px-3 py-2.5 text-[15px] transition-colors',
@@ -609,7 +593,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--palette] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.vaultAccent') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultAccentDesc') }}</div>
               </div>
               <!-- 给一组定好的色而不是取色器:原生取色器和界面对不上,而且随便选容易选出看不清的 -->
               <div class="flex items-center gap-1.5 shrink-0">
@@ -625,7 +608,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--spell-check] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.vaultSpellcheck') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultSpellcheckDesc') }}</div>
               </div>
               <Switch v-model="settings.vaultSpellcheck" />
             </div>
@@ -634,7 +616,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--panel-bottom] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.vaultStatusBar') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultStatusBarDesc') }}</div>
               </div>
               <Switch v-model="settings.vaultStatusBar" />
             </div>
@@ -643,7 +624,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--paintbrush] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.vaultColorHeadings') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultColorHeadingsDesc') }}</div>
               </div>
               <Switch v-model="settings.vaultColorHeadings" />
             </div>
@@ -652,9 +632,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--a-large-small] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.vaultFontSize') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">
-                  {{ t('settings.vaultFontSizeDesc', { min: VAULT_FONT_SIZE.min, max: VAULT_FONT_SIZE.max }) }}
-                </div>
               </div>
               <!-- 滑块行程就是允许的范围本身,超出的值根本选不到 -->
               <div class="flex items-center gap-3 shrink-0">
@@ -674,7 +651,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--between-horizontal-start] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.vaultFullWidth') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultFullWidthDesc') }}</div>
               </div>
               <Switch v-model="settings.vaultFullWidth" />
             </div>
@@ -694,7 +670,6 @@ onUnmounted(() => {
               <span class="icon-[lucide--image] w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm">{{ t('settings.vaultAttach') }}</div>
-                <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultAttachDesc') }}</div>
               </div>
               <!-- 「和笔记并排」不需要目录名,那个框跟着隐藏,免得填了没用还让人以为坏了 -->
               <Input v-if="settings.vaultAttachMode !== 'note'" v-model="settings.vaultAttachDir"
@@ -712,7 +687,6 @@ onUnmounted(() => {
             <span class="icon-[lucide--eye-off] w-5 h-5 shrink-0 text-muted-foreground" />
             <div class="flex-1 min-w-0">
               <div class="text-sm">{{ t('settings.vaultHideAttach') }}</div>
-              <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultHideAttachDesc') }}</div>
             </div>
             <Switch v-model="settings.vaultHideAttachDir"
               :disabled="settings.vaultAttachMode === 'note'" />
@@ -721,7 +695,6 @@ onUnmounted(() => {
             <span class="icon-[lucide--file-image] w-5 h-5 shrink-0 text-muted-foreground" />
             <div class="flex-1 min-w-0">
               <div class="text-sm">{{ t('settings.vaultWebp') }}</div>
-              <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultWebpDesc') }}</div>
             </div>
             <Switch v-model="settings.vaultWebp" />
           </div>
@@ -735,7 +708,6 @@ onUnmounted(() => {
             <span class="icon-[lucide--trash-2] w-5 h-5 shrink-0 text-muted-foreground" />
             <div class="flex-1 min-w-0">
               <div class="text-sm">{{ t('settings.vaultTrash') }}</div>
-              <div class="text-xs text-muted-foreground mt-0.5">{{ t('settings.vaultTrashDesc') }}</div>
             </div>
             <div class="flex items-center gap-1 rounded-lg border p-1 shrink-0">
               <button v-for="o in [false, true]" :key="String(o)" @click="settings.vaultTrashToSystem = o" :class="[
@@ -762,7 +734,6 @@ onUnmounted(() => {
                 {{ t('settings.vaultPageWidthClearAll') }}
               </button>
             </div>
-            <p class="text-xs text-muted-foreground">{{ t('settings.vaultPageWidthDesc', { n: pageWidthCount }) }}</p>
             <div class="rounded-xl border divide-y max-h-64 overflow-y-auto">
               <div v-for="[path, mode] in pageWidthList" :key="path"
                 class="flex items-center gap-3 px-4 py-2.5">
