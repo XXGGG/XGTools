@@ -1569,7 +1569,15 @@ async function sendFromVault() {
 
         <!-- 卡片直接贴在 y=10,不再套一层更高的行 -->
         <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3">
-          <!-- 工作区这一组放最左边:它决定了下面所有东西是什么,和「新建」不是一类操作 -->
+          <!--
+            收起目录栏放最左:收起后那张「展开」方卡片也在最左边,收和开在同一个位置,手不用找。
+            后面一道细线隔开 —— 它是「这一栏要不要占地方」,和右边那几个「对这个库做什么」不是一类。
+          -->
+          <button @click="treeOpen = false" :title="t('vault.hideTree')" class="tool-btn">
+            <span class="icon-[lucide--panel-left-close] w-4 h-4" />
+          </button>
+          <span class="w-px h-5 mx-1 shrink-0 bg-border" />
+          <!-- 工作区这一组:它决定了下面所有东西是什么,和「新建」不是一类操作 -->
           <button @click="pickVault" :title="t('vault.changeFolder')" class="tool-btn">
             <span class="icon-[lucide--folder-open] w-4 h-4" />
           </button>
@@ -1579,14 +1587,6 @@ async function sendFromVault() {
           <!-- 回收站也是「这个库整体」的事,跟工作区那两个放一组,不和新建混在一起 -->
           <button @click="openTrash" :title="t('vault.trash')" class="tool-btn">
             <span class="icon-[lucide--trash-2] w-4 h-4" />
-          </button>
-
-          <!--
-            收起目录栏。ml-auto 顶到最右 —— 它不是「对这个库做什么」,
-            是「这一栏要不要占地方」,和左边那三个不是一类,拉开距离才不会误点。
-          -->
-          <button @click="treeOpen = false" :title="t('vault.hideTree')" class="tool-btn ml-auto">
-            <span class="icon-[lucide--panel-left-close] w-4 h-4" />
           </button>
         </div>
 

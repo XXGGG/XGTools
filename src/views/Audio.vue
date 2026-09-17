@@ -841,6 +841,11 @@ onBeforeUnmount(() => {
         :class="treeInFlow ? 'shrink-0'
           : ['tree-drawer absolute z-30 top-2.5 bottom-2.5 drop-shadow-2xl', zenMode ? 'left-2.5' : 'left-[4.875rem]']">
         <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3">
+          <!-- 收起放最左，和收起后那张「展开」方卡片同一个位置；细线隔开，免得和添加工作区挨着点错 -->
+          <button @click="hideTree" :title="t('audio.hideTree')" class="tool-btn">
+            <span class="icon-[lucide--panel-left-close] w-4 h-4" />
+          </button>
+          <span class="w-px h-5 mx-1 shrink-0 bg-border" />
           <button @click="pickRoot" :title="t('audio.addRoot')" class="tool-btn">
             <span class="icon-[lucide--folder-plus] w-4 h-4" />
           </button>
@@ -857,9 +862,6 @@ onBeforeUnmount(() => {
           </button>
           <button @click="collapseAll" :title="t('audio.collapseAll')" class="tool-btn">
             <span class="icon-[lucide--chevrons-down-up] w-4 h-4" />
-          </button>
-          <button @click="hideTree" :title="t('audio.hideTree')" class="tool-btn">
-            <span class="icon-[lucide--panel-left-close] w-4 h-4" />
           </button>
         </div>
 
