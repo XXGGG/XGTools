@@ -25,6 +25,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: 'Translate', labelKey: 'nav.translate', icon: 'icon-[lucide--languages]', group: 'tool' },
   { id: 'Convert', labelKey: 'nav.convert', icon: 'icon-[lucide--refresh-ccw]', group: 'tool' },
   { id: 'Audio', labelKey: 'nav.audio', icon: 'icon-[lucide--audio-lines]', group: 'tool' },
+  { id: 'Fonts', labelKey: 'nav.fonts', icon: 'icon-[lucide--type]', group: 'tool' },
   // 下卡片:后台功能的配置页,和最下面的应用设置挨在一起
   { id: 'Palette', labelKey: 'nav.palette', icon: 'icon-[lucide--command]', group: 'config' },
   { id: 'Dock', labelKey: 'nav.dock', icon: 'icon-[lucide--layout-grid]', group: 'config' },

@@ -125,6 +125,20 @@ export type AppSettings = {
   audioDeep: boolean
   /** 音频试听页的目录栏开着没有（宽窗口时；窄窗口自动收起，不看这个） */
   audioTreeOpen: boolean
+  /** 字体库：样张那句话。空 = 用默认的（中文字体一句诗，西文字体一句 quick brown fox） */
+  fontSample: string
+  /** 字体库：样张字号 */
+  fontSize: number
+  /** 字体库：样张底色。auto 跟主题；dark / light 固定深底、浅底，看字压在另一种底上的样子 */
+  fontBg: 'auto' | 'dark' | 'light'
+  /** 字体库：收藏。本机字体存 f:族名键，推荐里的存 p:id */
+  fontFavorites: string[]
+  /** 字体库：只看放心商用（OFL 这类开源协议）的 */
+  fontOnlySafe: boolean
+  /** 字体库：上次停在哪个分类 */
+  fontCat: string
+  /** 字体库：分类栏开着没有（宽窗口时） */
+  fontTreeOpen: boolean
   /**
    * 标题、引用这些块要不要上色。
    *
@@ -256,6 +270,13 @@ const DEFAULTS: AppSettings = {
   audioExportFormat: 'wav' as 'wav' | 'ogg' | 'mp3' | 'flac' | 'original',
   audioDeep: false,
   audioTreeOpen: true,
+  fontSample: '',
+  fontSize: 30,
+  fontBg: 'auto' as 'auto' | 'dark' | 'light',
+  fontFavorites: [] as string[],
+  fontOnlySafe: false,
+  fontCat: 'all',
+  fontTreeOpen: true,
   vaultColorHeadings: true,
   vaultMarkMode: 'clean',
   vaultStatusBar: true,

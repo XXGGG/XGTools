@@ -9,6 +9,10 @@ mod audio_loopback;
 mod long_shot_stitch;
 mod long_shot;
 mod audio_commands;
+mod font_sfnt;
+mod font_license;
+mod font_catalog;
+mod font_commands;
 mod foreign_projects;
 mod window_effects;
 mod dsh_commands;
@@ -315,6 +319,17 @@ pub fn run() {
             audio_commands::audio_rename,
             audio_commands::audio_list_deep,
             audio_commands::audio_move,
+            font_commands::font_scan,
+            font_commands::font_set_enabled,
+            font_commands::font_uninstall,
+            font_commands::font_trash_list,
+            font_commands::font_trash_restore,
+            font_commands::font_trash_purge,
+            font_commands::font_catalog,
+            font_commands::font_install,
+            font_commands::font_coverage,
+            font_commands::font_missing,
+            font_commands::font_allow_files,
             foreign_projects::scan_claude_sessions,
             foreign_projects::read_claude_session,
             disable_window_transitions,

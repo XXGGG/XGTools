@@ -66,7 +66,8 @@ tauri-plugin-drag = "2.1.1"
 tauri-plugin-autostart = "2"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["shellapi", "winuser", "wingdi", "combaseapi", "objbase", "commoncontrols", "shobjidl_core", "libloaderapi", "unknwnbase", "minwinbase", "wtypesbase", "objidl"] }
+# winreg:字体库要读写「字体」那张注册表(HKCU 装给自己、HKLM 看系统里有什么),见 font_commands.rs
+winapi = { version = "0.3", features = ["shellapi", "winuser", "wingdi", "combaseapi", "objbase", "commoncontrols", "shobjidl_core", "libloaderapi", "unknwnbase", "minwinbase", "wtypesbase", "objidl", "winreg"] }
 lnk = "0.5"
 window-vibrancy = "0.5"
 # Win32_System_Com / _Variant / _Ole:查 Windows 索引要走 ADO 的晚绑定调用
