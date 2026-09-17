@@ -229,13 +229,13 @@ onUnmounted(() => {
 
           <p class="text-[13px] text-muted-foreground leading-relaxed">{{ t('palettePage.about') }}</p>
 
-          <!-- 搜索范围:四类,外加文件那一路的后端状态 -->
+          <!-- 搜索范围:三类,外加文件那一路的后端状态 -->
           <div>
             <p class="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-2">
               {{ t('palettePage.sources') }}
             </p>
             <div class="flex flex-wrap gap-1.5">
-              <span v-for="s in ['pages', 'apps', 'notes', 'sessions']" :key="s"
+              <span v-for="s in ['pages', 'apps', 'notes']" :key="s"
                 class="h-6 px-2 rounded-md border border-border text-[11.5px] flex items-center gap-1 text-muted-foreground">
                 {{ t(`palettePage.src_${s}`) }}
               </span>

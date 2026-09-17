@@ -19,7 +19,6 @@ export type SidebarPrefs = { order: string[]; hidden: string[] }
  */
 export const MENU_ITEMS: MenuItem[] = [
   // 上卡片:平时会打开来用的工具
-  { id: 'Agent', labelKey: 'nav.agent', icon: 'icon-[ri--deepseek-line]', group: 'tool' },
   { id: 'Vault', labelKey: 'nav.vault', icon: 'icon-xg-obsidian', group: 'tool' },
   { id: 'Timer', labelKey: 'nav.timer', icon: 'icon-[lucide--timer]', group: 'tool' },
   { id: 'Translate', labelKey: 'nav.translate', icon: 'icon-[lucide--languages]', group: 'tool' },

@@ -35,22 +35,7 @@ export type AppSettings = {
   /** 条目归哪一组的用户覆盖(id → 'tool' | 'config')。空表示用代码里的默认分组。 */
   sidebarGroups: Record<string, string>
 
-  // ── 智能体页 ──
-  /** 会话侧栏宽度(px)。用户可以拖,写回这里。范围由 AGENT_SIDEBAR 约束。 */
-  agentSidebarWidth: number
-  /** 工作台里正文栏放中间还是对话放中间。项目可以单独覆盖 */
-  agentLayout: 'doc-center' | 'chat-center'
-  /**
-   * 靠右那一栏的宽度(px)。工作台里总有一栏铺满、一栏定宽,定宽的永远是靠右那个,
-   * 所以换边之后拖的还是这一个数 —— 两栏各存一份的话,一换边宽度就跳。
-   */
-  agentDocWidth: number
-  /** 会话列表里那两区收起来了没。记着,不然每次进来都要再收一次 */
-  agentPinnedFold: boolean
-  agentCasualFold: boolean
-  /** 空态那句招呼语。留空就用当前语言的默认文案 —— 存空串而不是存默认值,
-   *  否则切语言时会被钉死在设置那天的那个语种上。 */
-  agentGreeting: string
+  // ── 命令面板 ──
   /**
    * 命令面板里回车默认是不是翻译。
    *
@@ -59,12 +44,9 @@ export type AppSettings = {
    * 之所以给这个开关:老拿它找文件的人,每次回车都翻译一次是纯粹的干扰。
    */
   paletteTranslateFirst: boolean
-  /** 聊天区外观:'card' 和侧栏一样是张浮空卡片;'flat' 直接铺在窗口材质上,更透。 */
-  agentChatSurface: ChatSurface
 
   // ── 笔记页 ──
   vaultTreeWidth: number
-  vaultChatWidth: number
   /**
    * 图片存哪儿。三种,对齐 Obsidian:
    *
@@ -119,8 +101,6 @@ export type AppSettings = {
    * 同样不写进笔记：markdown 表格没有列宽这回事，见 editor/tableColumns.ts
    */
   vaultTableWidths: Record<string, number[]>
-  /** 右边那一栏开着没有。现在只有智能体会占它,大纲改成贴右缘的悬浮层了 */
-  vaultSidePanel: 'none' | 'chat'
   /** 音频试听页挂上的工作区（绝对路径），可以好几个 */
   audioRoots: string[]
   /** 音频试听页上次选中的文件夹。下次进来还停在这 */
@@ -232,13 +212,6 @@ export const VAULT_ACCENTS = [
   '#8b6cef', '#4f8ff7', '#2fb8a8', '#4caf50', '#e8913a', '#e05780',
 ] as const
 
-export const AGENT_SIDEBAR = { min: 200, max: 420, minChat: 460 } as const
-
-/** 正文栏能拖到多宽。minChat 是留给对话的下限 —— 正文再宽也不能把对话挤没 */
-export const AGENT_DOC = { min: 320, max: 900, minChat: AGENT_SIDEBAR.minChat } as const
-
-export type ChatSurface = 'card' | 'flat'
-
 const SETTINGS_VERSION = 2
 
 const DEFAULTS: AppSettings = {
@@ -251,16 +224,8 @@ const DEFAULTS: AppSettings = {
   sidebarHidden: [],
   startPage: '',
   sidebarGroups: {},
-  agentSidebarWidth: 240,
-  agentLayout: 'doc-center',
-  agentDocWidth: 448,
-  agentPinnedFold: false,
-  agentCasualFold: false,
-  agentGreeting: '',
   paletteTranslateFirst: true,
-  agentChatSurface: 'card',
   vaultTreeWidth: 260,
-  vaultChatWidth: 320,
   vaultFont: 'default' as VaultFont,
   vaultAccent: VAULT_ACCENTS[0],
   vaultTrashToSystem: false,
@@ -271,7 +236,6 @@ const DEFAULTS: AppSettings = {
   vaultFullWidth: false,
   vaultPageWidth: {},
   vaultTableWidths: {} as Record<string, number[]>,
-  vaultSidePanel: 'chat' as 'none' | 'chat',
   audioRoots: [] as string[],
   audioSelected: '',
   audioExportFormat: 'wav' as 'wav' | 'ogg' | 'mp3' | 'flac' | 'original',
@@ -342,10 +306,6 @@ export async function loadSettings() {
     if (!VAULT_FONTS.includes(settings.vaultFont)) settings.vaultFont = DEFAULTS.vaultFont
     settings.vaultFontSize = Math.min(VAULT_FONT_SIZE.max,
       Math.max(VAULT_FONT_SIZE.min, Math.round(settings.vaultFontSize || VAULT_FONT_SIZE.def)))
-    settings.agentSidebarWidth = Math.min(AGENT_SIDEBAR.max,
-      Math.max(AGENT_SIDEBAR.min, Math.round(settings.agentSidebarWidth)))
-    settings.agentDocWidth = Math.min(AGENT_DOC.max,
-      Math.max(AGENT_DOC.min, Math.round(settings.agentDocWidth || DEFAULTS.agentDocWidth)))
     // 旧存档可能选的是已移除的高斯模糊,迁到亚克力,免得停在一个界面上不存在的选项
     if ((settings.blurKind as string) === 'blur') settings.blurKind = 'acrylic'
     // 语言:选了 auto 就每次启动重新看系统语言,否则用存档里选定的那个

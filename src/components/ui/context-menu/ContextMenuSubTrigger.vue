@@ -24,7 +24,7 @@ const forwardedProps = useForwardProps(delegatedProps)
   下面那一长串类名一个都没生效。于是「有子菜单的那一行」和它上下的兄弟行长得不一样
   (缩进差一截、没有箭头),而且改这里的类名怎么改都没反应。折腾了三轮才查出来。
 
-  所以用法是(见 Agent.vue / SessionItem.vue):
+  所以用法是:
 
   ```
   <ContextMenuSubTrigger as-child>

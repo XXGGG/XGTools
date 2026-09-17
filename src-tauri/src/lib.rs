@@ -13,10 +13,7 @@ mod font_sfnt;
 mod font_license;
 mod font_catalog;
 mod font_commands;
-mod foreign_projects;
 mod window_effects;
-mod dsh_commands;
-mod dsh_bridge;
 mod vault_commands;
 mod vault_attach;
 mod vault_history;
@@ -161,8 +158,6 @@ pub fn run() {
             initializing: std::sync::atomic::AtomicBool::new(false),
         })
         .manage(window_detect::ComThread::spawn())
-        .manage(dsh_commands::DshSidecar::default())
-        .manage(dsh_bridge::DshBridge::default())
         .manage(vault_watch::VaultWatch::default())
         .manage(convert_commands::ConvertState {
             cancel_flags: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -182,23 +177,6 @@ pub fn run() {
             // 窗口背景特效(云母/亚克力/模糊)
             window_effects::set_window_effect,
             window_effects::set_window_corners,
-            // DSH 边车:探测环境、按需安装、随应用起停
-            dsh_commands::dsh_preflight,
-            dsh_commands::dsh_install,
-            dsh_commands::dsh_start,
-            dsh_commands::dsh_stop,
-            dsh_commands::dsh_status,
-            dsh_commands::dsh_footprint,
-            dsh_commands::dsh_uninstall,
-            dsh_commands::dsh_plugins,
-            dsh_commands::dsh_plugin_add,
-            dsh_commands::dsh_plugin_remove,
-            // DSH 通信桥:一元 RPC + 两条事件流
-            dsh_bridge::dsh_rpc,
-            dsh_bridge::dsh_respond,
-            dsh_bridge::dsh_history,
-            dsh_bridge::dsh_connect,
-            dsh_bridge::dsh_disconnect,
             // 托盘菜单(自绘窗口,不是系统原生菜单 —— 见 tray.rs 顶部)
             tray::anchor_tray_menu,
             tray::hide_tray_menu,
@@ -330,8 +308,6 @@ pub fn run() {
             font_commands::font_coverage,
             font_commands::font_missing,
             font_commands::font_allow_files,
-            foreign_projects::scan_claude_sessions,
-            foreign_projects::read_claude_session,
             disable_window_transitions,
             set_window_no_activate,
             // 动态壁纸 / 定时屏保
@@ -673,10 +649,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
-            // 主窗口关闭只是隐藏(托盘应用),所以边车不能挂在 CloseRequested 上收 ——
-            // 那样最小化到托盘就把智能体杀了。只在进程真正退出时收。
+            // 主窗口关闭只是隐藏(托盘应用),所以录屏不能挂在 CloseRequested 上收 ——
+            // 那样最小化到托盘就把正在录的那段掐了。只在进程真正退出时收。
             if let tauri::RunEvent::Exit = event {
-                dsh_commands::shutdown(app);
                 record_commands::shutdown(app);
             }
         });

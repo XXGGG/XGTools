@@ -7,7 +7,6 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { settings, loadSettings, applyVibrancyVars, applyWindowEffect } from './composables/useAppSettings'
 import { MENU_ITEMS, reconcile, splitGroups } from './lib/sidebar-prefs'
 import { useI18n } from './i18n'
-import { autoStartDsh } from './composables/useDsh'
 
 /**
  * 顶部那一行拖窗口。
@@ -75,7 +74,6 @@ import BootCloth from './components/BootCloth.vue'
 import { zen } from './composables/useZen'
 import { bindBrowserKeys } from './composables/useBrowserKeys'
 import HomeView from './views/Home.vue'
-import AgentView from './views/Agent.vue'
 const VaultView = defineAsyncComponent(() => import('./views/Vault.vue'))
 import SettingsView from './views/Settings.vue'
 import TimerView from './views/Timer.vue'
@@ -100,9 +98,7 @@ import LongShotBar from './screenshot/LongShotBar.vue'
 const { t } = useI18n()
 /*
   空串开局,等设置读完再定(见 onMounted 里的 startPage)。
-
-  以前这里直接写死 'Agent' —— 而 Agent 是可以在设置里关掉的,
-  关掉之后启动照样停在它上面,侧栏没有对应的图标,看着像卡在一个不存在的页。
+  别写死某一页:那一页可能在设置里被关掉了,启动停在一个侧栏里没有的页上。
 */
 const currentView = ref('')
 // 侧栏显示哪些页、什么顺序,由设置页驱动(清单本体在 lib/sidebar-prefs.ts)
@@ -206,11 +202,6 @@ onMounted(async () => {
   await loadSettings()
   currentView.value = resolveStartPage()
 
-  // 「打开 XGTools 就是打开智能体」—— 边车在这里就拉起来,不等用户切到那一页。
-  // 不 await:装了 DSH 的话它要几秒才 ready,挂在这儿会把整个界面的首屏卡住。
-  // 环境不齐时它什么都不做,由智能体页去引导。
-  void autoStartDsh()
-
   // 恢复上次的窗口特效(主题已在 loadSettings 里应用,材质跟着主题走)
   if (settings.blurKind !== 'none') {
     const err = await applyWindowEffect()
@@ -255,7 +246,7 @@ onMounted(async () => {
 
   /*
     命令面板的回车动作。面板是独立窗口,只能靠事件把结果送回主窗口。
-    三种都要先把视图切过去,再去打开具体那一条。
+    都要先把视图切过去,再去打开具体那一条。
   */
   listen<{ view: string }>('palette-go', e => { currentView.value = e.payload.view })
 
@@ -266,12 +257,6 @@ onMounted(async () => {
     const { restoreVault, openFile, vault } = await import('./composables/useVault')
     if (!vault.root) await restoreVault()
     await openFile(e.payload.path)
-  })
-
-  listen<{ sessionId: string }>('palette-open-session', async e => {
-    currentView.value = 'Agent'
-    const { openSession } = await import('./composables/useDshChat')
-    await openSession(e.payload.sessionId)
   })
 
   // 监听快捷键注册失败通知
@@ -355,7 +340,6 @@ onMounted(async () => {
           <div :key="currentView" class="absolute inset-0 overflow-auto"
             :class="zen.on ? 'pt-2.5 pl-2.5' : 'pt-[4.875rem] pl-[4.875rem]'">
             <HomeView v-if="currentView === 'Home'" />
-            <AgentView v-else-if="currentView === 'Agent'" />
             <VaultView v-else-if="currentView === 'Vault'" />
             <SettingsView v-else-if="currentView === 'Settings'" />
             <TimerView v-else-if="currentView === 'Timer'" />
@@ -373,7 +357,7 @@ onMounted(async () => {
 
     <!-- 禅模式:整条顶栏(含右上角三颗控制点)让开 -->
     <TitleBar v-if="!zen.on" class="absolute top-2.5 left-2.5 right-2.5 z-50"
-      :active="currentView === 'Home'" :engine="currentView === 'Agent'"
+      :active="currentView === 'Home'"
       @logo="currentView = 'Home'" />
 
     <!-- 启动黑布:粒子汇聚成 Logo,一切就绪后散场淡出(见 BootCloth.vue) -->

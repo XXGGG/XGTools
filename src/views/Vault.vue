@@ -1,11 +1,9 @@
 <script setup lang="ts">
 /**
- * 笔记页 —— 左边文件树、中间编辑器、右边智能体。
+ * 笔记页 —— 左边文件树、右边编辑器。
  *
- * 三栏各自能收:文件树可以拖宽,右边那栏可以整个收起来 ——
- * 没配 DSH 的人不该被一个用不了的面板占掉三分之一屏幕。
- *
- * 版式和智能体页一致:四边外缩一律 10px,左边给导航栏让出 4.875rem(78px)。
+ * 文件树可以拖宽,也可以整个收起来。
+ * 四边外缩一律 10px,左边给导航栏让出 4.875rem(78px)。
  */
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, useTemplateRef, defineAsyncComponent } from 'vue'
 import { useI18n } from '@/i18n'
@@ -84,9 +82,7 @@ const ExcalidrawCanvas = defineAsyncComponent(() => import('@/components/Excalid
 import { parseCanvas, updateCanvas, isCanvasContent } from '@/composables/useExcalidraw'
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { open as openExternal } from '@tauri-apps/plugin-shell'
-import { chat, chatReady, sendPrompt } from '@/composables/useDshChat'
 import { menuFocusHandoff } from '@/lib/menuFocus'
-import PendingCard from '@/components/agent/PendingCard.vue'
 import ShortcutsDialog from '@/components/vault/ShortcutsDialog.vue'
 import { INK_COLORS, type InkColor } from '@/components/editor/markdownShortcuts'
 
@@ -108,28 +104,24 @@ async function bindSystemDrop() {
 }
 onBeforeUnmount(() => { unlistenDrop?.(); unlistenDrop = null })
 
-// ── 三栏宽度 ──
+// ── 文件树宽度 ──
 const rootEl = ref<HTMLElement | null>(null)
-const dragging = ref<'tree' | 'chat' | null>(null)
+const dragging = ref(false)
 
-function startDrag(which: 'tree' | 'chat', e: PointerEvent) {
-  dragging.value = which
+function startDrag(e: PointerEvent) {
+  dragging.value = true
   const startX = e.clientX
-  const startW = which === 'tree' ? settings.vaultTreeWidth : settings.vaultChatWidth
+  const startW = settings.vaultTreeWidth
   const el = e.currentTarget as HTMLElement
   el.setPointerCapture(e.pointerId)
   const move = (ev: PointerEvent) => {
-    // 右栏是从右往左量的,所以位移取反
-    const delta = which === 'tree' ? ev.clientX - startX : startX - ev.clientX
     const total = rootEl.value?.clientWidth ?? 1200
-    // 中间的编辑器至少留 420px —— 比这窄的话 markdown 根本没法读
-    const max = Math.max(180, total - 420 - (which === 'tree' ? settings.vaultChatWidth : settings.vaultTreeWidth))
-    const w = Math.round(Math.min(max, Math.max(180, startW + delta)))
-    if (which === 'tree') settings.vaultTreeWidth = w
-    else settings.vaultChatWidth = w
+    // 右边的编辑器至少留 420px —— 比这窄的话 markdown 根本没法读
+    const max = Math.max(180, total - 420)
+    settings.vaultTreeWidth = Math.round(Math.min(max, Math.max(180, startW + ev.clientX - startX)))
   }
   const up = (ev: PointerEvent) => {
-    dragging.value = null
+    dragging.value = false
     el.releasePointerCapture(ev.pointerId)
     el.removeEventListener('pointermove', move)
     el.removeEventListener('pointerup', up)
@@ -1199,21 +1191,6 @@ async function openWiki(target: string) {
   } catch { /* 找不到就当没点 */ }
 }
 
-const sidePanel = computed({
-  get: () => settings.vaultSidePanel,
-  set: (v: 'none' | 'chat') => { settings.vaultSidePanel = v },
-})
-
-/** 点已经开着的那个就收起来,和侧栏图标的通用手感一致 */
-function toggleSide(which: 'chat') {
-  sidePanel.value = sidePanel.value === which ? 'none' : which
-}
-
-const chatOpen = computed({
-  get: () => sidePanel.value === 'chat',
-  set: (v: boolean) => { sidePanel.value = v ? 'chat' : 'none' },
-})
-
 // ── 搜索(按需展开) ──────────────────────────────────
 
 const searchOpen = ref(false)
@@ -1276,8 +1253,6 @@ watch(() => activeTab.value?.path, () => {
 // 鼠标刚移进来那一下也要算一次:在此之前可能一次都没滚过,
 // 高亮会停在 -1,看着像这个功能没做
 watch(outlineHover, (v) => { if (v) syncActiveHeading() })
-/** 右栏开着。布局要靠它决定正文那一列留不留窗口控制点的位置 */
-const sideOpen = computed(() => sidePanel.value !== 'none')
 
 const treeOpen = computed({
   get: () => settings.vaultTreeOpen,
@@ -1507,37 +1482,6 @@ function expandAllHeadings() {
 /** 一次只问一篇,答完自动轮到下一篇 */
 const conflict = computed(() => vault.conflicts[0] ?? null)
 
-// ── 右侧智能体 ──
-const chatInput = ref('')
-const chatListEl = ref<HTMLElement | null>(null)
-
-function onChatKey(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-    e.preventDefault()
-    sendFromVault()
-  }
-}
-
-/**
- * 从笔记页发问。
- *
- * 会把当前打开的文件**路径**一起带上 —— 用户说「总结这份笔记」时,
- * 智能体得知道指的是哪一份。给路径而不是全文:它自己有 read 工具,
- * 让它按需读比我们把几千字塞进提示词划算,也不会撑爆上下文。
- */
-async function sendFromVault() {
-  const text = chatInput.value.trim()
-  if (!text) return
-  chatInput.value = ''
-  const t = activeTab.value
-  // 路径用 / 拼即可 —— DSH 的 fs 工具在 Windows 上也认正斜杠,
-  // 而拼反斜杠反而要在模板字符串里做一层转义,容易出错
-  const prefixed = t ? `[当前笔记] ${vault.root}/${t.path}\n\n${text}` : text
-  await sendPrompt(prefixed)
-  await nextTick()
-  const el = chatListEl.value
-  if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-}
 </script>
 
 <template>
@@ -1548,7 +1492,7 @@ async function sendFromVault() {
          (算式在 App.vue 的侧栏注释里)。横竖都用它。
     10 = 所有间距,包括四边外缩。
 
-      横:10 │ 导航栏 58 │ 10 │ 文件树 … │ 10 │ 编辑器 … │ 10 │ 智能体 … │ 10
+      横:10 │ 导航栏 58 │ 10 │ 文件树 … │ 10 │ 编辑器 … │ 10
       纵:10 │ 顶部卡片 58 │ 10 │ 主卡片 一直到 bottom-10
 
     → 页面左让位 pl-[4.875rem] = 10 + 58 + 10 = 78
@@ -1820,11 +1764,11 @@ async function sendFromVault() {
       </div>
 
       <!-- 禅模式下目录栏藏了,这根推拉杠也得跟着走 —— 留着就是一条谁都拖不动的竖线 -->
-      <div v-if="treeOpen && !zenMode" @pointerdown="startDrag('tree', $event)"
+      <div v-if="treeOpen && !zenMode" @pointerdown="startDrag($event)"
         class="w-2.5 shrink-0 cursor-col-resize flex items-center justify-center group">
         <!-- 常显,不是悬停才出现 —— 不然没人知道这两栏之间能拖 -->
         <div class="w-0.5 h-10 rounded-full bg-border transition-colors group-hover:bg-foreground/40"
-          :class="dragging === 'tree' ? 'bg-foreground/60' : ''" />
+          :class="dragging ? 'bg-foreground/60' : ''" />
       </div>
 
       <!-- ═══════ 编辑器列 ═══════ -->
@@ -1843,10 +1787,8 @@ async function sendFromVault() {
           右边留出窗口控制点的位置:它们浮在最上层,标签滚到那儿会被压住。
           用外边距而不是内边距 —— 内边距只是把内容推开,卡片本身还是顶到最右,
           看着像"标签栏一直延伸到控件底下"。130 = 控件卡片宽 120 + 间隔 10。
-          智能体栏开着的时候编辑器列本来就够不到右上角,那时候不用留。
         -->
-        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5"
-          :class="sideOpen ? '' : 'mr-[130px]'">
+        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5 mr-[130px]">
 
           <!--
             目录栏收起来之后,展开按钮变成标签条前面一张 58×58 的方卡片。
@@ -1905,9 +1847,8 @@ async function sendFromVault() {
         <!-- relative:悬浮大纲要贴着这张卡片的右缘定位 -->
         <section class="float-card relative flex-1 min-h-0 rounded-[14px] border bg-card flex flex-col overflow-hidden">
           <!--
-            正文上面这一小行:左边前进后退,中间当前文件的路径,右边是智能体开关和更多。
-            智能体那个开关原来是右下角一颗浮标 —— 挪上来之后所有跟"这篇文档"有关的
-            操作都在同一行,不用满屏找。
+            正文上面这一小行:左边前进后退,中间当前文件的路径,右边是全展开和更多。
+            所有跟"这篇文档"有关的操作都在同一行,不用满屏找。
           -->
           <!--
             和底部那两块一样浮在正文上、一样磨砂 —— 三块用同一套质感,
@@ -1954,12 +1895,6 @@ async function sendFromVault() {
             <button v-if="anyFolded" @click="expandAllHeadings" :title="t('vault.expandFolds')"
               class="tool-btn top-btn">
               <span class="icon-[lucide--unfold-vertical] w-4 h-4" />
-            </button>
-
-            <button @click="toggleSide('chat')"
-              :title="chatOpen ? t('vault.hideAssistant') : t('vault.showAssistant')"
-              class="tool-btn top-btn" :class="chatOpen ? 'text-foreground' : ''">
-              <span class="icon-[ri--deepseek-line] w-4 h-4" />
             </button>
 
             <Popover v-model:open="moreOpen">
@@ -2433,86 +2368,6 @@ async function sendFromVault() {
         </section>
       </div>
 
-      <!-- ═══════ 智能体栏 ═══════ -->
-      <template v-if="chatOpen && !zenMode">
-        <div @pointerdown="startDrag('chat', $event)"
-          class="w-2.5 shrink-0 cursor-col-resize flex items-center justify-center group">
-          <div class="w-0.5 h-10 rounded-full bg-border transition-colors group-hover:bg-foreground/40"
-            :class="dragging === 'chat' ? 'bg-foreground/60' : ''" />
-        </div>
-        <!--
-          从 y=78 起,和左边两列的主卡片同一条上边线。
-          外层已经有 pt-2.5(10),所以这里只需再让 68px(4.25rem)。
-          那段空白正好把右上角三颗窗口控制点让出去,标题就不用再往下推,
-          这一栏也不会显得比别的列高出一截。
-        -->
-        <aside :style="{ width: settings.vaultChatWidth + 'px', marginTop: '4.25rem' }"
-          class="float-card shrink-0 rounded-[14px] border bg-card flex flex-col overflow-hidden">
-          <div class="flex items-center gap-2 px-3 py-2.5 border-b border-border">
-            <span class="icon-[ri--deepseek-line] w-4 h-4 text-muted-foreground" />
-            <span class="text-[13px] mr-auto">{{ t('vault.assistant') }}</span>
-            <button @click="chatOpen = false" :title="t('vault.hideAssistant')" class="tool-btn">
-              <span class="icon-[lucide--panel-right-close] w-4 h-4" />
-            </button>
-          </div>
-          <!-- 没连上 DSH 时如实说,别给一个发出去石沉大海的输入框 -->
-          <div v-if="!chatReady" class="flex-1 flex items-center justify-center px-5 text-center">
-            <p class="text-xs leading-relaxed text-muted-foreground">{{ t('vault.assistantNeedDsh') }}</p>
-          </div>
-
-          <template v-else>
-            <div ref="chatListEl" class="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-3">
-              <p v-if="!chat.items.length" class="text-xs text-center text-muted-foreground mt-6 leading-relaxed">
-                {{ t('vault.assistantHint') }}
-              </p>
-              <div v-for="m in chat.items" :key="m.id">
-                <div v-if="m.kind === 'user'" class="flex justify-end">
-                  <div class="max-w-[90%] rounded-xl rounded-br-sm bg-muted px-3 py-1.5 text-[13px] leading-relaxed whitespace-pre-wrap wrap-break-word">
-                    {{ m.text }}
-                  </div>
-                </div>
-                <div v-else-if="m.kind === 'assistant'" class="text-[13px] leading-relaxed whitespace-pre-wrap wrap-break-word">
-                  {{ m.text }}<span v-if="m.streaming" class="inline-block w-1 h-3.5 align-text-bottom bg-foreground/60 animate-pulse ml-0.5" />
-                </div>
-                <div v-else-if="m.kind === 'tool'" class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span :class="[
-                    'w-3 h-3 shrink-0',
-                    m.status === 'running' ? 'icon-[lucide--loader] animate-spin'
-                    : m.status === 'failed' ? 'icon-[lucide--circle-x] text-red-500' : 'icon-[lucide--circle-check] text-emerald-500'
-                  ]" />
-                  <span class="font-mono truncate">{{ m.name }}</span>
-                </div>
-                <p v-else class="text-[11px] text-muted-foreground text-center">{{ m.text }}</p>
-              </div>
-            </div>
-
-            <!-- 审批也要能在这儿回,否则智能体一要权限,这一栏就永远卡住 -->
-            <div v-if="chat.pending" class="mx-3 mb-2"><PendingCard compact /></div>
-
-            <div class="p-2.5 border-t border-border">
-              <!-- 带上下文:把当前打开的文件路径一起发过去,不然「这份笔记」它不知道指哪份 -->
-              <textarea v-model="chatInput" @keydown="onChatKey" rows="2"
-                :placeholder="activeTab ? t('vault.askAbout', { name: activeTab.name }) : t('vault.askAnything')"
-                class="w-full resize-none rounded-xl border border-border bg-background/40 px-3 py-2 text-[13px]
-                       leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:border-foreground/25" />
-            </div>
-          </template>
-        </aside>
-      </template>
-      <!--
-        收起来之后不占列宽,变成右下角一颗浮标 —— 不用智能体的人不该被一条空竖条
-        占掉版面。位置贴着窗口右下角,和输入框、卡片边缘都留 10px。
-      -->
-      <!--
-        右下角这颗浮标只在**没打开文件**时留着 —— 有文件的时候开关已经在
-        顶部那一小行里了,两个入口做同一件事只会让人犹豫点哪个。
-      -->
-      <button v-else-if="!activeTab" @click="chatOpen = true" :title="t('vault.showAssistant')"
-        class="float-card fixed bottom-5 right-5 z-40 size-11 rounded-[14px] border bg-card
-               flex items-center justify-center text-muted-foreground transition-colors
-               hover:text-foreground hover:bg-muted/50">
-        <span class="icon-[ri--deepseek-line] w-5 h-5" />
-      </button>
     </template>
 
     <!-- 重命名 -->
@@ -2891,7 +2746,7 @@ async function sendFromVault() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* 44×44，和智能体那边栏目顶部的按钮一样大 */
+  /* 44×44 */
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 0.75rem;

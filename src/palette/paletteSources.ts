@@ -3,7 +3,7 @@
  *
  * 分成两拨,因为它们的代价差了一个量级:
  *   · 静态源(工具页、本机应用)—— 开一次面板取一次,之后在内存里过滤,敲键盘零开销
- *   · 动态源(笔记全文、DSH 会话)—— 每次查询都要落到磁盘或边车,必须防抖
+ *   · 动态源(笔记全文、本机文件)—— 每次查询都要落到磁盘或系统索引,必须防抖
  * 混在一起写的话,敲一个字就会去扫一遍整个笔记库。
  */
 import { shallowRef } from 'vue'
@@ -13,7 +13,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { MENU_ITEMS } from '@/lib/sidebar-prefs'
 
-export type PaletteKind = 'page' | 'app' | 'note' | 'session' | 'file'
+export type PaletteKind = 'page' | 'app' | 'note' | 'file'
 
 export type PaletteItem = {
   id: string
@@ -232,24 +232,6 @@ export async function searchFiles(q: string, limit = 6): Promise<PaletteItem[]> 
   }
 }
 
-/** DSH 会话:边车没起来就直接返回空,不要在面板里报错。 */
-export async function searchSessions(q: string, limit = 5): Promise<PaletteItem[]> {
-  if (!q.trim()) return []
-  try {
-    const v = await invoke<any>('dsh_rpc', { method: 'session.search', payload: { query: q, limit } })
-    const rows = v?.items ?? v?.results ?? []
-    return rows.slice(0, limit).map((s: any) => ({
-      id: 'session:' + s.sessionId,
-      kind: 'session' as const,
-      title: s.title || '(未命名会话)',
-      subtitle: s.cwd ? prettyPath(s.cwd) : undefined,
-      icon: 'icon-[ri--deepseek-line]',
-    }))
-  } catch {
-    return []
-  }
-}
-
 /* ────────────────────────── 执行 ────────────────────────── */
 
 /**
@@ -274,7 +256,6 @@ export async function runItem(item: PaletteItem): Promise<void> {
   await showMain()
   if (kind === 'page') await emit('palette-go', { view: arg })
   else if (kind === 'note') await emit('palette-open-note', { path: arg })
-  else if (kind === 'session') await emit('palette-open-session', { sessionId: arg })
 }
 
 async function showMain() {

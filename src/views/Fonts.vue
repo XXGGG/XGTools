@@ -416,7 +416,7 @@ async function toggle(f: Family, enable: boolean) {
 /*
   确认框：要做的事自己留一份，不能等点确认时再读 ref。
   AlertDialogAction 被点中时会先把弹窗关掉，关闭又把 ref 清成 null ——
-  发生在按钮自己的 @click 之前（Agent.vue 删项目那里踩过）。
+  发生在按钮自己的 @click 之前（这个应用里踩过好几次）。
 */
 const confirmBox = ref<{ title: string; body: string; ok: string } | null>(null)
 let pending: (() => Promise<void>) | null = null

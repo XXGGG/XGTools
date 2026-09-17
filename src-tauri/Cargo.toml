@@ -51,11 +51,8 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], defau
 futures-util = "0.3"
 # 笔记删错了没有 Ctrl+Z,所以删除一律走系统回收站而不是 remove_file
 trash = "5"
-# DSH 的会话事件流只走 WebSocket。用 rustls 而不是 native-tls,
-# 和 reqwest 保持同一套 TLS 后端,免得同一个二进制里塞两份。
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
-# 中文 Windows 的控制台代码页是 GBK,子进程输出的中文路径不是 UTF-8。
-# 只在 Windows 上用得到,但依赖树里 reqwest 本来就带着它,不额外增加体积。
+# 老字体文件里的中文名有的是 GBK / Big5 编码,见 font_sfnt.rs。
+# 依赖树里 reqwest 本来就带着它,不额外增加体积。
 encoding_rs = "0.8"
 zip = "2"
 urlencoding = "2"

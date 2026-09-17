@@ -32,7 +32,7 @@ import {
   applyWindowEffect,
 } from '@/composables/useAppSettings'
 import {
-  fuzzyScore, loadStatic, staticItems, searchNotes, searchSessions, searchFiles, runItem,
+  fuzzyScore, loadStatic, staticItems, searchNotes, searchFiles, runItem,
   type PaletteItem,
 } from './paletteSources'
 import { quickTranslate, type QuickTranslation } from '@/lib/quickTranslate'
@@ -385,19 +385,18 @@ watch(query, q => {
   if (s.length < 2) { dynamic.value = []; return }
   searchTimer = window.setTimeout(() => {
     /*
-      三路各自回来各自上,不等最慢的那个。以前 Promise.all 等三个一起 ——
-      会话那路要问边车、文件那路要问系统索引,最慢的一个决定了整个列表
-      什么时候出现;现在笔记先回来就先显示笔记。
+      两路各自回来各自上,不等最慢的那个。以前 Promise.all 一起等 ——
+      文件那路要问系统索引,最慢的一个决定了整个列表什么时候出现;
+      现在笔记先回来就先显示笔记。
       迟到的结果不能覆盖新查询:每一路回来都要核对一次输入还是不是这句。
     */
-    const slots: { files?: PaletteItem[]; notes?: PaletteItem[]; sessions?: PaletteItem[] } = {}
+    const slots: { files?: PaletteItem[]; notes?: PaletteItem[] } = {}
     const flush = () => {
       if (query.value.trim() !== s) return
-      dynamic.value = [...(slots.files ?? []), ...(slots.notes ?? []), ...(slots.sessions ?? [])]
+      dynamic.value = [...(slots.files ?? []), ...(slots.notes ?? [])]
     }
     searchFiles(s).then(r => { slots.files = r; flush() })
     searchNotes(s).then(r => { slots.notes = r; flush() })
-    searchSessions(s).then(r => { slots.sessions = r; flush() })
   }, 260)
 })
 
@@ -500,7 +499,7 @@ async function execute(item?: PaletteItem) {
 
 const kindLabel: Record<string, string> = {
   page: 'palette.kindPage', app: 'palette.kindApp',
-  note: 'palette.kindNote', session: 'palette.kindSession',
+  note: 'palette.kindNote',
   file: 'palette.kindFile',
 }
 
