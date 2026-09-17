@@ -113,6 +113,12 @@ export type AppSettings = {
    * 和「打开不重写」这条原则冲突。
    */
   vaultPageWidth: Record<string, 'wide' | 'narrow'>
+  /**
+   * 笔记里的表格拖出来的列宽（像素）。键是「笔记相对路径::表的名字」
+   * （列数 + 表头 + 第几张同样表头的表）。
+   * 同样不写进笔记：markdown 表格没有列宽这回事，见 editor/tableColumns.ts
+   */
+  vaultTableWidths: Record<string, number[]>
   /** 右边那一栏开着没有。现在只有智能体会占它,大纲改成贴右缘的悬浮层了 */
   vaultSidePanel: 'none' | 'chat'
   /** 音频试听页挂上的工作区（绝对路径），可以好几个 */
@@ -264,6 +270,7 @@ const DEFAULTS: AppSettings = {
   vaultFontSize: 16,
   vaultFullWidth: false,
   vaultPageWidth: {},
+  vaultTableWidths: {} as Record<string, number[]>,
   vaultSidePanel: 'chat' as 'none' | 'chat',
   audioRoots: [] as string[],
   audioSelected: '',

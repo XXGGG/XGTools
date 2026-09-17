@@ -75,6 +75,7 @@ import { settings, isDarkNow, VAULT_FONT_SIZE, VAULT_FONTS, VAULT_FONT_STACK } f
 import { zen, toggleZen } from '@/composables/useZen'
 import ParticleLogo from '@/components/ParticleLogo.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
+import type { TableWidthStore } from '@/components/editor/tableColumns'
 /*
   画布走异步:它背后是 React + Excalidraw,一兆多。
   不画画的人不该为它买单,所以只在真的打开一张画布时才下载。
@@ -409,6 +410,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
  * (相对库根,Obsidian 里也这么写)、以及 `../` 往上走。统一拼成绝对路径
  * 再交给 convertFileSrc —— 那才是 asset:// 协议认的形式。
  */
+/**
+ * 表格拖出来的列宽，按「当前这篇笔记 + 哪一张表」存在设置里（表的名字怎么算见 editor/tableColumns.ts）。
+ * 每次都现取 activeTab：同一个编辑器换着显示好几篇，不能把第一篇的路径锁死在这里。
+ */
+const tableWidths: TableWidthStore = {
+  get(sig) {
+    const p = activeTab.value?.path
+    return p ? settings.vaultTableWidths[`${p}::${sig}`] : undefined
+  },
+  set(sig, widths) {
+    const p = activeTab.value?.path
+    if (!p) return
+    const key = `${p}::${sig}`
+    if (!widths && !(key in settings.vaultTableWidths)) return
+    const next = { ...settings.vaultTableWidths }
+    if (widths) next[key] = widths
+    else delete next[key]
+    settings.vaultTableWidths = next
+  },
+}
+
 function resolveAsset(src: string) {
   if (!vault.root) return src
   let rel = decodeURI(src)
@@ -2138,7 +2160,7 @@ async function sendFromVault() {
                 :font="settings.vaultFont" :font-size="settings.vaultFontSize"
                 :full-width="effectiveFullWidth"
                 :color-headings="settings.vaultColorHeadings"
-                :mark-mode="markMode" :typewriter="zenMode"
+                :mark-mode="markMode" :typewriter="zenMode" :table-widths="tableWidths"
                 :status-bar="settings.vaultStatusBar"
                 :on-open-link="(u: string) => { void openExternal(u) }"
                 :wiki-suggest="wikiSuggest" :on-open-wiki="openWiki" />

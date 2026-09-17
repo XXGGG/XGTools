@@ -371,6 +371,7 @@ export const en: Messages = {
     expandFolds: 'Expand all collapsed sections',
     codeCopy: 'Copy',
     codeCopied: 'Copied',
+    tableResizeHint: 'Drag to resize the column · double-click to fit automatically',
     historyCopy: 'Copy all',
     historyCopySel: 'Copy selection',
     historyCopied: 'Copied',

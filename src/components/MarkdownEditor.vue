@@ -51,6 +51,7 @@ import type { WikiLinkSuggestion } from '@atomic-editor/editor'
 import { isDarkNow, settings, VAULT_FONT_STACK, type VaultFont } from '@/composables/useAppSettings'
 import { mathAndDiagrams, resetMermaidTheme } from './editor/mathBlocks'
 import { tableAffordances } from './editor/tableTools'
+import { tableColumns, type TableWidthStore } from './editor/tableColumns'
 import { tableScrollbars, tableScrollbarTheme } from './editor/tableScrollbar'
 import { strictHeadings } from './editor/strictHeadings'
 import { listIndent, listBackspace, taskSpace } from './editor/listTools'
@@ -123,6 +124,11 @@ const props = withDefaults(defineProps<{
    * 返回空串就当没这回事(编辑器不会替它插任何东西)。
    */
   onPasteImage?: (file: File) => Promise<string>
+  /**
+   * 表格拖出来的列宽存哪。不给就只在这次打开里有效，关了就回到自动宽度。
+   * 列宽不写进笔记 —— 理由见 editor/tableColumns.ts
+   */
+  tableWidths?: TableWidthStore
 }>(), { readOnly: false, accent: '#8b6cef', font: 'default', fontSize: 16, fullWidth: false,
    colorHeadings: true, markMode: 'reveal', typewriter: false, statusBar: false })
 
@@ -565,6 +571,8 @@ function decorations(clean = false) {
     // 排在前面的话行内那些装饰会先把 $...$ 里的字符啃掉
     mathAndDiagrams(isDarkNow),
     tableAffordances(),
+    // 拖两列之间的竖线调列宽，双击恢复自动
+    tableColumns({ store: () => props.tableWidths, hint: t('vault.tableResizeHint') }),
     // 宽表格的横向滚动条：跟着表格走、到底就贴底。规矩见那个文件
     tableScrollbars,
     tableScrollbarTheme,
@@ -1811,6 +1819,36 @@ defineExpose({
 .xg-md-editor :deep(.cm-atomic-table td) { min-width: 6em; }
 
 /*
+  **最宽不超过正文**，长内容在格子里折行。
+
+  库里给的是 `width: max-content`：一句长说明就把整张表撑出屏幕，只能横着拖着看。
+  加上这一条之后表格还是「内容多宽占多宽」，只是到正文宽度为止，再长就折行；
+  列多到每列只剩 6em 都放不下时，才会出横向滚动条。
+*/
+.xg-md-editor :deep(.cm-atomic-table table) { max-width: 100%; }
+
+/*
+  拖过列宽的表：固定布局，每列就是拖出来的宽度（<colgroup> 由 tableColumns.ts 写入），
+  加起来比正文宽就横向滚动。6em 的下限也放开，窄到多少由拖的人说了算（JS 里兜底 48px）。
+*/
+.xg-md-editor :deep(.cm-atomic-table table.xg-tbl-fixed) { table-layout: fixed; max-width: none; }
+.xg-md-editor :deep(.cm-atomic-table table.xg-tbl-fixed th),
+.xg-md-editor :deep(.cm-atomic-table table.xg-tbl-fixed td) { min-width: 0; }
+
+/* 鼠标停在两列之间的竖线上：整张表换成左右拖的光标，线上浮一根主题色的细条 */
+.xg-md-editor :deep(.cm-atomic-table.xg-col-resize),
+.xg-md-editor :deep(.cm-atomic-table.xg-col-resize *) { cursor: col-resize !important; }
+.xg-md-editor :deep(.xg-col-guide) {
+  position: absolute;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--atomic-editor-accent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/*
   加一列 / 加一行的把手。
 
   外层改成 grid：表格占第 1 格，竖条在它右边、横条在它下边。
@@ -1821,6 +1859,8 @@ defineExpose({
   不打扰阅读，但要用的时候找得到。
 */
 .xg-md-editor :deep(.cm-atomic-table) {
+  /* 列宽调整线是绝对定位的，要以表格外框为准 */
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, max-content) auto;
   grid-template-rows: max-content max-content;

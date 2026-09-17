@@ -365,6 +365,7 @@ export const zh = {
     expandFolds: '展开所有折叠的段落',
     codeCopy: '复制',
     codeCopied: '已复制',
+    tableResizeHint: '左右拖动调整列宽 · 双击恢复自动宽度',
     historyCopy: '复制全文',
     historyCopySel: '复制选中',
     historyCopied: '已复制',
