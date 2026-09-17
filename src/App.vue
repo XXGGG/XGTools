@@ -31,6 +31,9 @@ function isBlankSpot(e: MouseEvent) {
   return c === 'default' || c === 'auto'
 }
 
+/** 按下时已经切过最大化的时刻，给下面的 dblclick 兜底对账用 */
+let toggledAt = -Infinity
+
 function onTopPointerDown(e: MouseEvent) {
   if (!isBlankSpot(e)) return
   e.preventDefault()          // 不然会拖出一片文字选区
@@ -42,17 +45,28 @@ function onTopPointerDown(e: MouseEvent) {
     表现就是「双击顶栏没反应」,而代码里明明写了 dblclick 处理。
 
     `e.detail` 是这一串连击的第几下,第二下就是 2 —— 在开拖之前先看它。
+    第三下及以后什么都不做:三连击不该放大了又缩回去,也不该开始拖。
   */
   if (e.detail >= 2) {
-    getCurrentWindow().toggleMaximize()
+    if (e.detail === 2) {
+      toggledAt = performance.now()
+      getCurrentWindow().toggleMaximize()
+    }
     return
   }
   getCurrentWindow().startDragging()
 }
 
-/** 兜底:某些场合(拖拽没触发)dblclick 还是会正常来 */
+/**
+ * 兜底:某些场合(拖拽没触发)dblclick 还是会正常来。
+ *
+ * **但两边都到的时候只能切一次。** 第二次按下时上面已经切过了,这里再切一次,
+ * 就是「双击顶栏放大了,又弹回来变小」(2026-09-16 用户报的,而且只是「有时候」——
+ * 看这一次的拖拽有没有把后半个双击吞掉)。刚切过就跳过。
+ */
 function onTopDoubleClick(e: MouseEvent) {
   if (!isBlankSpot(e)) return
+  if (performance.now() - toggledAt < 800) return
   getCurrentWindow().toggleMaximize()
 }
 
