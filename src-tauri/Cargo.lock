@@ -7795,7 +7795,7 @@ dependencies = [
 
 [[package]]
 name = "xgtools"
-version = "0.11.8"
+version = "0.12.0"
 dependencies = [
  "arboard",
  "atree",
