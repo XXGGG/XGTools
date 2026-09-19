@@ -8,10 +8,11 @@
  * 等窗口、组件、材质全都就绪,外面调一次 dismiss():粒子向四周散出屏幕外,布淡出,然后卸掉。
  * (窗口不能先藏着再亮相:那样创建的窗口正式版里 DWM 不画云母,见 App.vue 的说明。)
  *
- * 粒子和 ParticleLogo 同源(同一个 lucide box 图标 + 同一款手写字),但这里不要鼠标交互,
+ * 粒子和 ParticleLogo 同源(同一个百宝袋 Logo + 同一款手写字),但这里不要鼠标交互,
  * 多了"散场"这一段,所以单独写,不往那个组件里塞状态机。
  */
 import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { POCKET_PATH, POCKET_VIEWBOX } from '@/assets/icons/pocket'
 
 const props = withDefaults(defineProps<{
   iconSize?: number
@@ -28,11 +29,6 @@ const fading = ref(false)
 const dark = document.documentElement.classList.contains('dark')
 const particleColor = dark ? '#fff' : '#111'
 
-// lucide "box",和侧栏 Logo 同一个图标
-const ICON_PATHS = [
-  'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z',
-  'm3.3 7l8.7 5l8.7-5M12 22V12',
-]
 const FONT_STACK = "'Excalifont', cursive"
 
 const SPRING = 0.06
@@ -62,13 +58,11 @@ function build() {
 
   c.save()
   c.translate((W - iconPx) / 2, top)
-  const s = iconPx / 24
+  // Logo 是实心的百宝袋:填充着画,不是描边
+  const s = iconPx / POCKET_VIEWBOX
   c.scale(s, s)
-  c.strokeStyle = '#fff'
-  c.lineWidth = 2
-  c.lineCap = 'round'
-  c.lineJoin = 'round'
-  for (const d of ICON_PATHS) c.stroke(new Path2D(d))
+  c.fillStyle = '#fff'
+  c.fill(new Path2D(POCKET_PATH))
   c.restore()
 
   if (props.text) {

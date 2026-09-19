@@ -14,6 +14,7 @@ mod font_license;
 mod font_catalog;
 mod font_commands;
 mod window_effects;
+mod taskbar_icon;
 mod vault_commands;
 mod vault_attach;
 mod vault_history;
@@ -320,6 +321,8 @@ pub fn run() {
             // 菜单是自绘的小窗口,不是系统原生菜单 —— 原生那套在 Windows 上
             // 会被任务栏挡住,而位置归系统管改不了。详见 tray.rs。
             tray::setup(app.handle())?;
+            // 任务栏 / 托盘图标跟着任务栏深浅色:深色用白口袋、浅色用黑口袋
+            taskbar_icon::start(app.handle());
 
             // --- Ensure app data directory exists (for Dock) ---
             let app_dir = app.path().app_data_dir()?;

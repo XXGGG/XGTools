@@ -397,7 +397,7 @@ onUnmounted(() => {
             <h3 class="text-sm font-medium text-muted-foreground">{{ t('settings.about') }}</h3>
           <div class="rounded-xl border divide-y">
             <div class="flex items-center gap-4 px-4 py-3.5">
-              <span class="icon-[lucide--box] w-5 h-5 shrink-0 text-muted-foreground" />
+              <span class="icon-xg-pocket w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0"><div class="text-sm">{{ t('settings.version') }}</div></div>
               <span class="text-sm font-mono text-muted-foreground">v{{ version || '—' }}</span>
             </div>

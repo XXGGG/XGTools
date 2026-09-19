@@ -400,6 +400,15 @@ body.vibrancy .shadow-lg {
     -webkit-mask: url('./assets/icons/obsidian.svg') no-repeat center / 100% 100%;
     mask: url('./assets/icons/obsidian.svg') no-repeat center / 100% 100%;
   }
+  /* XGTools 的 Logo(百宝袋)。图形源在 assets/icons/pocket.ts,这张 svg 是它的副本 */
+  .icon-xg-pocket {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    background-color: currentColor;
+    -webkit-mask: url('./assets/icons/pocket.svg') no-repeat center / 100% 100%;
+    mask: url('./assets/icons/pocket.svg') no-repeat center / 100% 100%;
+  }
 }
 
 /* 可点的东西一律给手型。Tailwind v4 的 preflight 不再给 button 设 cursor,

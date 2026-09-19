@@ -2,9 +2,9 @@
 /**
  * 粒子化的 Logo + 字标：粒子拼出图形与文字，鼠标靠近被推散，移开后弹回原位。
  *
- * 为什么不直接采样页面上那个 `icon-[lucide--box]`：
- * 它是 iconify 用 CSS mask 画的，既拿不到位图也读不到路径。所以这里内联同一个 lucide 图标的
- * 路径数据，先离屏描一遍、读像素、再把有墨迹的位置采成粒子。文字同理，用 canvas 描一遍再采样。
+ * 为什么不直接采样页面上那个 Logo（.icon-xg-pocket）：
+ * 它是用 CSS mask 画的，既拿不到位图也读不到路径。所以这里拿同一份路径数据（assets/icons/pocket.ts），
+ * 先离屏画一遍、读像素、再把有墨迹的位置采成粒子。文字同理，用 canvas 描一遍再采样。
  *
  * 字体栈刻意和笔记页的「手绘风」保持一致（Excalifont）：粒子字和正文里的手写体
  * 出自同一支笔，整个应用的手写感才是一套的。字体是随包带的，不吃系统兜底。
@@ -16,6 +16,7 @@
  *      所以待机时这个组件是 0 开销的，而不是永远空转。
  */
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { POCKET_PATH, POCKET_VIEWBOX } from '@/assets/icons/pocket'
 
 const props = withDefaults(defineProps<{
   /** 图标边长（CSS 像素） */
@@ -36,7 +37,7 @@ const props = withDefaults(defineProps<{
   /** 鼠标影响半径（CSS 像素） */
   radius?: number
   /**
-   * 要采样的图标路径。默认是 lucide 的 box（和侧栏 Logo 同一个）。
+   * 要采样的图标路径。不给就是 XGTools 的 Logo（百宝袋，实心、48 视框，下面三个参数都不用管）。
    * 换图标时 viewBox 和描边宽度也要跟着换 —— 不同图标集的视框尺寸不一样
    * （lucide 是 24，arcticons 是 48），只换 path 会得到一个巨大或极小的图形。
    */
@@ -58,11 +59,6 @@ const props = withDefaults(defineProps<{
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 
-// lucide "box"，24×24 视口。与侧栏 Logo 同一个图标。
-const ICON_PATHS = [
-  'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z',
-  'm3.3 7l8.7 5l8.7-5M12 22V12',
-]
 const FONT_STACK = "'Excalifont', cursive"
 
 let raf = 0
@@ -122,16 +118,18 @@ function buildParticles(dpr: number) {
   // 图标：把视框缩放到 iconPx，水平居中放在上方留白之下
   c.save()
   c.translate((off.width - iconPx) / 2, pad)
-  const scale = iconPx / props.iconViewBox
+  // 没传图标就是 Logo:百宝袋,实心,48 视框
+  const logo = !props.iconPaths
+  const scale = iconPx / (logo ? POCKET_VIEWBOX : props.iconViewBox)
   c.scale(scale, scale)
   c.strokeStyle = '#fff'
   c.fillStyle = '#fff'
   c.lineWidth = props.iconStrokeWidth
   c.lineCap = 'round'
   c.lineJoin = 'round'
-  for (const d of (props.iconPaths ?? ICON_PATHS)) {
+  for (const d of (props.iconPaths ?? [POCKET_PATH])) {
     const path = new Path2D(d)
-    if (props.iconFill) c.fill(path)
+    if (logo || props.iconFill) c.fill(path)
     else c.stroke(path)
   }
   c.restore()

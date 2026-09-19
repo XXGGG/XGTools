@@ -42,7 +42,8 @@ pub fn setup(app: &tauri::AppHandle) -> tauri::Result<()> {
         });
     }
 
-    TrayIconBuilder::new()
+    // 带上 id:taskbar_icon.rs 要按它找到托盘,跟着任务栏深浅色换图标
+    TrayIconBuilder::with_id(crate::taskbar_icon::TRAY_ID)
         .icon(app.default_window_icon().cloned().ok_or_else(|| {
             tauri::Error::AssetNotFound("默认窗口图标不在".into())
         })?)

@@ -54,7 +54,7 @@ onMounted(async () => {
       'w-[58px] shrink-0 flex items-center justify-center transition-colors',
       active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
     ]">
-      <span class="icon-[lucide--box] w-9 h-9" />
+      <span class="icon-xg-pocket w-9 h-9" />
     </button>
 
     <!--
