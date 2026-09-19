@@ -15,7 +15,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { VAULT_FONT_SIZE, VAULT_ACCENTS, VAULT_FONTS, VAULT_FONT_STACK, settings, applyWindowEffect, applyTheme,
+import { VAULT_FONT_SIZE, FLAT_NAV_ICON, VAULT_ACCENTS, VAULT_FONTS, VAULT_FONT_STACK, settings, applyWindowEffect, applyTheme,
   applyUiStyle, type BlurKind, type ThemeMode, type UiStyle } from '@/composables/useAppSettings'
 import { useI18n, detectLocale, type Locale } from '@/i18n'
 import { MENU_ITEMS, orderedAll, type MenuItem } from '@/lib/sidebar-prefs'
@@ -352,6 +352,20 @@ onUnmounted(() => {
                   <span :class="s.icon" class="w-4 h-4" />
                   {{ t(s.labelKey) }}
                 </button>
+              </div>
+            </div>
+
+            <!-- 只有扁平版用得上(浮空版的侧栏是另一套尺寸) -->
+            <div v-if="settings.uiStyle === 'flat'" class="flex items-center gap-4 px-4 py-3.5">
+              <span class="icon-[lucide--panel-left] w-5 h-5 shrink-0 text-muted-foreground" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm">{{ t('settings.flatNavIcon') }}</div>
+              </div>
+              <div class="flex items-center gap-3 shrink-0">
+                <Slider :model-value="[settings.flatNavIcon]" :min="FLAT_NAV_ICON.min"
+                  :max="FLAT_NAV_ICON.max" :step="FLAT_NAV_ICON.step" class="w-40"
+                  @update:model-value="(v: number[] | undefined) => { if (v) settings.flatNavIcon = v[0] }" />
+                <span class="w-10 text-right text-sm tabular-nums text-muted-foreground">{{ settings.flatNavIcon }}px</span>
               </div>
             </div>
 

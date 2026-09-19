@@ -4,7 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit, listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import { settings, loadSettings, applyVibrancyVars, applyWindowEffect } from './composables/useAppSettings'
+import { settings, loadSettings, applyVibrancyVars, applyWindowEffect, applyFlatNavVars } from './composables/useAppSettings'
 import { MENU_ITEMS, reconcile, splitGroups } from './lib/sidebar-prefs'
 import { useI18n } from './i18n'
 
@@ -120,6 +120,8 @@ watch(() => settings.blurKind, (k) => {
 // 材质种类和不透明度都会影响换算(不同材质的可用上限不同),所以两个都要监听。
 // immediate 是为了启动时按存档值设一次,否则会停在 CSS 里的默认值。
 watch(() => [settings.blurKind, settings.blurOpacity], applyVibrancyVars, { immediate: true })
+// 扁平版侧栏图标大小(设置 → 常规里的滑块)
+watch(() => settings.flatNavIcon, applyFlatNavVars, { immediate: true })
 
 const tools = computed(() => splitGroups(menuItems.value, settings.sidebarGroups).tools)
 const configs = computed(() => splitGroups(menuItems.value, settings.sidebarGroups).configs)

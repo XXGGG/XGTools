@@ -58,6 +58,7 @@ export const zh = {
     uiStyle: '界面风格',
     uiFloat: '浮空',
     uiFlat: '扁平',
+    flatNavIcon: '侧栏图标大小',
     themeAuto: '跟随系统',
     themeLight: '浅色',
     themeDark: '深色',

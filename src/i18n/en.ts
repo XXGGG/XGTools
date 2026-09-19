@@ -64,6 +64,7 @@ export const en: Messages = {
     uiStyle: 'Interface style',
     uiFloat: 'Floating',
     uiFlat: 'Flat',
+    flatNavIcon: 'Sidebar icon size',
     themeAuto: 'System',
     themeLight: 'Light',
     themeDark: 'Dark',

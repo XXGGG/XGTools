@@ -28,6 +28,8 @@ export type AppSettings = {
   theme: ThemeMode
   blurKind: BlurKind
   uiStyle: UiStyle
+  /** 扁平版左侧栏的图标大小(px)。图标格和侧栏宽度跟着它一起变,见 applyFlatNavVars */
+  flatNavIcon: number
   /** 亚克力/模糊的不透明度 0~100:越小越通透,越大越接近实心 */
   blurOpacity: number
   sidebarOrder: string[]
@@ -168,6 +170,8 @@ export type AppSettings = {
 /** 会话侧栏可拖的范围。maxRatio 是「最多占窗口宽的几成」—— 光设 max 挡不住小窗口下把聊天区挤没。 */
 /** 正文字号的可调范围。给上下限是因为两头都不可用:再小看不清,再大一行放不下几个字 */
 export const VAULT_FONT_SIZE = { min: 13, max: 22, step: 1, def: 16 } as const
+/** 扁平版侧栏图标能调多大。默认 18 就是 style.css 里写死的那套(图标 18、格子 32、栏宽 40) */
+export const FLAT_NAV_ICON = { min: 14, max: 28, step: 1, def: 18 } as const
 
 /**
  * 正文字体的档位。
@@ -226,6 +230,7 @@ const DEFAULTS: AppSettings = {
   language: 'auto',
   theme: 'auto',
   uiStyle: 'float' as UiStyle,
+  flatNavIcon: 18,
   blurKind: 'none',
   blurOpacity: 40,
   sidebarOrder: [],
@@ -312,6 +317,8 @@ export async function loadSettings() {
     if (!/^#[0-9a-fA-F]{6}$/.test(settings.vaultAccent)) settings.vaultAccent = DEFAULTS.vaultAccent
     // 旧存档里可能是已经不存在的档位,落回默认,免得正文字体变成一串空引号
     if (!VAULT_FONTS.includes(settings.vaultFont)) settings.vaultFont = DEFAULTS.vaultFont
+    settings.flatNavIcon = Math.min(FLAT_NAV_ICON.max,
+      Math.max(FLAT_NAV_ICON.min, Math.round(settings.flatNavIcon || FLAT_NAV_ICON.def)))
     settings.vaultFontSize = Math.min(VAULT_FONT_SIZE.max,
       Math.max(VAULT_FONT_SIZE.min, Math.round(settings.vaultFontSize || VAULT_FONT_SIZE.def)))
     // 旧存档可能选的是已移除的高斯模糊,迁到亚克力,免得停在一个界面上不存在的选项
@@ -456,6 +463,19 @@ export function applyUiStyle() {
   // 只管主窗口。命令面板、托盘菜单这些本来就是浮在桌面上的小窗,影子要留着
   if (getCurrentWindow().label !== 'main') return
   document.documentElement.dataset.ui = settings.uiStyle
+}
+
+/**
+ * 扁平版侧栏的图标大小写进 CSS 变量,盖掉 style.css 里的默认值。
+ * 图标格 = 图标 + 14、侧栏宽 = 图标格 + 8 —— 默认 18 时正好是 18 / 32 / 40,
+ * 这样调大调小,图标四周的留白比例不变,不会挤在格子里或者空一大圈。
+ */
+export function applyFlatNavVars() {
+  const icon = settings.flatNavIcon
+  const s = document.documentElement.style
+  s.setProperty('--flat-nav-icon', `${icon}px`)
+  s.setProperty('--flat-nav-btn', `${icon + 14}px`)
+  s.setProperty('--flat-side-w', `${icon + 22}px`)
 }
 
 /** 系统深浅色变化时,只有 auto 模式需要跟着动。 */
