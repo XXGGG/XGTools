@@ -486,30 +486,6 @@ function askPurge(e: TrashEntry | null) {
 const size = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 const when = (ms: number) => new Date(ms).toLocaleString()
 
-// ── 样张底色 ──
-
-const BG_ORDER = ['auto', 'dark', 'light'] as const
-function cycleBg() {
-  const i = BG_ORDER.indexOf(settings.fontBg)
-  settings.fontBg = BG_ORDER[(i + 1) % BG_ORDER.length]
-}
-/** 列表那张卡换底色时，里面用到的几个颜色变量一起换，不然灰字压在深底上看不见 */
-const listStyle = computed(() => {
-  const set = (fg: string, muted: string, mutedBg: string, bg: string) => ({
-    background: bg,
-    color: fg,
-    '--foreground': fg,
-    '--color-foreground': fg,
-    '--muted-foreground': muted,
-    '--color-muted-foreground': muted,
-    '--muted': mutedBg,
-    '--color-muted': mutedBg,
-  })
-  if (settings.fontBg === 'dark') return set('#f2f1ee', '#9a9aa0', '#26262b', '#141417')
-  if (settings.fontBg === 'light') return set('#1b1b1d', '#6d6d73', '#ecebe6', '#fbfaf6')
-  return {}
-})
-
 // ── 窄窗口 ──
 
 const rootEl = ref<HTMLElement | null>(null)
@@ -661,26 +637,17 @@ onBeforeUnmount(() => {
           <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
         </button>
 
-        <!-- 顶卡：试字那句话、字号、底色、只看放心商用、对比。右边给窗口控制点让位 -->
+        <!--
+          顶卡：只放「只看放心商用」和「对比」。右边给窗口控制点让位。
+
+          **这一行同时是窗口的拖拽带**，所以不放输入框和滑块：输入框会把拖拽吃掉，
+          滑块按下去反而被当成拖窗口（光标形状是 default，见 App.vue 的 isBlankSpot）。
+          试字那句话改成浮在列表底部的磨砂条，字号和底色两个开关撤掉（2026-09-20 用户提的）。
+        -->
         <div class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
                  flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-2 flat:gap-2"
           :class="zenMode ? '' : 'mr-[130px] flat:mr-[calc(var(--ctrl-w)*3_+_var(--ctrl-gap))]'">
-          <span class="icon-[lucide--type] w-4 h-4 shrink-0 text-muted-foreground" />
-          <input v-model="settings.fontSample" :placeholder="t('fonts.samplePlaceholder')"
-            class="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-muted-foreground/70" />
-          <button v-if="settings.fontSample" @click="settings.fontSample = ''" class="tool-btn size-7! -ml-2">
-            <span class="icon-[lucide--x] w-3.5 h-3.5" />
-          </button>
-          <label class="flex items-center gap-2 shrink-0 text-[12px] text-muted-foreground" :title="t('fonts.size')">
-            <input type="range" min="14" max="72" step="1" v-model.number="settings.fontSize"
-              class="w-24" :style="{ accentColor: accent }" />
-            <span class="w-6 tabular-nums text-foreground">{{ settings.fontSize }}</span>
-          </label>
-          <button @click="cycleBg" :title="t(`fonts.bg_${settings.fontBg}`)" class="tool-btn shrink-0">
-            <span class="w-4 h-4" :class="{
-              auto: 'icon-[lucide--contrast]', dark: 'icon-[lucide--moon]', light: 'icon-[lucide--sun]',
-            }[settings.fontBg]" />
-          </button>
+          <div class="flex-1 min-w-0" />
           <button @click="settings.fontOnlySafe = !settings.fontOnlySafe" :title="t('fonts.onlySafe')"
             class="tool-btn shrink-0" :class="settings.fontOnlySafe ? 'is-on' : ''"
             :style="settings.fontOnlySafe ? { color: TIER_COLOR.open } : undefined">
@@ -694,8 +661,9 @@ onBeforeUnmount(() => {
 
       <div class="flex-1 min-h-0 flex gap-2.5 relative flat:gap-0">
         <!-- ═══════ 列表 ═══════ -->
-        <div class="float-card flex-1 min-w-0 rounded-[14px] border bg-card overflow-y-auto p-2 flex flex-col flat:rounded-none"
-          :style="cat === 'trash' ? undefined : listStyle">
+        <!-- relative:底部那条试字输入框浮在这一栏上,不跟着列表滚 -->
+        <div class="flex-1 min-w-0 relative flex">
+        <div class="float-card flex-1 min-w-0 rounded-[14px] border bg-card overflow-y-auto p-2 pb-16 flex flex-col flat:rounded-none">
           <div class="flex items-center gap-2 px-3 pt-1 pb-2 shrink-0">
             <span class="text-[14px] font-medium">{{ catTitle }}</span>
             <span class="text-[12px] text-muted-foreground tabular-nums">
@@ -754,6 +722,22 @@ onBeforeUnmount(() => {
               @pick="togglePick(it.id)" @fav="toggleFav(it.id)" @copy="copy(it.name)"
               @drag="dragItem(it)" @action="it.pack && install(it.pack)" />
           </template>
+        </div>
+
+        <!--
+          试字：浮在列表底部的磨砂条。原来在顶卡里，而顶卡那一行是窗口的拖拽带，
+          输入框把拖拽吃掉了（2026-09-20 用户提的）。列表底部留了 pb-16，最后一行不会被压住。
+        -->
+        <div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-[min(560px,88%)] h-11 px-3
+                    flex items-center gap-2 rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl">
+          <span class="icon-[lucide--type] w-4 h-4 shrink-0 text-muted-foreground" />
+          <input v-model="settings.fontSample" :placeholder="t('fonts.samplePlaceholder')"
+            class="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-muted-foreground/70" />
+          <button v-if="settings.fontSample" @click="settings.fontSample = ''" :title="t('common.cancel')"
+            class="tool-btn size-7! shrink-0">
+            <span class="icon-[lucide--x] w-3.5 h-3.5" />
+          </button>
+        </div>
         </div>
 
         <!-- 窄窗口：详情盖在列表上面，点外面收回 -->

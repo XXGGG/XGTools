@@ -124,8 +124,6 @@ export type AppSettings = {
   fontSample: string
   /** 字体库：样张字号 */
   fontSize: number
-  /** 字体库：样张底色。auto 跟主题；dark / light 固定深底、浅底，看字压在另一种底上的样子 */
-  fontBg: 'auto' | 'dark' | 'light'
   /** 字体库：收藏。本机字体存 f:族名键，推荐里的存 p:id */
   fontFavorites: string[]
   /** 字体库：只看放心商用（OFL 这类开源协议）的 */
@@ -256,7 +254,6 @@ const DEFAULTS: AppSettings = {
   audioTreeOpen: true,
   fontSample: '',
   fontSize: 30,
-  fontBg: 'auto' as 'auto' | 'dark' | 'light',
   fontFavorites: [] as string[],
   fontOnlySafe: false,
   fontCat: 'all',

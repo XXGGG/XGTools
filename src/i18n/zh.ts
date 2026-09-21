@@ -652,10 +652,6 @@ export const zh = {
     tier_paid: '要授权',
     // 顶栏
     samplePlaceholder: '打一句话，所有字体一起换成这句',
-    size: '字号',
-    bg_auto: '样张底色：跟着主题（点一下换深底）',
-    bg_dark: '样张底色：深底（点一下换浅底）',
-    bg_light: '样张底色：浅底（点一下跟回主题）',
     onlySafe: '只看放心商用',
     compare: '对比 {n} 款',
     // 列表
