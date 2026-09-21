@@ -1791,7 +1791,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           用外边距而不是内边距 —— 内边距只是把内容推开,卡片本身还是顶到最右,
           看着像"标签栏一直延伸到控件底下"。130 = 控件卡片宽 120 + 间隔 10。
         -->
-        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5 mr-[130px] flat:mr-[calc(var(--flat-ctrl-w)*3_+_var(--flat-ctrl-gap))] flat:gap-0">
+        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5 mr-[130px] flat:mr-[calc(var(--ctrl-w)*3_+_var(--ctrl-gap))] flat:gap-0">
 
           <!--
             目录栏收起来之后,展开按钮变成标签条前面一张 58×58 的方卡片。
@@ -1854,7 +1854,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           </div>
           <!--
             关闭全部。三个以上才出现，在标签条最右、滚动区外面，和标签之间隔开一段；关之前确认。
-            扁平版往右多挪 2px(-mr-0.5),离红绿灯的距离由 style.css 的 --flat-ctrl-gap 管。
+            扁平版往右多挪 2px(-mr-0.5),离红绿灯的距离由 style.css 的 --ctrl-gap 管。
           -->
           <button v-if="vault.tabs.length > 2" @click="confirmCloseAll = true" :title="t('vault.closeAllTabs')"
             class="tool-btn shrink-0 ml-2 flat:-mr-0.5">

@@ -83,15 +83,15 @@ onMounted(async () => {
       比左边那几张薄一圈 —— 试过做成 58 齐平，胶囊显得又粗又抢眼。
       所以这里只保证右边距 10px，高度按视觉走。
     -->
-    <!-- 根容器关了指针事件,这张卡片要自己打开,否则三颗控制点也点不动 -->
     <!--
-      扁平版:不要胶囊,三颗点贴在窗口右上角,像 Windows 自带的那三个按钮一样**三格等宽**、
-      整条顶栏那么高,最右那格贴着窗口边 —— 最大化时鼠标往右上角一甩就是关闭。
-      格宽、点径、悬停放大倍数都在 style.css 顶部(--flat-ctrl-w / --flat-dot / --flat-dot-hover),
-      样式本体在 .xg-ctrl / .xg-ctrl-dot。
+      三颗控制点:两套皮肤长一样(2026-09-20 用户定的)。三格等宽、和顶栏一样高、贴着窗口右上角 ——
+      最大化时鼠标往右上角一甩就是关闭。格宽、点径、悬停放大倍数在 style.css 顶部
+      (--ctrl-w / --ctrl-dot / --ctrl-dot-hover),样式本体是 .xg-ctrl / .xg-ctrl-dot。
+
+      浮空版的顶栏整条往里缩了 10px,所以这里用负外边距顶回窗口边上,不然右上角那几个像素点不到。
+      根容器关了指针事件,这一块要自己打开,否则三颗点也点不动。
     -->
-    <div class="float-card group rounded-full border bg-card p-[5px] flex items-center pointer-events-auto
-                flat:self-stretch flat:items-stretch flat:rounded-none flat:border-0 flat:bg-transparent flat:p-0">
+    <div class="group self-stretch flex items-stretch pointer-events-auto -mt-2.5 -mr-2.5 flat:m-0">
       <button @click="minimize" :title="t('window.minimize')"
         class="xg-ctrl size-9 rounded-full flex items-center justify-center">
         <span class="xg-ctrl-dot size-3.5 rounded-full bg-[#28c840] flex items-center justify-center">

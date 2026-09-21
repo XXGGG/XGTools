@@ -664,7 +664,7 @@ onBeforeUnmount(() => {
         <!-- 顶卡：试字那句话、字号、底色、只看放心商用、对比。右边给窗口控制点让位 -->
         <div class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
                  flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-2 flat:gap-2"
-          :class="zenMode ? '' : 'mr-[130px] flat:mr-[calc(var(--flat-ctrl-w)*3_+_var(--flat-ctrl-gap))]'">
+          :class="zenMode ? '' : 'mr-[130px] flat:mr-[calc(var(--ctrl-w)*3_+_var(--ctrl-gap))]'">
           <span class="icon-[lucide--type] w-4 h-4 shrink-0 text-muted-foreground" />
           <input v-model="settings.fontSample" :placeholder="t('fonts.samplePlaceholder')"
             class="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-muted-foreground/70" />

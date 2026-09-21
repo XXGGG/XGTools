@@ -15,10 +15,10 @@
   --flat-side-w: 40px;     /* 左侧导航栏宽度 */
   --flat-nav-btn: 32px;    /* 导航栏里每个图标格的大小 */
   --flat-nav-icon: 18px;   /* 导航栏图标大小 */
-  --flat-ctrl-w: 44px;     /* 右上角每个控制点格子的宽度(Windows 自带的是 46,用户嫌点与点隔太开,收了 2) */
-  --flat-ctrl-gap: 16px;   /* 页面第一行最右边的按钮和红绿灯之间再空出多少,免得看着像第四颗点 */
-  --flat-dot: 14px;        /* 控制点(红黄绿)直径 */
-  --flat-dot-hover: 1.25;  /* 鼠标移到控制点上时放大几倍 */
+  --ctrl-w: 44px;          /* 右上角每个控制点格子的宽度(Windows 自带的是 46,用户嫌点与点隔太开,收了 2) */
+  --ctrl-gap: 16px;        /* 页面第一行最右边的按钮和红绿灯之间再空出多少,免得看着像第四颗点 */
+  --ctrl-dot: 14px;        /* 控制点(红黄绿)直径 */
+  --ctrl-dot-hover: 1.25;  /* 鼠标移到控制点上时放大几倍 */
   --flat-btn: 28px;        /* 页面工具行里的按钮大小 */
   --flat-tab-h: 28px;      /* 标签 / 页签的高度 */
   --flat-doc-top: 24px;    /* 笔记正文第一行离工具行的距离 */
@@ -328,26 +328,26 @@ body.vibrancy .shadow-lg {
   background-color: var(--popover);
 }
 
-/* 右上角三颗控制点:三格等宽、整条顶栏那么高,点在格子里居中,鼠标移上去点稍微放大 */
-[data-ui="flat"] .xg-ctrl {
-  width: var(--flat-ctrl-w);
+/* 右上角三颗控制点。**两套皮肤共用同一套**(2026-09-20 用户要浮空版也照扁平版来):
+   三格等宽、和顶栏一样高、贴着窗口右上角,鼠标移上去只放大它那一颗、只亮它那一个小图标。
+   贴着角是关键 —— 最大化时鼠标往右上角一甩就是关闭。 */
+.xg-ctrl {
+  width: var(--ctrl-w);
   height: auto;
   border-radius: 0;
 }
-[data-ui="flat"] .xg-ctrl-dot {
-  width: var(--flat-dot);
-  height: var(--flat-dot);
+.xg-ctrl-dot {
+  width: var(--ctrl-dot);
+  height: var(--ctrl-dot);
   transition: transform 140ms ease;
 }
-[data-ui="flat"] .xg-ctrl:hover .xg-ctrl-dot {
-  transform: scale(var(--flat-dot-hover));
+.xg-ctrl:hover .xg-ctrl-dot {
+  transform: scale(var(--ctrl-dot-hover));
 }
-/* 点里的小图标(− / 放大 / ×):浮空版是移到胶囊上三颗一起亮(照 Mac);
-   扁平版三格是分开的按钮,只亮鼠标所在的那一颗 */
-[data-ui="flat"] .xg-ctrl .xg-ctrl-glyph {
+.xg-ctrl .xg-ctrl-glyph {
   opacity: 0;
 }
-[data-ui="flat"] .xg-ctrl:hover .xg-ctrl-glyph {
+.xg-ctrl:hover .xg-ctrl-glyph {
   opacity: 1;
 }
 

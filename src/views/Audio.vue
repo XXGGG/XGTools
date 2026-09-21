@@ -961,7 +961,7 @@ onBeforeUnmount(() => {
         <!-- 右边留出窗口控制点的位置：它们浮在最上层，排到那儿的按钮会被压住点不到 -->
         <div class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
                  flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-2 flat:gap-2"
-          :class="zenMode ? '' : 'mr-[130px] flat:mr-[calc(var(--flat-ctrl-w)*3_+_var(--flat-ctrl-gap))]'">
+          :class="zenMode ? '' : 'mr-[130px] flat:mr-[calc(var(--ctrl-w)*3_+_var(--ctrl-gap))]'">
           <span class="icon-[lucide--folder-open] w-4 h-4 shrink-0 text-muted-foreground" />
           <!-- 名字至少留出几个字的位置：窄的时候先让提示文字让路，别把文件夹名挤没了 -->
           <span class="text-[14px] font-medium truncate min-w-12 max-w-[40%]" :title="selected">{{ selectedName }}</span>
