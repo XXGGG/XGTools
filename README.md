@@ -135,6 +135,9 @@ src-tauri/src/
 **Input & effects** — [rdev](https://github.com/Narsil/rdev),
 [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)
 
+The app icon is a pocket, drawn from scratch — the *idea* comes from Doraemon's
+4D pocket (四次元ポケット), the bag he pulls every gadget out of. Fitting for a toolbox.
+
 The particle logo takes its *idea* from the interaction on
 [nuxtlabs.com](https://nuxtlabs.com) — the implementation here is written from scratch
 and shares no code with it.

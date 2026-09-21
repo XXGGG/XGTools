@@ -127,6 +127,9 @@ src-tauri/src/
 **輸入同特效** —— [rdev](https://github.com/Narsil/rdev)、
 [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)
 
+個 App 圖示係一個袋，啲線自己畫嘅 —— **諗頭**嚟自多啦A夢個百寶袋（四次元袋），
+咩法寶都由入面掏出嚟，用喺一個工具箱上面啱晒。
+
 粒子 Logo 嗰個**諗頭**係睇返 [nuxtlabs.com](https://nuxtlabs.com) 上面嗰個互動 ——
 呢度嘅實作由零寫起，冇用過佢哋任何一行 code。
 

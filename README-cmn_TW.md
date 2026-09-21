@@ -127,6 +127,9 @@ src-tauri/src/
 **輸入與特效** —— [rdev](https://github.com/Narsil/rdev)、
 [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)
 
+應用圖示是一個口袋，線條是自己畫的 —— **靈感**來自哆啦A夢的百寶袋（四次元口袋），
+什麼道具都從那裡掏出來，放在一個工具箱上正合適。
+
 粒子 Logo 的**想法**來自 [nuxtlabs.com](https://nuxtlabs.com) 上的那個互動 ——
 這裡的實作是從零寫的，沒有用他們的任何程式碼。
 
