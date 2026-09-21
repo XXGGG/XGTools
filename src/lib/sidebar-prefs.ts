@@ -22,7 +22,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: 'Vault', labelKey: 'nav.vault', icon: 'icon-xg-obsidian', group: 'tool' },
   { id: 'Timer', labelKey: 'nav.timer', icon: 'icon-[lucide--timer]', group: 'tool' },
   { id: 'Translate', labelKey: 'nav.translate', icon: 'icon-[lucide--languages]', group: 'tool' },
-  { id: 'Convert', labelKey: 'nav.convert', icon: 'icon-[lucide--refresh-ccw]', group: 'tool' },
+  { id: 'Convert', labelKey: 'nav.convert', icon: 'icon-[lucide--replace]', group: 'tool' },
   { id: 'Audio', labelKey: 'nav.audio', icon: 'icon-[lucide--audio-lines]', group: 'tool' },
   { id: 'Fonts', labelKey: 'nav.fonts', icon: 'icon-[lucide--type]', group: 'tool' },
   // 下卡片:后台功能的配置页,和最下面的应用设置挨在一起
