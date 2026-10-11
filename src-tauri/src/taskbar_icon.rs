@@ -10,8 +10,17 @@
 
 use tauri::{image::Image, AppHandle, Emitter, Manager};
 
-/// 深色任务栏用的白口袋、浅色任务栏用的黑口袋(64px,由用户在 Figma 里画的口袋渲染出来)
+/// 深色任务栏用的白口袋、浅色任务栏用的黑口袋(64px,半透明磨砂款,由 scripts/icon/ 生成)
+/// 开发版(pnpm tauri dev,debug 构建)换成右上角斜贴黄底「DEV」的那两张,
+/// 和装好的正式版同时开着时,任务栏 / 托盘一眼分得清(2026-10-11 用户要的,学 Edge 开发版)。
+/// 带 DEV 的那两张(icons/taskbar-{white,black}-dev.png)也是 scripts/icon/ 一起生成的
+#[cfg(debug_assertions)]
+const WHITE: &[u8] = include_bytes!("../icons/taskbar-white-dev.png");
+#[cfg(debug_assertions)]
+const BLACK: &[u8] = include_bytes!("../icons/taskbar-black-dev.png");
+#[cfg(not(debug_assertions))]
 const WHITE: &[u8] = include_bytes!("../icons/taskbar-white.png");
+#[cfg(not(debug_assertions))]
 const BLACK: &[u8] = include_bytes!("../icons/taskbar-black.png");
 
 /// 托盘图标的 id,tray.rs 建托盘时用它,这里换图标时按它找
