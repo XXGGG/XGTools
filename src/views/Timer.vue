@@ -174,11 +174,11 @@ watchDebounced(durationInput, async () => {
     <Tabs v-model="activeTab" class="flex-1 overflow-hidden flex flex-col w-full">
 
       <TitleBarTabs>
-        <TabsTrigger value="cube" class="gap-1.5 h-11 px-4 rounded-xl">
+        <TabsTrigger value="cube" class="gap-1.5 h-full px-4 rounded-[10px] hover:text-foreground">
           <span class="icon-[lucide--box] w-4 h-4" />
           {{ t('timer.cube') }}
         </TabsTrigger>
-        <TabsTrigger value="pomodoro" class="gap-1.5 h-11 px-4 rounded-xl">
+        <TabsTrigger value="pomodoro" class="gap-1.5 h-full px-4 rounded-[10px] hover:text-foreground">
           <span class="icon-[lucide--clock] w-4 h-4" />
           {{ t('timer.pomodoro') }}
         </TabsTrigger>

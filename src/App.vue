@@ -21,12 +21,12 @@ import { useI18n } from './i18n'
  * 所以按钮里的那个 <span> 图标也会拿到 pointer,不会误判。
  */
 /**
- * 顶部能拖窗口的那一条有多高。浮空版:10 外缩 + 58 卡片 + 10 间距(和页面 pt-/pl- 同一个数);
+ * 顶部能拖窗口的那一条有多高。浮空版:10 外缩 + --bar-h 卡片 + 10 间距(和页面 pt- 同一个数);
  * 扁平版就是顶栏高度,读 style.css 里的 --flat-bar-h,改那一处就行。
  */
 const topBand = () => settings.uiStyle === 'flat'
   ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--flat-bar-h')) || 40
-  : 78
+  : (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar-h')) || 58) + 20
 
 function isBlankSpot(e: MouseEvent) {
   if (e.button !== 0 || e.clientY > topBand()) return false
@@ -353,7 +353,7 @@ onMounted(async () => {
             不吃内边距,直接顶到最上面 —— 它们的第一行(标签条、目录栏工具行)就和红绿灯在同一行,和 Notion 一样。
           -->
           <div :key="currentView" class="absolute inset-0 overflow-auto"
-            :class="zen.on ? 'pt-2.5 pl-2.5' : 'pt-[4.875rem] pl-[4.875rem] flat:left-[var(--flat-side-w)] flat:pt-[var(--flat-bar-h)] flat:pl-0'">
+            :class="zen.on ? 'pt-2.5 pl-2.5' : 'pt-[calc(var(--bar-h)+20px)] pl-[4.875rem] flat:left-[var(--flat-side-w)] flat:pt-[var(--flat-bar-h)] flat:pl-0'">
             <HomeView v-if="currentView === 'Home'" />
             <VaultView v-else-if="currentView === 'Vault'" />
             <SettingsView v-else-if="currentView === 'Settings'" />
@@ -415,7 +415,7 @@ onMounted(async () => {
         Logo 也要跟着收成 58 宽才和图标同列(TitleBar.vue),别只改一边。
       -->
       <!--
-        top-[4.875rem] = 10(外缩) + 58(顶栏卡片高) + 10(间距) —— 必须从顶栏下面开始。
+        top = 10(外缩) + --bar-h(顶栏高,style.css 顶部) + 10(间距) —— 必须从顶栏下面开始。
         以前写 top-2.5,侧栏第一张卡片会直接压在浮空顶栏的 Logo 上面把它盖住。
         这个 4.875rem(78px) 也是 main 的 pt-/pl-,还有各页面的 pl- ——
         58 是全局模数,改它要连着 TitleBar 的 h-/w- 一起改。

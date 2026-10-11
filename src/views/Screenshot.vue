@@ -246,9 +246,9 @@ const bgColorPresets = [
       <!-- 页签搬到标题栏,和设置页同一套;原来那两个标签是硬编码中文,顺手接进 i18n -->
       <Tabs v-model="activeTab">
         <TitleBarTabs>
-          <TabsTrigger value="screenshot" class="h-11 px-4 rounded-xl">{{ t('shot.tabShot') }}</TabsTrigger>
-          <TabsTrigger value="record" class="h-11 px-4 rounded-xl">{{ t('shot.tabRecord') }}</TabsTrigger>
-          <TabsTrigger value="translate" class="h-11 px-4 rounded-xl">{{ t('shot.tabTranslate') }}</TabsTrigger>
+          <TabsTrigger value="screenshot" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('shot.tabShot') }}</TabsTrigger>
+          <TabsTrigger value="record" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('shot.tabRecord') }}</TabsTrigger>
+          <TabsTrigger value="translate" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('shot.tabTranslate') }}</TabsTrigger>
         </TitleBarTabs>
       </Tabs>
 

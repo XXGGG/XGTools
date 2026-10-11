@@ -551,7 +551,7 @@ onBeforeUnmount(() => {
     <div v-if="treeVisible" class="w-[248px] flex flex-col gap-2.5 flat:gap-0"
       :class="treeInFlow ? 'shrink-0'
         : ['font-drawer absolute z-30 top-2.5 bottom-2.5 drop-shadow-2xl flat:top-0 flat:bottom-0', zenMode ? 'left-2.5' : 'left-[4.875rem] flat:left-0']">
-      <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
+      <div class="float-card h-[var(--bar-h)] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
         <!-- 收起放最左，和收起后那张「展开」方卡片同一个位置（笔记、音频试听也是这样） -->
         <button @click="hideTree" :title="t('fonts.hideTree')" class="tool-btn">
           <span class="icon-[lucide--panel-left-close] w-4 h-4" />
@@ -632,7 +632,7 @@ onBeforeUnmount(() => {
     <div class="flex-1 min-w-0 flex flex-col gap-2.5 flat:gap-0">
       <div class="flex gap-2.5 shrink-0 flat:gap-0">
         <button v-if="!treeVisible" @click="showTree" :title="t('fonts.showTree')"
-          class="float-card size-[58px] shrink-0 rounded-[14px] border bg-card flex items-center justify-center flat:size-[var(--flat-bar-h)] flat:rounded-none
+          class="size-[var(--bar-h)] shrink-0 rounded-[10px] hover:bg-muted/60 flex items-center justify-center flat:size-[var(--flat-bar-h)] flat:rounded-none
                  text-muted-foreground transition-colors hover:text-foreground">
           <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
         </button>
@@ -644,9 +644,9 @@ onBeforeUnmount(() => {
           滑块按下去反而被当成拖窗口（光标形状是 default，见 App.vue 的 isBlankSpot）。
           试字那句话改成浮在列表底部的磨砂条，字号和底色两个开关撤掉（2026-09-20 用户提的）。
         -->
-        <div class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
+        <div class="float-card h-[var(--bar-h)] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
                  flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-2 flat:gap-2"
-          :class="zenMode ? '' : 'mr-[130px] flat:mr-[calc(var(--ctrl-w)*3_+_var(--ctrl-gap))]'">
+          :class="zenMode ? '' : 'mr-[calc(var(--ctrl-zone)-10px)] flat:mr-[var(--ctrl-zone)]'">
           <div class="flex-1 min-w-0" />
           <button @click="settings.fontOnlySafe = !settings.fontOnlySafe" :title="t('fonts.onlySafe')"
             class="tool-btn shrink-0" :class="settings.fontOnlySafe ? 'is-on' : ''"

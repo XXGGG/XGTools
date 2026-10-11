@@ -305,10 +305,10 @@ onUnmounted(() => {
     <div class="max-w-3xl mx-auto px-8 py-8">
       <Tabs default-value="general">
         <TitleBarTabs>
-          <TabsTrigger value="general" class="h-11 px-4 rounded-xl">{{ t('settings.general') }}</TabsTrigger>
-          <TabsTrigger value="keys" class="h-11 px-4 rounded-xl">{{ t('settings.keys') }}</TabsTrigger>
-          <TabsTrigger value="sidebar" class="h-11 px-4 rounded-xl">{{ t('settings.nav') }}</TabsTrigger>
-          <TabsTrigger value="vault" class="h-11 px-4 rounded-xl">{{ t('settings.vault') }}</TabsTrigger>
+          <TabsTrigger value="general" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.general') }}</TabsTrigger>
+          <TabsTrigger value="keys" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.keys') }}</TabsTrigger>
+          <TabsTrigger value="sidebar" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.nav') }}</TabsTrigger>
+          <TabsTrigger value="vault" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.vault') }}</TabsTrigger>
         </TitleBarTabs>
 
         <!-- ================= 常规（含外观 / 关于）================= -->

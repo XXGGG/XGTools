@@ -850,7 +850,7 @@ onBeforeUnmount(() => {
       <div v-if="treeVisible" class="w-[280px] flex flex-col gap-2.5 flat:gap-0"
         :class="treeInFlow ? 'shrink-0'
           : ['tree-drawer absolute z-30 top-2.5 bottom-2.5 drop-shadow-2xl flat:top-0 flat:bottom-0', zenMode ? 'left-2.5' : 'left-[4.875rem] flat:left-0']">
-        <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
+        <div class="float-card h-[var(--bar-h)] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
           <!-- 收起放最左，和收起后那张「展开」方卡片同一个位置；细线隔开，免得和添加工作区挨着点错 -->
           <button @click="hideTree" :title="t('audio.hideTree')" class="tool-btn">
             <span class="icon-[lucide--panel-left-close] w-4 h-4" />
@@ -952,16 +952,16 @@ onBeforeUnmount(() => {
             和笔记页一样：入口留在目录栏原来的位置，一眼就找得到。
           -->
           <button v-if="!treeVisible" @click="showTree" :title="t('audio.showTree')"
-            class="float-card size-[58px] shrink-0 rounded-[14px] border bg-card flat:size-[var(--flat-bar-h)] flat:rounded-none
+            class="size-[var(--bar-h)] shrink-0 rounded-[10px] hover:bg-muted/60 flat:size-[var(--flat-bar-h)] flat:rounded-none
                    flex items-center justify-center text-muted-foreground
                    transition-colors hover:text-foreground">
             <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
           </button>
 
         <!-- 右边留出窗口控制点的位置：它们浮在最上层，排到那儿的按钮会被压住点不到 -->
-        <div class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
+        <div class="float-card h-[var(--bar-h)] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
                  flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-2 flat:gap-2"
-          :class="zenMode ? '' : 'mr-[130px] flat:mr-[calc(var(--ctrl-w)*3_+_var(--ctrl-gap))]'">
+          :class="zenMode ? '' : 'mr-[calc(var(--ctrl-zone)-10px)] flat:mr-[var(--ctrl-zone)]'">
           <span class="icon-[lucide--folder-open] w-4 h-4 shrink-0 text-muted-foreground" />
           <!-- 名字至少留出几个字的位置：窄的时候先让提示文字让路，别把文件夹名挤没了 -->
           <span class="text-[14px] font-medium truncate min-w-12 max-w-[40%]" :title="selected">{{ selectedName }}</span>

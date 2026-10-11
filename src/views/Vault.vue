@@ -1523,7 +1523,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
       <div v-if="treeOpen && !zenMode" class="shrink-0 flex flex-col gap-2.5 flat:gap-0" :style="{ width: settings.vaultTreeWidth + 'px' }">
 
         <!-- 卡片直接贴在 y=10,不再套一层更高的行 -->
-        <div class="float-card h-[58px] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
+        <div class="float-card h-[var(--bar-h)] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
           <!--
             收起目录栏放最左:收起后那张「展开」方卡片也在最左边,收和开在同一个位置,手不用找。
             后面一道细线隔开 —— 它是「这一栏要不要占地方」,和右边那几个「对这个库做什么」不是一类。
@@ -1791,7 +1791,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           用外边距而不是内边距 —— 内边距只是把内容推开,卡片本身还是顶到最右,
           看着像"标签栏一直延伸到控件底下"。130 = 控件卡片宽 120 + 间隔 10。
         -->
-        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5 mr-[130px] flat:mr-[calc(var(--ctrl-w)*3_+_var(--ctrl-gap))] flat:gap-0">
+        <div v-if="!zenMode" class="shrink-0 flex items-stretch gap-2.5 mr-[calc(var(--ctrl-zone)-10px)] flat:mr-[var(--ctrl-zone)] flat:gap-0">
 
           <!--
             目录栏收起来之后,展开按钮变成标签条前面一张 58×58 的方卡片。
@@ -1800,7 +1800,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
             展开的入口留在目录栏原来的位置,比原先那颗浮在左下角的按钮好找。
           -->
           <button v-if="!treeOpen" @click="treeOpen = true" :title="t('vault.showTree')"
-            class="float-card size-[58px] shrink-0 rounded-[14px] border bg-card flat:size-[var(--flat-bar-h)] flat:rounded-none
+            class="size-[var(--bar-h)] shrink-0 rounded-[10px] hover:bg-muted/60 flat:size-[var(--flat-bar-h)] flat:rounded-none
                    flex items-center justify-center text-muted-foreground
                    transition-colors hover:text-foreground">
             <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
@@ -1808,7 +1808,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
 
           <!-- 标签卡:和工具卡同高(58),同一条基线 -->
           <div
-            class="float-card h-[58px] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-1 px-2
+            class="float-card h-[var(--bar-h)] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-1 px-2
                    flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1 flat:gap-0.5">
           <!--
             标签在这一段里自己横向滚动,「关闭全部」放在这一段外面。
@@ -1854,7 +1854,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           </div>
           <!--
             关闭全部。三个以上才出现，在标签条最右、滚动区外面，和标签之间隔开一段；关之前确认。
-            扁平版往右多挪 2px(-mr-0.5),离红绿灯的距离由 style.css 的 --ctrl-gap 管。
+            扁平版往右多挪 2px(-mr-0.5),离红绿灯的距离由 style.css 的 --ctrl-zone 管。
           -->
           <button v-if="vault.tabs.length > 2" @click="confirmCloseAll = true" :title="t('vault.closeAllTabs')"
             class="tool-btn shrink-0 ml-2 flat:-mr-0.5">

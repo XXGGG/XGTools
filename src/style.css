@@ -10,13 +10,20 @@
 /* ============ 扁平版的可调参数 ============
    想调扁平版的尺寸就改这里,别的地方都是引用这几个数。改完重新打包才生效。 */
 :root {
+  /* 浮空版顶栏那一行的高度(Logo 格、各页最上面那排卡片、页签卡都用它)。
+     原来是 58(和侧栏卡片宽度同一个模数),2026-10-11 用户嫌粗,收到 50。
+     页面内容从 10 + 它 + 10 开始(App.vue 的 pt- / 侧栏的 top-)。 */
+  --bar-h: 40px;           /* 10-11 先收到 50,用户看了说再扁 10 → 40,和扁平版顶栏一样高 */
+  --bar-btn: 30px;         /* 浮空版顶栏卡片里的图标按钮大小(原来 44,顶栏收细后跟着收) */
   --flat-bar-h: 40px;      /* 顶栏高度 = 各页最上面那一行(标签条、目录栏工具行)的高度 */
   /* 下面这三个是默认值。设置 → 常规 →「侧栏图标大小」会按比例一起改掉它们(useAppSettings 的 applyFlatNavVars) */
   --flat-side-w: 40px;     /* 左侧导航栏宽度 */
   --flat-nav-btn: 32px;    /* 导航栏里每个图标格的大小 */
   --flat-nav-icon: 18px;   /* 导航栏图标大小 */
-  --ctrl-w: 44px;          /* 右上角每个控制点格子的宽度(Windows 自带的是 46,用户嫌点与点隔太开,收了 2) */
-  --ctrl-gap: 16px;        /* 页面第一行最右边的按钮和红绿灯之间再空出多少,免得看着像第四颗点 */
+  /* 右上角红黄绿占的那一段宽度:从页面第一行卡片的右边缘量到窗口右边缘(两种皮肤一样)。
+     三颗点在这段里「四段等距」排:左空 = 点间距 = 右空 = (这段宽 - 3×点径) / 4。
+     2026-10-11 用户要的:以前每颗点居中在 44 宽的格子里,看着是 1:2:2:1,改成 1:1:1:1。 */
+  --ctrl-zone: 132px;
   --ctrl-dot: 14px;        /* 控制点(红黄绿)直径 */
   --ctrl-dot-hover: 1.25;  /* 鼠标移到控制点上时放大几倍 */
   --flat-btn: 28px;        /* 页面工具行里的按钮大小 */
@@ -332,10 +339,17 @@ body.vibrancy .shadow-lg {
    三格等宽、和顶栏一样高、贴着窗口右上角,鼠标移上去只放大它那一颗、只亮它那一个小图标。
    贴着角是关键 —— 最大化时鼠标往右上角一甩就是关闭。 */
 .xg-ctrl {
-  width: var(--ctrl-w);
+  /* 每颗点左右各分半个间距,首尾两颗在靠外那侧补满一个间距 → 点与点、点与两边都等距。
+     点击区还是连成一整条,中间没有点不到的缝 */
+  --ctrl-s: calc((var(--ctrl-zone) - 3 * var(--ctrl-dot)) / 4);
+  width: auto !important;
+  flex: none;
+  padding: 0 calc(var(--ctrl-s) / 2);
   height: auto;
   border-radius: 0;
 }
+.xg-ctrl:first-child { padding-left: var(--ctrl-s); }
+.xg-ctrl:last-child { padding-right: var(--ctrl-s); }
 .xg-ctrl-dot {
   width: var(--ctrl-dot);
   height: var(--ctrl-dot);
@@ -356,6 +370,12 @@ body.vibrancy .shadow-lg {
    光秃秃的 `[data-ui=flat]{...}`,后半截整个丢掉 —— 结果是把 28×28 套到了 <html> 上,
    全窗口点哪儿都点不中(2026-09-17 v0.12.3 踩过)。
    :root 是为了压过各页 scoped 的 .tool-btn.top-btn(30px)。 */
+/* 浮空版:顶栏那排卡片(高度 = --bar-h)里的按钮跟着顶栏一起收,不然 44 的按钮塞在 50 的卡片里几乎贴边。
+   只认 h-[var(--bar-h)] 的卡片,字体详情等别处的 .tool-btn 不受影响。 */
+:root:not([data-ui="flat"]) :is(.h-\[var\(--bar-h\)\], .size-\[var\(--bar-h\)\]) .tool-btn:not(.size-6) {
+  width: var(--bar-btn);
+  height: var(--bar-btn);
+}
 :root[data-ui="flat"] .tool-btn:not(.size-6) {
   width: var(--flat-btn);
   height: var(--flat-btn);
