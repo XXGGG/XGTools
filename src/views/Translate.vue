@@ -95,6 +95,16 @@ const aiValidated = ref<Record<string, boolean | null>>(
 
 const inputText = ref('')
 const outputText = ref('')
+/**
+ * 译文「已经和原文对上」的那一版。用户手改译文后,拿它和改后的译文比,
+ * 把差别交给 AI,让原文里对应的部分一起改掉(见 syncSource)。
+ */
+let syncedOutput = ''
+const syncing = ref(false)
+const syncHint = ref<string | null>(null)
+let syncTimer: ReturnType<typeof setTimeout> | null = null
+/** 每次发起/作废同步就 +1;回来的结果序号对不上就丢掉 */
+let syncSeq = 0
 const detectedLang = ref<string | null>(null)
 const loading = ref(false)
 const copied = ref(false)
@@ -163,15 +173,68 @@ const localSizeMb = Math.round(LOCAL_MODEL_BYTES / 1024 / 1024)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
 function onInputChange() {
+  cancelSync()
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     if (inputText.value.trim()) doTranslate()
-    else { outputText.value = ''; detectedLang.value = null }
+    else { outputText.value = ''; syncedOutput = ''; detectedLang.value = null }
   }, 500)
+}
+
+// ─── 手改译文 → 原文跟着改 ─────────────────────────────
+
+function cancelSync() {
+  if (syncTimer) clearTimeout(syncTimer)
+  syncSeq++
+  syncing.value = false
+  syncHint.value = null
+}
+
+function onOutputEdit() {
+  syncHint.value = null
+  if (syncTimer) clearTimeout(syncTimer)
+  syncTimer = setTimeout(syncSource, 900)
+}
+
+/**
+ * 译文被手改了:让 AI 把原文里对应的词一起改掉(比如删掉「中国」,英文里的 chinese 也没)。
+ *
+ * 只有 AI 引擎做得到(要知道词与词的对应),所以只挑 AI 引擎;没配就提示一句,不动原文。
+ * 改动是从「上次对上的那版」累计算起的:这次没同步成功,下次编辑会把两次的差别一起交过去。
+ * 原文是程序改的,不是用户敲的,所以不会触发 @input,也就不会反过来把译文重翻覆盖掉。
+ */
+async function syncSource() {
+  const edited = outputText.value
+  if (edited === syncedOutput || !inputText.value.trim()) return
+  const isAi = (id: string) => aiEngines.some(e => e.id === id) && !!aiConfigs.value[id]?.api_key
+  const engine = chain.value.find(isAi) ?? aiEngines.map(e => e.id).find(isAi)
+  if (!engine) { syncHint.value = t('translate.syncNeedAi'); return }
+  const cfg = aiConfigs.value[engine]
+  const seq = ++syncSeq
+  syncing.value = true
+  try {
+    const next = await invoke<string>('sync_source_edit', {
+      engine,
+      aiConfig: { api_key: cfg.api_key, api_url: cfg.api_url || null, model: cfg.model || null },
+      source: inputText.value,
+      translation: syncedOutput,
+      edited,
+    })
+    if (seq !== syncSeq) return
+    // AI 没改动原文 = 它没找到对得上的词(译文和原文本来就没逐词对应时常见),说一声别让人以为没反应
+    if (edited.trim() && next.trim() === inputText.value.trim()) syncHint.value = t('translate.syncNoMatch')
+    inputText.value = edited.trim() ? next : ''
+    syncedOutput = edited
+  } catch {
+    if (seq === syncSeq) syncHint.value = t('translate.syncFailed')
+  } finally {
+    if (seq === syncSeq) syncing.value = false
+  }
 }
 
 async function doTranslate() {
   if (!inputText.value.trim()) return
+  cancelSync()
   if (speaking.value) {
     window.speechSynthesis.cancel()
     speaking.value = false
@@ -181,6 +244,7 @@ async function doTranslate() {
     const r = await translateRacing(inputText.value, detectTargetLang(inputText.value),
       { chain: chain.value, aiConfigs: aiConfigs.value, race: race.value })
     outputText.value = r.text
+    syncedOutput = r.text
     detectedLang.value = r.detected
     lastUsed.value = r.engine
     lastFailed.value = r.failed
@@ -197,6 +261,7 @@ function detectTargetLang(text: string): 'zh' | 'en' {
 }
 
 function swapTexts() {
+  cancelSync()
   const tmp = outputText.value
   outputText.value = ''
   inputText.value = tmp
@@ -389,7 +454,7 @@ function toggleConfig(id: string, forceOpen = false) {
             </Button>
             <Button
               variant="ghost" size="icon-sm"
-              @click="inputText = ''; outputText = ''; detectedLang = null"
+              @click="cancelSync(); inputText = ''; outputText = ''; syncedOutput = ''; detectedLang = null"
               class="text-muted-foreground/40 hover:text-foreground"
             >
               <span class="icon-[lucide--x] w-3.5 h-3.5" />
@@ -406,6 +471,11 @@ function toggleConfig(id: string, forceOpen = false) {
             <span class="icon-[lucide--loader-2] w-3.5 h-3.5 animate-spin" />
             {{ t('translate.translating') }}
           </div>
+          <div v-else-if="syncing" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span class="icon-[lucide--loader-2] w-3.5 h-3.5 animate-spin" />
+            {{ t('translate.syncing') }}
+          </div>
+          <div v-else-if="syncHint" class="text-xs text-amber-400">{{ syncHint }}</div>
         </div>
 
         <!-- 输出区 -->
@@ -413,18 +483,20 @@ function toggleConfig(id: string, forceOpen = false) {
           <!--
             这一版的译文是谁给的。配了兜底之后这件事**不再是可以推断的** ——
             链里排第一的和两个兜底同时在跑,谁先回来算谁的,所以每次都可能不一样。
-            摆在结果框右上角:看结果的时候眼睛正好在那儿。
+            摆在结果框左下角的空地:原来在右上角,会压住译文的最后几个字(2026-10-08 用户嫌挡)。
+            译文框底部留了 pb-12,文字不会滚到它底下。
           -->
           <span v-if="outputText && lastUsed && !loading"
-            class="absolute top-2.5 right-3 z-10 px-2 py-0.5 rounded-md text-[11px]
+            class="absolute bottom-3.5 left-3 z-10 px-2 py-0.5 rounded-md text-[11px] pointer-events-none
                    bg-background/80 border border-border text-muted-foreground backdrop-blur-sm">
             {{ engineLabel(lastUsed) }}
           </span>
+          <!-- 译文可以直接改:删掉几个词,原文里对应的词会跟着没(AI 引擎才行,见 syncSource) -->
           <Textarea
-            :model-value="outputText"
-            readonly
+            v-model="outputText"
+            @input="onOutputEdit"
             :placeholder="t('translate.resultPlaceholder')"
-            class="h-full resize-none rounded-xl bg-muted/30 leading-relaxed"
+            class="h-full resize-none rounded-xl bg-muted/30 leading-relaxed pb-12"
           />
           <div v-if="outputText" class="absolute bottom-3 right-3 flex items-center gap-1.5">
             <Button

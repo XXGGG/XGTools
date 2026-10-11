@@ -8,10 +8,10 @@
 import { invoke } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 
-export type ShortcutKey = 'dock' | 'screenshot' | 'screenshot_translate' | 'record' | 'palette' | 'palette_translate'
+export type ShortcutKey = 'dock' | 'screenshot' | 'screenshot_translate' | 'record' | 'palette' | 'palette_translate' | 'translate_page'
 
 /** 设置页里的展示顺序:最常按的在上面 */
-export const SHORTCUT_KEYS: ShortcutKey[] = ['palette', 'palette_translate', 'screenshot', 'screenshot_translate', 'record', 'dock']
+export const SHORTCUT_KEYS: ShortcutKey[] = ['palette', 'palette_translate', 'translate_page', 'screenshot', 'screenshot_translate', 'record', 'dock']
 
 export type ShortcutState = {
   key: ShortcutKey
@@ -34,6 +34,7 @@ export const SHORTCUT_DEFAULTS: Record<ShortcutKey, string> = {
   record: 'Ctrl+Alt+R',
   palette: 'Ctrl+Alt+Space',
   palette_translate: 'Ctrl+Alt+E',
+  translate_page: 'Ctrl+Alt+T',
 }
 
 type DockSettings = { shortcut: string; auto_start: boolean; [k: string]: unknown }
@@ -77,6 +78,12 @@ export async function readAllShortcuts(): Promise<ShortcutState[]> {
       key: 'palette_translate', optional: false, ownSwitch: true,
       shortcut: await get('palette_translate_shortcut', SHORTCUT_DEFAULTS.palette_translate),
       enabled: paletteEnabled && (await get('palette_translate_enabled', true)),
+    },
+    // 打开主界面里的翻译页(命令面板那个是弹一个小翻译框,不是这一页)
+    translate_page: {
+      key: 'translate_page', optional: false, ownSwitch: true,
+      shortcut: await get('translate_page_shortcut', SHORTCUT_DEFAULTS.translate_page),
+      enabled: await get('translate_page_enabled', true),
     },
   }
   return SHORTCUT_KEYS.map((k) => all[k])
@@ -127,6 +134,7 @@ export async function syncAllShortcuts(): Promise<ShortcutKey[]> {
       record_shortcut: pick('record'),
       palette_shortcut: pick('palette'),
       palette_translate_shortcut: pick('palette_translate'),
+      translate_page_shortcut: pick('translate_page'),
     },
   })
   return (failed ?? []) as ShortcutKey[]

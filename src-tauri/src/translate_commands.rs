@@ -499,9 +499,9 @@ async fn ai_translate(
     };
 
     let translated = match engine {
-        "claude" => claude_request(&user_msg, config).await?,
-        "gemini" => gemini_request(&user_msg, config).await?,
-        _ => openai_compatible_request(&user_msg, config, engine).await?,
+        "claude" => claude_request(TRANSLATE_SYSTEM_PROMPT, &user_msg, config).await?,
+        "gemini" => gemini_request(TRANSLATE_SYSTEM_PROMPT, &user_msg, config).await?,
+        _ => openai_compatible_request(TRANSLATE_SYSTEM_PROMPT, &user_msg, config, engine).await?,
     };
 
     Ok(TranslateResult {
@@ -509,6 +509,83 @@ async fn ai_translate(
         detected_lang: None,
         engine: engine.into(),
     })
+}
+
+// ─── 译文手改后,让原文跟着改 ─────────────────────────
+
+const SYNC_EDIT_SYSTEM_PROMPT: &str = r#"You keep a source text and its translation consistent.
+The user has edited the translation by hand. Update the SOURCE text so that it matches the edited translation.
+
+Rules:
+- Remove or change ONLY the parts of the source that correspond to what the user removed or changed in the translation
+- If the user added something to the translation, add the matching words to the source in the right place
+- Keep everything else in the source character-for-character identical: wording, punctuation, spacing, line breaks
+- Clean up only the separators left behind by a removal (for example a doubled comma or space)
+- The translation is often loose: it may reorder, merge or drop parts of the source. Match by MEANING, not by position. If the user deleted a word like "Chinese-style" (中式), delete the source word that expresses it ("chinese") even if the sentence structure differs
+- If a deleted translation word has no counterpart anywhere in the source, return the source unchanged
+- Output ONLY the updated source text. No quotes, no explanation, no markers
+
+Example
+SOURCE: a girl wearing a chinese dress with a side slit, long hair, smiling
+ORIGINAL TRANSLATION: 一位身穿侧开衩中式连衣裙、长发、面带微笑的女孩
+EDITED TRANSLATION: 一位身穿侧开衩连衣裙、长发、面带微笑的女孩
+Updated SOURCE: a girl wearing a dress with a side slit, long hair, smiling"#;
+
+/// 译文被用户手改之后,让 AI 把原文里对应的部分一起改掉。
+///
+/// 这件事只有 AI 引擎做得到:要知道「中国」对着原文里的哪个词,得有词与词的对应关系,
+/// Google / 离线包只给整句。所以只收 AI 引擎,别的直接报错让前端提示。
+#[tauri::command]
+pub async fn sync_source_edit(
+    engine: String,
+    ai_config: AiConfig,
+    source: String,
+    translation: String,
+    edited: String,
+) -> Result<String, String> {
+    if ai_config.api_key.is_empty() {
+        return Err(format!("{} 需要配置 API Key", engine));
+    }
+    let user_msg = format!(
+        "SOURCE:\n<<<\n{source}\n>>>\n\nORIGINAL TRANSLATION:\n<<<\n{translation}\n>>>\n\nEDITED TRANSLATION:\n<<<\n{edited}\n>>>\n\nUpdated SOURCE:"
+    );
+    let out = match engine.as_str() {
+        "claude" => claude_request(SYNC_EDIT_SYSTEM_PROMPT, &user_msg, &ai_config).await?,
+        "gemini" => gemini_request(SYNC_EDIT_SYSTEM_PROMPT, &user_msg, &ai_config).await?,
+        "openai" | "deepseek" | "qwen" | "zhipu" | "yi" | "moonshot" | "groq" | "custom" => {
+            openai_compatible_request(SYNC_EDIT_SYSTEM_PROMPT, &user_msg, &ai_config, &engine).await?
+        }
+        _ => return Err(format!("{} 不是 AI 引擎,没法联动修改原文", engine)),
+    };
+    // 模型偶尔会把我们的 <<< >>> 分隔符原样带出来,剥掉
+    let out = out.trim();
+    let out = out.strip_prefix("<<<").unwrap_or(out);
+    let out = out.strip_suffix(">>>").unwrap_or(out);
+    Ok(out.trim().to_string())
+}
+
+/// 通用的「给一段系统提示 + 一段用户输入,拿回模型的回答」。
+/// 提示词页的 Anima 打磨用它 —— 系统提示放在前端(lib/prompt/anima.ts),改提示词不用动 Rust。
+/// 走的是翻译设置里配好的 AI 引擎(同一份 Key / 地址 / 模型)。
+#[tauri::command]
+pub async fn ai_complete(
+    engine: String,
+    ai_config: AiConfig,
+    system: String,
+    user: String,
+) -> Result<String, String> {
+    if ai_config.api_key.is_empty() {
+        return Err(format!("{} 需要配置 API Key", engine));
+    }
+    let out = match engine.as_str() {
+        "claude" => claude_request(&system, &user, &ai_config).await?,
+        "gemini" => gemini_request(&system, &user, &ai_config).await?,
+        "openai" | "deepseek" | "qwen" | "zhipu" | "yi" | "moonshot" | "groq" | "custom" => {
+            openai_compatible_request(&system, &user, &ai_config, &engine).await?
+        }
+        _ => return Err(format!("{} 不是 AI 引擎", engine)),
+    };
+    Ok(strip_think(&out))
 }
 
 fn build_lang_hint(src: &str, tgt: &str) -> String {
@@ -538,6 +615,7 @@ fn lang_display_name(code: &str) -> &str {
 
 /// OpenAI-compatible API (OpenAI, DeepSeek, 通义千问, 智谱, 零一万物, Moonshot, Groq, 自定义)
 async fn openai_compatible_request(
+    system: &str,
     user_msg: &str,
     config: &AiConfig,
     engine: &str,
@@ -571,7 +649,7 @@ async fn openai_compatible_request(
     let mut body = serde_json::json!({
         "model": model,
         "messages": [
-            { "role": "system", "content": TRANSLATE_SYSTEM_PROMPT },
+            { "role": "system", "content": system },
             { "role": "user", "content": user_msg }
         ],
         "temperature": 0.1
@@ -635,7 +713,7 @@ fn strip_think(s: &str) -> String {
 }
 
 /// Claude API (Anthropic Messages API)
-async fn claude_request(user_msg: &str, config: &AiConfig) -> Result<String, String> {
+async fn claude_request(system: &str, user_msg: &str, config: &AiConfig) -> Result<String, String> {
     let url = config
         .api_url
         .as_deref()
@@ -648,7 +726,7 @@ async fn claude_request(user_msg: &str, config: &AiConfig) -> Result<String, Str
     let body = serde_json::json!({
         "model": model,
         "max_tokens": 4096,
-        "system": TRANSLATE_SYSTEM_PROMPT,
+        "system": system,
         "messages": [
             { "role": "user", "content": user_msg }
         ]
@@ -690,7 +768,7 @@ async fn claude_request(user_msg: &str, config: &AiConfig) -> Result<String, Str
 }
 
 /// Gemini API (Google Generative AI)
-async fn gemini_request(user_msg: &str, config: &AiConfig) -> Result<String, String> {
+async fn gemini_request(system: &str, user_msg: &str, config: &AiConfig) -> Result<String, String> {
     let model = config
         .model
         .as_deref()
@@ -707,7 +785,7 @@ async fn gemini_request(user_msg: &str, config: &AiConfig) -> Result<String, Str
 
     let body = serde_json::json!({
         "system_instruction": {
-            "parts": [{ "text": TRANSLATE_SYSTEM_PROMPT }]
+            "parts": [{ "text": system }]
         },
         "contents": [{
             "parts": [{ "text": user_msg }]

@@ -6,8 +6,9 @@
  * 挡住,而位置归系统管、改不了。字号圆角配色跟应用对不上还是其次的。
  * 这里就是普通的 Vue 组件,样式和主界面同一套 token。
  *
- * 里面只放「不打开主界面也想干」的事。要在页面里操作的东西(翻译、格式转换、
+ * 里面只放「不打开主界面也想干」的事。要在页面里操作的东西(格式转换、
  * 笔记、计时器)不放 —— 点进去也只是打开主界面再切页,那是命令面板的活。
+ * 翻译页是例外:用户点名要从托盘直达(2026-10-08)。
  */
 import { ref, onMounted, nextTick } from 'vue'
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window'
@@ -133,6 +134,10 @@ onMounted(async () => {
       <button class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] text-left transition-colors hover:bg-muted/60" @click="invoke('tray_open_palette')">
         <span class="icon-[lucide--search] size-3.5 shrink-0 opacity-70" />
         {{ t('tray.palette') }}
+      </button>
+      <button class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] text-left transition-colors hover:bg-muted/60" @click="invoke('tray_open_translate')">
+        <span class="icon-[lucide--languages] size-3.5 shrink-0 opacity-70" />
+        {{ t('tray.translate') }}
       </button>
 
       <div class="h-px bg-border/60 my-1 mx-1.5" />

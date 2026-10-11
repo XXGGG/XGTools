@@ -185,6 +185,7 @@ pub fn run() {
             tray::tray_show_main,
             tray::tray_toggle_dock,
             tray::tray_open_palette,
+            tray::tray_open_translate,
             tray::tray_screenshot,
             tray::tray_record,
             tray::tray_force_close_overlays,
@@ -265,6 +266,8 @@ pub fn run() {
             window_detect::get_visible_windows,
             // Translate
             translate_commands::translate,
+            translate_commands::sync_source_edit,
+            translate_commands::ai_complete,
             translate_commands::download_to_appdata,
             translate_commands::list_models,
             // Convert
@@ -469,6 +472,25 @@ pub fn run() {
                 None
             };
 
+            // 翻译页:直接打开主界面的翻译页。默认 Ctrl+Alt+T(Translate),
+            // 和 A 截图 / R 录屏 / W 启动台 / E 翻译面板都不冲突。有自己的开关。
+            let translate_page_enabled = store_json.as_ref()
+                .and_then(|v| v.get("translate_page_enabled"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let translate_page_shortcut = if translate_page_enabled {
+                // 从没设过 = 用默认;设成空串 = 明确不要
+                let s = store_json.as_ref()
+                    .and_then(|v| v.get("translate_page_shortcut"))
+                    .map(|v| v.as_str().unwrap_or("").to_string())
+                    .unwrap_or_else(|| "Ctrl+Alt+T".to_string());
+                Some(s)
+                    .filter(|s| !s.trim().is_empty())
+                    .and_then(|s| dock_commands::parse_shortcut_str(&s).ok())
+            } else {
+                None
+            };
+
             let screenshot_translate_shortcut = if screenshot_translate_enabled {
                 store_json.as_ref()
                     .and_then(|v| v.get("screenshot_translate_shortcut"))
@@ -486,6 +508,7 @@ pub fn run() {
                 palette: palette_shortcut,
                 palette_translate: palette_translate_shortcut,
                 record: record_shortcut,
+                translate_page: translate_page_shortcut,
             }));
             app.manage(bindings.clone());
 
@@ -526,6 +549,8 @@ pub fn run() {
                             if let Some(win) = app.get_webview_window("palette") {
                                 let _ = win.eval("window.__togglePalette && window.__togglePalette('translate')");
                             }
+                        } else if b.translate_page.as_ref() == Some(shortcut) {
+                            tray::open_translate(app);
                         } else if b.dock.as_ref() == Some(shortcut) {
                             if let Some(win) = app.get_webview_window("dock") {
                                 // 先摆好位置(窗口还藏着,摆位不会闪),然后**只喊一声**。
@@ -573,6 +598,9 @@ pub fn run() {
             if let Some(sc) = record_shortcut {
                 try_register(sc, "record", &mut failed_shortcuts);
             }
+            if let Some(sc) = translate_page_shortcut {
+                try_register(sc, "translate_page", &mut failed_shortcuts);
+            }
 
             // 通知前端有哪些快捷键注册失败
             if !failed_shortcuts.is_empty() {
@@ -603,7 +631,7 @@ pub fn run() {
                         std::thread::sleep(std::time::Duration::from_secs(wait));
                         let wanted: Vec<tauri_plugin_global_shortcut::Shortcut> = {
                             let b = bindings_retry.lock().unwrap();
-                            [b.dock, b.screenshot, b.screenshot_translate, b.palette, b.palette_translate, b.record]
+                            [b.dock, b.screenshot, b.screenshot_translate, b.palette, b.palette_translate, b.record, b.translate_page]
                                 .into_iter()
                                 .flatten()
                                 .collect()

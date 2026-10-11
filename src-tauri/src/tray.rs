@@ -178,6 +178,21 @@ pub fn tray_open_palette(app: tauri::AppHandle) {
     }
 }
 
+/// 打开主界面并切到翻译页。托盘菜单和翻译页快捷键共用。
+///
+/// 切页走前端已有的 `palette-go` 事件(命令面板选「翻译」也是这条),
+/// 主窗口藏在托盘里时 webview 照样活着,收得到。
+pub fn open_translate(app: &tauri::AppHandle) {
+    show_main(app);
+    let _ = app.emit("palette-go", serde_json::json!({ "view": "Translate" }));
+}
+
+#[tauri::command]
+pub fn tray_open_translate(app: tauri::AppHandle) {
+    hide_tray_menu(app.clone());
+    open_translate(&app);
+}
+
 #[tauri::command]
 pub fn tray_screenshot(app: tauri::AppHandle) {
     hide_tray_menu(app.clone());

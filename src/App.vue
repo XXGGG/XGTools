@@ -173,6 +173,7 @@ const shortcutNameMap: Record<string, string> = {
   record: 'settings.keyRecord',
   palette: 'nav.palette',
   palette_translate: 'palettePage.transHotkey',
+  translate_page: 'settings.keyTranslatePage',
 }
 
 // 把浏览器自带的快捷键收掉(Ctrl+P/R/F5/缩放…),见 useBrowserKeys

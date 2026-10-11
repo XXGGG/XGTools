@@ -175,6 +175,7 @@ function clearPageWidth(path: string) {
 const HK_META: Record<ShortcutKey, { icon: string; nameKey: string }> = {
   palette: { icon: 'icon-[lucide--command]', nameKey: 'settings.keyPalette' },
   palette_translate: { icon: 'icon-[lucide--languages]', nameKey: 'settings.keyPaletteTranslate' },
+  translate_page: { icon: 'icon-[lucide--app-window]', nameKey: 'settings.keyTranslatePage' },
   screenshot: { icon: 'icon-[lucide--camera]', nameKey: 'settings.keyScreenshot' },
   screenshot_translate: { icon: 'icon-[lucide--scan-text]', nameKey: 'settings.keyScreenshotTranslate' },
   record: { icon: 'icon-[lucide--video]', nameKey: 'settings.keyRecord' },
