@@ -90,6 +90,7 @@ import TranslateView from './views/Translate.vue'
 const ConvertView = defineAsyncComponent(() => import('./views/Convert.vue'))
 const AudioView = defineAsyncComponent(() => import('./views/Audio.vue'))
 const FontsView = defineAsyncComponent(() => import('./views/Fonts.vue'))
+const PromptView = defineAsyncComponent(() => import('./views/Prompt.vue'))
 const PaletteView = defineAsyncComponent(() => import('./views/Palette.vue'))
 import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
@@ -365,6 +366,7 @@ onMounted(async () => {
             <ConvertView v-else-if="currentView === 'Convert'" />
             <AudioView v-else-if="currentView === 'Audio'" />
             <FontsView v-else-if="currentView === 'Fonts'" />
+            <PromptView v-else-if="currentView === 'Prompt'" />
           </div>
         </Transition>
     </main>

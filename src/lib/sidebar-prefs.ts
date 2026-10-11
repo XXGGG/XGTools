@@ -22,9 +22,10 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: 'Vault', labelKey: 'nav.vault', icon: 'icon-xg-obsidian', group: 'tool' },
   { id: 'Timer', labelKey: 'nav.timer', icon: 'icon-[lucide--timer]', group: 'tool' },
   { id: 'Translate', labelKey: 'nav.translate', icon: 'icon-[lucide--languages]', group: 'tool' },
-  { id: 'Convert', labelKey: 'nav.convert', icon: 'icon-[lucide--replace]', group: 'tool' },
+  { id: 'Convert', labelKey: 'nav.convert', icon: 'icon-[lucide--arrow-right-left]', group: 'tool' },
   { id: 'Audio', labelKey: 'nav.audio', icon: 'icon-[lucide--audio-lines]', group: 'tool' },
-  { id: 'Fonts', labelKey: 'nav.fonts', icon: 'icon-[lucide--type]', group: 'tool' },
+  { id: 'Fonts', labelKey: 'nav.fonts', icon: 'icon-[lucide--case-sensitive]', group: 'tool' },
+  { id: 'Prompt', labelKey: 'nav.prompt', icon: 'icon-[lucide--wand-sparkles]', group: 'tool' },
   // 下卡片:后台功能的配置页,和最下面的应用设置挨在一起
   { id: 'Palette', labelKey: 'nav.palette', icon: 'icon-[lucide--command]', group: 'config' },
   { id: 'Dock', labelKey: 'nav.dock', icon: 'icon-[lucide--layout-grid]', group: 'config' },
