@@ -27,9 +27,6 @@ public/fonts/handwriting.css
 # bergamot 离线翻译的 worker 三件套,scripts/copy-bergamot.mjs 从 node_modules 拷
 public/bergamot/
 
-# Build output
-release/
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
