@@ -141,9 +141,11 @@ watch(menuItems, (items) => {
  */
 function resolveStartPage() {
   const items = menuItems.value
-  const want = settings.startPage
+  const want = settings.startPage === '__last__' ? settings.lastPage : settings.startPage
+  if (want === 'Settings') return want
   if (want && items.some((m) => m.id === want)) return want
-  return items[0]?.id ?? 'Home'
+  // 首页（Logo 页）2026-10-11 起不再进入；一个页面都没有时才退回设置
+  return items[0]?.id ?? 'Settings'
 }
 
 
@@ -211,6 +213,8 @@ onMounted(async () => {
 
   await loadSettings()
   currentView.value = resolveStartPage()
+  // 记住停在哪一页，给「启动时打开：上次的页面」用（首页不算）
+  watch(currentView, (v) => { if (v && v !== 'Home') settings.lastPage = v })
 
   // 恢复上次的窗口特效(主题已在 loadSettings 里应用,材质跟着主题走)
   if (settings.blurKind !== 'none') {
@@ -373,8 +377,7 @@ onMounted(async () => {
 
     <!-- 禅模式:整条顶栏(含右上角三颗控制点)让开 -->
     <TitleBar v-if="!zen.on" class="absolute top-2.5 left-2.5 right-2.5 z-50 flat:top-0 flat:left-0 flat:right-0"
-      :active="currentView === 'Home'"
-      @logo="currentView = 'Home'" />
+      :active="false" />
 
     <!-- 启动黑布:粒子汇聚成 Logo,一切就绪后散场淡出(见 BootCloth.vue) -->
     <BootCloth v-if="booting" ref="bootCloth" />
@@ -426,7 +429,7 @@ onMounted(async () => {
         四周留白 = (栏宽 - 格子) / 2,自动算。
       -->
       <aside v-if="!zen.on"
-        class="absolute left-2.5 top-[4.875rem] bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto
+        class="absolute left-2.5 top-2.5 bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto
                flat:left-0 flat:top-0 flat:bottom-0 flat:w-[var(--flat-side-w)]">
         <nav v-if="tools.length" class="float-card rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1
                                         flat:rounded-none flat:border-0 flat:bg-transparent flat:p-[calc((var(--flat-side-w)_-_var(--flat-nav-btn))/2)]">

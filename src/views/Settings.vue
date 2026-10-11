@@ -8,6 +8,7 @@ import { Tabs, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SelectSeparator } from 'reka-ui'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
 import {
@@ -16,7 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { VAULT_FONT_SIZE, FLAT_NAV_ICON, VAULT_ACCENTS, VAULT_FONTS, VAULT_FONT_STACK, settings, applyWindowEffect, applyTheme,
-  applyUiStyle, type BlurKind, type ThemeMode, type UiStyle } from '@/composables/useAppSettings'
+  type BlurKind, type ThemeMode } from '@/composables/useAppSettings'
 import { useI18n, detectLocale, type Locale } from '@/i18n'
 import { MENU_ITEMS, orderedAll, type MenuItem } from '@/lib/sidebar-prefs'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
@@ -95,14 +96,6 @@ function setBlurOpacity(v?: number[]) {
 }
 
 // 主题:三档。改完要重新应用材质 —— 深浅属性是跟着主题走的。
-const UI_STYLES: { key: UiStyle; labelKey: string; icon: string }[] = [
-  { key: 'float', labelKey: 'settings.uiFloat', icon: 'icon-[lucide--layers-2]' },
-  { key: 'flat', labelKey: 'settings.uiFlat', icon: 'icon-[lucide--panel-top]' },
-]
-function setUiStyle(v: UiStyle) {
-  settings.uiStyle = v
-  applyUiStyle()
-}
 
 const THEMES: { key: ThemeMode; labelKey: string; icon: string }[] = [
   { key: 'auto',  labelKey: 'settings.themeAuto',  icon: 'icon-[lucide--monitor]' },
@@ -340,22 +333,7 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <div class="flex items-center gap-4 px-4 py-3.5">
-              <span class="icon-[lucide--app-window] w-5 h-5 shrink-0 text-muted-foreground" />
-              <div class="flex-1 min-w-0">
-                <div class="text-sm">{{ t('settings.uiStyle') }}</div>
-              </div>
-              <div class="flex items-center gap-1 rounded-lg border p-1">
-                <button v-for="s in UI_STYLES" :key="s.key" @click="setUiStyle(s.key)" :class="[
-                  'flex items-center gap-1.5 px-3 py-1 rounded-md text-sm transition-colors',
-                  settings.uiStyle === s.key ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'
-                ]">
-                  <span :class="s.icon" class="w-4 h-4" />
-                  {{ t(s.labelKey) }}
-                </button>
-              </div>
-            </div>
-
+            <!-- 「界面风格」开关 2026-10-11 撤掉了：只留浮空版。扁平版的样式还在 style.css 里（[data-ui="flat"]），要恢复把这一行加回来 -->
             <!-- 只有扁平版用得上(浮空版的侧栏是另一套尺寸) -->
             <div v-if="settings.uiStyle === 'flat'" class="flex items-center gap-4 px-4 py-3.5">
               <span class="icon-[lucide--panel-left] w-5 h-5 shrink-0 text-muted-foreground" />
@@ -516,7 +494,9 @@ onUnmounted(() => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__last__">{{ t('settings.startPageLast') }}</SelectItem>
                   <SelectItem value="__auto__">{{ t('settings.startPageAuto') }}</SelectItem>
+                  <SelectSeparator class="mx-2 my-1 h-0 border-t border-dashed border-border" />
                   <SelectItem v-for="m in startCandidates" :key="m.id" :value="m.id">
                     {{ t(m.labelKey) }}
                   </SelectItem>

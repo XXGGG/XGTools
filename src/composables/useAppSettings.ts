@@ -35,12 +35,14 @@ export type AppSettings = {
   sidebarOrder: string[]
   sidebarHidden: string[]
   /**
-   * 启动时打开哪一页。空串 = 侧栏上排第一个没被隐藏的。
+   * 启动时打开哪一页。空串 = 侧栏上排第一个没被隐藏的；'__last__' = 上次关掉时停在的那一页（见 lastPage）。
    *
    * 存的是页面 id 而不是序号 —— 序号会被「调换顺序」和「隐藏某一页」搞乱,
    * 而那两件事用户随时在做。
    */
   startPage: string
+  /** 上次停在的页面 id，startPage 是 '__last__' 时启动就回到这里 */
+  lastPage: string
   /** 条目归哪一组的用户覆盖(id → 'tool' | 'config')。空表示用代码里的默认分组。 */
   sidebarGroups: Record<string, string>
 
@@ -233,7 +235,8 @@ const DEFAULTS: AppSettings = {
   blurOpacity: 40,
   sidebarOrder: [],
   sidebarHidden: [],
-  startPage: '',
+  startPage: '__last__',
+  lastPage: '',
   sidebarGroups: {},
   paletteTranslateFirst: true,
   vaultTreeWidth: 260,
@@ -456,7 +459,8 @@ export async function applyWindowEffect(
  * 浮空那套不用改一个字 —— 两套并存,切换就是换这一个属性。
  */
 export function applyUiStyle() {
-  if (settings.uiStyle !== 'float' && settings.uiStyle !== 'flat') settings.uiStyle = 'float'
+  // 2026-10-11 起只用浮空版（设置里的切换撤了），老存档里选过扁平的也拉回来
+  settings.uiStyle = 'float'
   // 只管主窗口。命令面板、托盘菜单这些本来就是浮在桌面上的小窗,影子要留着
   if (getCurrentWindow().label !== 'main') return
   document.documentElement.dataset.ui = settings.uiStyle

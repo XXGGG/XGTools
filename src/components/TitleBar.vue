@@ -7,7 +7,7 @@ defineProps<{
   active?: boolean
 }>()
 
-const emit = defineEmits<{ logo: [] }>()
+defineEmits<{ logo: [] }>()
 
 const { t } = useI18n()
 const appWindow = Window.getCurrent()
@@ -48,14 +48,9 @@ onMounted(async () => {
     真正需要交互的子元素各自 pointer-events-auto 打开。
   -->
   <!-- 扁平版不要 Logo(2026-09-17 用户定的):左上角交给侧栏,侧栏从最顶上开始 -->
-  <div class="h-[58px] shrink-0 flex items-center select-none z-50 pointer-events-none flat:h-[var(--flat-bar-h)]">
-    <button @click="emit('logo')" :class="[
-      'pointer-events-auto flat:hidden',
-      'w-[58px] shrink-0 flex items-center justify-center transition-colors',
-      active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-    ]">
-      <span class="icon-xg-pocket w-9 h-9" />
-    </button>
+  <div class="h-[var(--bar-h)] shrink-0 flex items-center select-none z-50 pointer-events-none flat:h-[var(--flat-bar-h)]">
+    <!-- 左上角 Logo（点了回首页）2026-10-11 撤掉了：首页不用了，启动按「导航 → 启动时打开」走。这里留一块同宽的空位，红绿灯和页签的位置都不变 -->
+    <div class="w-[58px] shrink-0 flat:hidden" />
 
     <!--
       页面的 Tabs 会 Teleport 到这里(见 TitleBarTabs.vue)。
@@ -86,7 +81,7 @@ onMounted(async () => {
     <!--
       三颗控制点:两套皮肤长一样(2026-09-20 用户定的)。三格等宽、和顶栏一样高、贴着窗口右上角 ——
       最大化时鼠标往右上角一甩就是关闭。格宽、点径、悬停放大倍数在 style.css 顶部
-      (--ctrl-w / --ctrl-dot / --ctrl-dot-hover),样式本体是 .xg-ctrl / .xg-ctrl-dot。
+      (--ctrl-zone / --ctrl-dot / --ctrl-dot-hover),样式本体是 .xg-ctrl / .xg-ctrl-dot。
 
       浮空版的顶栏整条往里缩了 10px,所以这里用负外边距顶回窗口边上,不然右上角那几个像素点不到。
       根容器关了指针事件,这一块要自己打开,否则三颗点也点不动。
