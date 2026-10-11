@@ -1,7 +1,7 @@
 {
   "name": "xgtools",
   "private": true,
-  "version": "0.12.13",
+  "version": "0.15.0",
   "type": "module",
   "scripts": {
     "bump": "node scripts/bump.mjs",
@@ -14,8 +14,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "open:bundle": "explorer src-tauri\\target\\release\\bundle",
-    "tauri:build": "tauri build && if exist release rd /s /q release & mkdir release && for %f in (src-tauri\\target\\release\\bundle\\nsis\\*setup.exe) do copy /Y \"%f\" release\\ & for %f in (src-tauri\\target\\release\\bundle\\msi\\*en-US.msi) do copy /Y \"%f\" release\\"
+    "open:bundle": "explorer src-tauri\\target\\release\\bundle"
   },
   "dependencies": {
     "@atomic-editor/editor": "^0.6.2",

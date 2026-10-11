@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vue.js" />
   <img src="https://img.shields.io/badge/Rust-2021-DEA584?style=flat-square&logo=rust" />
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat-square&logo=typescript" />
-  <img src="https://img.shields.io/badge/version-v0.12.13-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/version-v0.15.0-blue?style=flat-square" />
   <img src="https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-blue?style=flat-square" />
 </p>
 
@@ -79,7 +79,7 @@ pnpm install
 # src-tauri/resources/ffmpeg/  （https://github.com/BtbN/FFmpeg-Builds/releases）
 
 pnpm tauri dev      # 开发
-pnpm tauri build    # 安装包 -> src-tauri/target/release/bundle/nsis/
+pnpm dist           # 安装包 -> installer/
 ```
 
 环境要求：Node.js 18+、Rust 1.77+、pnpm，以及 Windows 10/11 —— 有几个功能直接调
