@@ -1,4 +1,5 @@
 mod dock_commands;
+mod folder_icon_commands;
 mod screenshot_commands;
 mod ocr_commands;
 mod window_detect;
@@ -239,6 +240,9 @@ pub fn run() {
             dock_commands::get_custom_icons,
             dock_commands::delete_custom_icon,
             dock_commands::rename_custom_icon,
+            folder_icon_commands::apply_folder_icon,
+            folder_icon_commands::reset_folder_icon,
+            folder_icon_commands::refresh_icons,
             // Screenshot commands
             screenshot_commands::get_cursor_position,
             screenshot_commands::capture_screen,

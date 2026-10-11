@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsTrigger } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
+import FolderIconMaker from '@/dock/FolderIconMaker.vue'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
 import type { AppEntry, CustomIcon } from '../types'
@@ -48,7 +49,7 @@ interface Settings {
 }
 
 // --- State ---
-const currentTab = ref<'general' | 'apps' | 'icons'>('general')
+const currentTab = ref<'general' | 'apps' | 'icons' | 'folder'>('general')
 const apps = ref<AppEntry[]>([])
 const dockEnabled = ref(false)
 const settingsLoaded = ref(false)
@@ -556,9 +557,10 @@ async function saveIconName(id: string) {
     -->
     <Tabs v-model="currentTab">
       <TitleBarTabs>
-        <TabsTrigger value="general" class="h-11 px-4 rounded-xl">{{ t('dock.tabGeneral') }}</TabsTrigger>
-        <TabsTrigger value="apps" class="h-11 px-4 rounded-xl">{{ t('dock.tabApps') }}</TabsTrigger>
-        <TabsTrigger value="icons" class="h-11 px-4 rounded-xl">{{ t('dock.tabIcons') }}</TabsTrigger>
+        <TabsTrigger value="general" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabGeneral') }}</TabsTrigger>
+        <TabsTrigger value="apps" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabApps') }}</TabsTrigger>
+        <TabsTrigger value="icons" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabIcons') }}</TabsTrigger>
+        <TabsTrigger value="folder" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabFolder') }}</TabsTrigger>
       </TitleBarTabs>
     </Tabs>
 
@@ -784,6 +786,9 @@ async function saveIconName(id: string) {
         </VueDraggable>
       </div>
     </div>
+
+    <!-- ==================== FOLDER ICON TAB ==================== -->
+    <FolderIconMaker v-if="currentTab === 'folder'" />
 
     <!-- ==================== ICONS TAB ==================== -->
     <div v-if="currentTab === 'icons'" class="flex-1 flex flex-col max-w-2xl mx-auto w-full min-h-0">
