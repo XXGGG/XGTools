@@ -95,7 +95,8 @@ import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
 import PaletteWindow from './palette/PaletteWindow.vue'
 import FontMiniWindow from './components/fonts/FontMiniWindow.vue'
-import PetWindow from './pet/PetWindow.vue'
+// 桌宠窗口带着 three.js，只在桌宠那个窗口里才加载
+const PetWindow = defineAsyncComponent(() => import('./pet/PetWindow.vue'))
 import { restorePet } from './pet/petWindow'
 import TrayMenu from './views/TrayMenu.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'

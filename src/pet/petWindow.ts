@@ -4,7 +4,7 @@
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import { STAGE_W, STAGE_H } from './stage'
+import { STAGE_W, STAGE_H } from './dims'
 
 export type PetConfig = { scale: number; sign: boolean; locked: boolean }
 export const PET_DEFAULTS: PetConfig = { scale: 0.85, sign: true, locked: false }

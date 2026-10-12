@@ -9,7 +9,8 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow, LogicalSize, LogicalPosition } from '@tauri-apps/api/window'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import { createStage, STAGE_W, STAGE_H } from './stage'
+import { createStage } from './stage'
+import { STAGE_W, STAGE_H } from './dims'
 import { PET_DEFAULTS, type PetConfig } from './petWindow'
 
 
@@ -23,6 +24,7 @@ const offs: UnlistenFn[] = []
 async function apply(c: PetConfig) {
   cfg.value = c
   stage?.setSign(c.sign)
+  stage?.setScale(c.scale)
   if (host.value) host.value.style.transform = `scale(${c.scale})`
   await win.setSize(new LogicalSize(Math.round(STAGE_W * c.scale), Math.round(STAGE_H * c.scale)))
   await win.setIgnoreCursorEvents(c.locked).catch(() => {})
