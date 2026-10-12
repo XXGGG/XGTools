@@ -337,6 +337,11 @@ export const zh = {
     pause: '暂停',
     resume: '继续',
     reset: '重置',
+    statusIdle: '准备专注',
+    statusRunning: '专注中',
+    statusPaused: '已暂停',
+    ofMinutes: '共 {n} 分钟',
+    custom: '自定义时长（1–120 分钟）',
   },
   keyboard: {
     keyDisplay: '按键显示',

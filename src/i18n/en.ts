@@ -343,6 +343,11 @@ export const en: Messages = {
     pause: 'Pause',
     resume: 'Resume',
     reset: 'Reset',
+    statusIdle: 'READY',
+    statusRunning: 'FOCUS',
+    statusPaused: 'PAUSED',
+    ofMinutes: '{n} min',
+    custom: 'Custom length (1–120 min)',
   },
   keyboard: {
     keyDisplay: 'Key overlay',
