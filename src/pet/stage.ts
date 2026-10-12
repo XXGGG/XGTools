@@ -255,7 +255,8 @@ export function createStage(root: HTMLElement, opts: StageOptions = {}) {
     const lift = big ? Math.max(44, p.y - (6 + (PET / 2) * p.scale)) / p.scale : 14 / p.scale
     const tilt = (Math.random() < 0.5 ? -1 : 1) * (4 + Math.random() * 6)
     const dur = big ? 950 + Math.random() * 200 : 420
-    if (big) p.el.style.zIndex = '80'
+    // 层级不动：后排的从前排身后冒上去、前排的挡在后排前面，跟真的一样；
+    // 以前起跳就提到最上层，后排的会突然窜到前排前面、甚至跑到键帽前面（2026-10-12 用户报的）
     const anim = p.jump.animate(
       big
         ? [
@@ -293,7 +294,6 @@ export function createStage(root: HTMLElement, opts: StageOptions = {}) {
     }
     anim.onfinish = () => {
       p.flying = false
-      p.el.style.zIndex = String(p.z + 2)
     }
   }
 
