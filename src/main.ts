@@ -2,6 +2,10 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
 import "./style.css";
+import { forwardKeysToOverlays } from "./lib/forwardKeys";
+
+// 焦点在自己窗口里时全局钩子收不到键，补发给按键显示和桌宠
+forwardKeysToOverlays();
 
 const app = createApp(App);
 
