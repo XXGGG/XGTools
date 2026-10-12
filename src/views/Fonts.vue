@@ -20,12 +20,15 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { startDrag } from '@crabnebula/tauri-plugin-drag'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { currentMonitor } from '@tauri-apps/api/window'
 import { settings } from '@/composables/useAppSettings'
 import { zen } from '@/composables/useZen'
 import { useI18n } from '@/i18n'
 import InfoTip from '@/components/InfoTip.vue'
 import FontRow, { type Chip } from '@/components/fonts/FontRow.vue'
 import FontDetail from '@/components/fonts/FontDetail.vue'
+import ApplyTargets from '@/components/fonts/ApplyTargets.vue'
 import { localFamily, previewFamily, repFace } from '@/lib/fontFaces'
 import { SAMPLE } from '@/lib/fontSamples'
 import { TIERS, TIER_COLOR, USE_GROUPS, type Family, type Pack, type Tier, type TrashEntry } from '@/lib/fontTypes'
@@ -273,12 +276,6 @@ const selectedId = ref<string | null>(null)
 
 // ── 套用到别的软件（2026-10-12）：点一款字，PS / 达芬奇 / PhotoCraft / Affinity 里选中的文字跟着换 ──
 // 后端见 font_apply.rs。只连已经开着的软件；PhotoCraft 要用「联动模式」启动，Affinity 要在它的设置里开 MCP 服务器
-const APPLY_TARGETS = [
-  { id: 'photoshop', label: 'Photoshop' },
-  { id: 'resolve', label: 'fonts.applyResolve' },
-  { id: 'photocraft', label: 'PhotoCraft' },
-  { id: 'affinity', label: 'Affinity' },
-] as const
 const applying = ref(false)
 function applyFace(fam: Family) {
   // 优先常规体（400、非斜体），没有就用代表字重
@@ -313,14 +310,43 @@ async function applyTo(it: Item) {
     applying.value = false
   }
 }
-async function launchPhotocraft() {
-  try {
-    await invoke('font_launch_photocraft')
-    flash(t('fonts.applyPhotocraftLaunched'))
-  } catch (e) {
-    flash(String(e), true)
+// ── mini 置顶小窗：在别的软件里试字用（见 FontMiniWindow.vue）。这里开、这里也能关 ──
+const miniOpen = ref(false)
+async function toggleMini() {
+  const old = await WebviewWindow.getByLabel('font_mini')
+  if (old) {
+    await old.destroy().catch(() => {})
+    miniOpen.value = false
+    return
   }
+  // 大约 500 × 1200，屏幕矮就顶着屏幕高度来；放在屏幕右边
+  const mon = await currentMonitor().catch(() => null)
+  const sf = mon?.scaleFactor ?? 1
+  const sw = mon ? mon.size.width / sf : 1920
+  const sh = mon ? mon.size.height / sf : 1080
+  const h = Math.min(1200, sh - 80)
+  const w = new WebviewWindow('font_mini', {
+    url: 'index.html',
+    title: 'XGTools 字体',
+    width: 500,
+    height: h,
+    x: (mon ? mon.position.x / sf : 0) + Math.max(0, sw - 500 - 24),
+    y: (mon ? mon.position.y / sf : 0) + Math.max(0, (sh - 48 - h) / 2),
+    minWidth: 380,
+    minHeight: 480,
+    decorations: false,
+    transparent: true,
+    shadow: true,
+    alwaysOnTop: true,
+    maximizable: false,
+    minimizable: false,
+    resizable: true,
+  })
+  miniOpen.value = true
+  void w.once('tauri://destroyed', () => { miniOpen.value = false })
 }
+onMounted(async () => { miniOpen.value = !!(await WebviewWindow.getByLabel('font_mini')) })
+
 function itemById(id: string | null): Item | null {
   if (!id) return null
   if (id.startsWith('f:')) {
@@ -678,19 +704,13 @@ onBeforeUnmount(() => {
           {{ t('fonts.purgeAll') }}
         </button>
         <!-- 套用到：选了软件之后，点一款字就让那个软件里选中的文字换成它 -->
-        <button v-if="settings.fontApplyTarget === 'photocraft'" @click="launchPhotocraft" :title="t('fonts.applyPhotocraftLaunchTip')"
-          class="shrink-0 h-7 px-2.5 rounded-lg text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted/60 whitespace-nowrap">
-          {{ t('fonts.applyPhotocraftLaunch') }}
+        <button @click="toggleMini" :title="miniOpen ? t('fonts.miniClose') : t('fonts.miniOpen')"
+          class="shrink-0 h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-[12px] whitespace-nowrap transition-colors"
+          :class="miniOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'">
+          <span class="icon-[lucide--picture-in-picture-2] w-3.5 h-3.5" />{{ t('fonts.miniButton') }}
         </button>
-        <div class="apply-seg shrink-0" :title="t('fonts.applyTip')">
-          <span class="icon-[lucide--mouse-pointer-click] w-3.5 h-3.5 mx-1.5 text-muted-foreground" />
-          <button v-for="a in APPLY_TARGETS" :key="a.id" class="apply-opt"
-            :class="settings.fontApplyTarget === a.id ? 'is-on' : ''"
-            @click="settings.fontApplyTarget = settings.fontApplyTarget === a.id ? '' : a.id">
-            {{ a.label.startsWith('fonts.') ? t(a.label) : a.label }}
-          </button>
-          <span v-if="applying" class="icon-[lucide--loader-circle] w-3.5 h-3.5 mx-1 animate-spin text-muted-foreground" />
-        </div>
+        <ApplyTargets :target="settings.fontApplyTarget" :busy="applying"
+          @change="(v) => (settings.fontApplyTarget = v as typeof settings.fontApplyTarget)" @notice="flash" />
       </div>
 
       <div class="flex-1 min-h-0 flex relative">
@@ -880,25 +900,6 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, color 120ms ease;
 }
 .safe-btn:hover { color: var(--foreground); background: color-mix(in srgb, var(--muted) 60%, transparent); }
-.apply-seg {
-  display: flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 2px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-}
-.apply-opt {
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-  white-space: nowrap;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-.apply-opt:hover { color: var(--foreground); }
-.apply-opt.is-on { background: var(--muted); color: var(--foreground); font-weight: 500; }
 .safe-btn.is-on { background: color-mix(in oklab, #22a55b 12%, transparent); }
 
 /* 浮空磨砂条：左栏搜索、列表底部试字 */

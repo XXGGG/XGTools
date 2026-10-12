@@ -166,6 +166,66 @@ fn photocraft_exe() -> Option<PathBuf> {
     cands.into_iter().find(|p| p.exists())
 }
 
+/*
+  常驻联动（2026-10-12）：PhotoCraft 启动时会读 PHOTOCRAFT_CONTROL_PORT / PHOTOCRAFT_CONTROL_TOKEN_FILE
+  这两个环境变量（实测：只设这两个、不带任何参数启动，端口就开了）。把它们写进当前用户的环境变量，
+  之后不管从开始菜单、双击文件还是别的方式打开 PhotoCraft，都能随时连上，不用再特地用联动模式重开。
+  偏好设置里那个 integrations.controlPort 实测不起作用，别走那条路。
+  已经开着的那个是设之前启动的，读不到新变量，要重开一次。
+*/
+const PC_ENV_PORT: &str = "PHOTOCRAFT_CONTROL_PORT";
+const PC_ENV_TOKEN: &str = "PHOTOCRAFT_CONTROL_TOKEN_FILE";
+
+fn user_env(name: &str) -> Option<String> {
+    let out = std::process::Command::new("reg")
+        .args(["query", r"HKCU\Environment", "/v", name])
+        .creation_flags_compat()
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout).to_string();
+    s.lines().find(|l| l.trim_start().starts_with(name)).and_then(|l| l.split("REG_").nth(1)).map(|rest| {
+        rest.split_once(char::is_whitespace).map(|(_, v)| v.trim().to_string()).unwrap_or_default()
+    })
+}
+
+trait NoWindow {
+    fn creation_flags_compat(&mut self) -> &mut Self;
+}
+impl NoWindow for std::process::Command {
+    fn creation_flags_compat(&mut self) -> &mut Self {
+        #[cfg(windows)]
+        self.creation_flags(CREATE_NO_WINDOW);
+        self
+    }
+}
+
+/// 常驻联动开了没有（两个用户环境变量都在、而且指向我们这份）
+#[tauri::command]
+pub fn font_photocraft_linked() -> bool {
+    user_env(PC_ENV_PORT).as_deref() == Some(PC_PORT.to_string().as_str())
+        && user_env(PC_ENV_TOKEN).is_some_and(|v| PathBuf::from(v) == pc_token_file())
+}
+
+/// 打开常驻联动：写当前用户的环境变量（setx 会顺手广播，之后新开的程序都读得到）
+#[tauri::command]
+pub fn font_photocraft_link() -> Result<(), String> {
+    let tok = pc_token_file();
+    if let Some(d) = tok.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    for (k, v) in [(PC_ENV_PORT, PC_PORT.to_string()), (PC_ENV_TOKEN, tok.to_string_lossy().to_string())] {
+        let st = std::process::Command::new("setx")
+            .args([k, &v])
+            .creation_flags_compat()
+            .status()
+            .map_err(|e| format!("写环境变量失败：{e}"))?;
+        if !st.success() {
+            return Err(format!("写环境变量 {k} 失败"));
+        }
+    }
+    Ok(())
+}
+
 /// 用联动模式启动 PhotoCraft（带上控制端口和令牌文件）。已经普通方式开着的那个连不上，得用这个重开
 #[tauri::command]
 pub fn font_launch_photocraft() -> Result<(), String> {

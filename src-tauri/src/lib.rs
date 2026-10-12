@@ -309,6 +309,8 @@ pub fn run() {
             font_commands::font_scan,
             font_apply::font_apply,
             font_apply::font_launch_photocraft,
+            font_apply::font_photocraft_linked,
+            font_apply::font_photocraft_link,
             font_apply::font_affinity_script,
             font_commands::font_set_enabled,
             font_commands::font_uninstall,
