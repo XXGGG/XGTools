@@ -45,14 +45,13 @@ pub struct Pack {
     pub pick: &'static str,
 }
 
-/// 用途小类。前端按这个顺序排左边的分类栏
+/// 用途小类（前端 fontTypes.ts 的 USE_GROUPS 是同一套 id）。只在测试里用来核对每个小类都有字
+#[cfg(test)]
 pub const USES: &[&str] = &[
     "game-pixel", "game-ui", "game-title",
     "video-sub", "video-cover", "video-title",
     "ps-brush", "ps-serif", "ps-latin",
 ];
-
-const GF: &str = "https://github.com/google/fonts/blob/main/ofl";
 
 macro_rules! gf_license {
     ($dir:literal) => {
@@ -560,6 +559,5 @@ mod tests {
         for u in USES {
             assert!(CATALOG.iter().any(|p| p.uses.contains(u)), "用途 {u} 是空的");
         }
-        let _ = GF;
     }
 }

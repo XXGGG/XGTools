@@ -685,7 +685,6 @@ export const zh = {
     catAll: '全部',
     catMine: '我装的',
     catXgtools: '字体库装的',
-    catXgcut: 'XGCut 装的',
     catWindows: 'Windows 自带',
     catMachine: '装给全机的',
     catDisabled: '已停用',
@@ -731,9 +730,6 @@ export const zh = {
     applyNeedInstall: '这款还没装，装好才能套用',
     applyPhotocraftLink: '连不上 PhotoCraft：点「开启联动」，然后把 PhotoCraft 重开一次',
     applyAffinityLink: '连不上 Affinity：在 Affinity 的 设置 → Model Context Protocol 里打开 MCP 服务器，然后重启它',
-    applyPhotocraftLaunch: '联动模式打开',
-    applyPhotocraftLaunchTip: '带上联动参数启动 PhotoCraft。已经开着的先关掉，否则那个连不上',
-    applyPhotocraftLaunched: '已启动 PhotoCraft（联动模式），等它打开后选中文字图层再点字体',
     compare: '对比 {n} 款',
     // 列表
     count: '{n} 款',

@@ -308,7 +308,6 @@ pub fn run() {
             audio_commands::audio_move,
             font_commands::font_scan,
             font_apply::font_apply,
-            font_apply::font_launch_photocraft,
             font_apply::font_photocraft_linked,
             font_apply::font_photocraft_link,
             font_apply::font_affinity_script,

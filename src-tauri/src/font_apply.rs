@@ -154,18 +154,6 @@ fn pc_token_file() -> PathBuf {
     base.join("XGTools").join("photocraft-control.token")
 }
 
-fn photocraft_exe() -> Option<PathBuf> {
-    let mut cands = vec![PathBuf::from(r"C:\Apps\PhotoCraft\photocraft.exe")];
-    if let Ok(l) = std::env::var("LOCALAPPDATA") {
-        cands.push(PathBuf::from(&l).join(r"Programs\PhotoCraft\photocraft.exe"));
-        cands.push(PathBuf::from(&l).join(r"Programs\photocraft\photocraft.exe"));
-    }
-    if let Ok(p) = std::env::var("ProgramFiles") {
-        cands.push(PathBuf::from(p).join(r"PhotoCraft\photocraft.exe"));
-    }
-    cands.into_iter().find(|p| p.exists())
-}
-
 /*
   常驻联动（2026-10-12）：PhotoCraft 启动时会读 PHOTOCRAFT_CONTROL_PORT / PHOTOCRAFT_CONTROL_TOKEN_FILE
   这两个环境变量（实测：只设这两个、不带任何参数启动，端口就开了）。把它们写进当前用户的环境变量，
@@ -226,22 +214,6 @@ pub fn font_photocraft_link() -> Result<(), String> {
     Ok(())
 }
 
-/// 用联动模式启动 PhotoCraft（带上控制端口和令牌文件）。已经普通方式开着的那个连不上，得用这个重开
-#[tauri::command]
-pub fn font_launch_photocraft() -> Result<(), String> {
-    let exe = photocraft_exe().ok_or("没找到 PhotoCraft（photocraft.exe）")?;
-    let tok = pc_token_file();
-    if let Some(d) = tok.parent() {
-        let _ = std::fs::create_dir_all(d);
-    }
-    let mut cmd = std::process::Command::new(&exe);
-    cmd.arg("--control").arg(PC_PORT.to_string()).arg("--control-token-file").arg(&tok);
-    if let Some(d) = exe.parent() {
-        cmd.current_dir(d);
-    }
-    cmd.spawn().map_err(|e| format!("启动 PhotoCraft 失败：{e}"))?;
-    Ok(())
-}
 
 async fn apply_photocraft(f: &ApplyFont) -> Result<String, String> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

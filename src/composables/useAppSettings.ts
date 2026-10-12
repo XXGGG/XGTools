@@ -120,8 +120,6 @@ export type AppSettings = {
   audioExportFormat: 'wav' | 'ogg' | 'mp3' | 'flac' | 'original'
   /** 右边列表：只看当前这一层（false），还是连所有子文件夹里的一起列（true） */
   audioDeep: boolean
-  /** 音频试听页的目录栏开着没有（宽窗口时；窄窗口自动收起，不看这个） */
-  audioTreeOpen: boolean
   /** 字体库：样张那句话。空 = 用默认的（中文字体一句诗，西文字体一句 quick brown fox） */
   fontSample: string
   /** 字体库：样张字号 */
@@ -134,8 +132,6 @@ export type AppSettings = {
   fontApplyTarget: '' | 'photoshop' | 'resolve' | 'photocraft' | 'affinity'
   /** 字体库：上次停在哪个分类 */
   fontCat: string
-  /** 字体库：分类栏开着没有（宽窗口时） */
-  fontTreeOpen: boolean
   /**
    * 标题、引用这些块要不要上色。
    *
@@ -256,14 +252,12 @@ const DEFAULTS: AppSettings = {
   audioSelected: '',
   audioExportFormat: 'wav' as 'wav' | 'ogg' | 'mp3' | 'flac' | 'original',
   audioDeep: false,
-  audioTreeOpen: true,
   fontSample: '',
   fontSize: 30,
   fontFavorites: [] as string[],
   fontOnlySafe: false,
   fontApplyTarget: '',
   fontCat: 'all',
-  fontTreeOpen: true,
   vaultColorHeadings: true,
   vaultMarkMode: 'clean',
   vaultStatusBar: true,

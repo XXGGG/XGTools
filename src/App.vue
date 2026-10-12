@@ -79,7 +79,6 @@ import TitleBar from './components/TitleBar.vue'
 import BootCloth from './components/BootCloth.vue'
 import { zen } from './composables/useZen'
 import { bindBrowserKeys } from './composables/useBrowserKeys'
-import HomeView from './views/Home.vue'
 const VaultView = defineAsyncComponent(() => import('./views/Vault.vue'))
 import SettingsView from './views/Settings.vue'
 import TimerView from './views/Timer.vue'
@@ -361,8 +360,7 @@ onMounted(async () => {
           -->
           <div :key="currentView" class="absolute inset-0 overflow-auto"
             :class="zen.on ? 'pt-2.5 pl-2.5' : 'pt-[calc(var(--bar-h)+20px)] pl-[4.875rem] flat:left-[var(--flat-side-w)] flat:pt-[var(--flat-bar-h)] flat:pl-0'">
-            <HomeView v-if="currentView === 'Home'" />
-            <VaultView v-else-if="currentView === 'Vault'" />
+            <VaultView v-if="currentView === 'Vault'" />
             <SettingsView v-else-if="currentView === 'Settings'" />
             <TimerView v-else-if="currentView === 'Timer'" />
             <PaletteView v-else-if="currentView === 'Palette'" />
