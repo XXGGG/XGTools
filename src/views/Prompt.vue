@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 const { t } = useI18n()
 const zenMode = computed(() => zen.on)
@@ -749,6 +750,62 @@ function ctxRemove() {
 function clearAll() {
   selectedTags.value = []
 }
+// 只清掉划掉（停用）的词
+const hasDisabledTags = computed(() => selectedTags.value.some(t => t.disabled))
+function clearDisabled() {
+  selectedTags.value = selectedTags.value.filter(t => !t.disabled)
+}
+
+// ===== 预设（2026-10-12）=====
+// 内置只给一组「纯质量词」，不带人物/角度/场景；其余是用户自己把当前已选存下来的。
+// 点预设 = 把那组标签「加」进已选（已有的跳过），不清掉现有的 —— 质量词预设就是拿来往已有画面上叠的。
+interface PromptPreset { id: string, name: string, tags: SelectedTag[] }
+/*
+  Anima 质量词：Anima 的质量体系跟 Illustrious 一样（masterpiece / best quality）再叠评分 score_N，
+  score_7 是作者推荐的中间档（太高反而偏某种画风）；newest 让它偏新的画风、少点老番味。
+  不放 8k/HDR/ultra-detailed 这类 Danbooru 里不存在的词，Anima 的编码器只认 Danbooru 标签和自然语言。
+*/
+const BUILTIN_PRESETS: { id: string, nameKey: string, values: string[] }[] = [
+  { id: 'anima-quality', nameKey: 'prompt.presetAnimaQuality', values: ['masterpiece', 'best quality', 'score_7', 'newest'] },
+  // 无人场景图：质量词 + no humans（明确不要人）+ scenery（让画面以风景为主体），角度和具体景物留给用户自己选
+  { id: 'anima-scenery', nameKey: 'prompt.presetAnimaScenery', values: ['masterpiece', 'best quality', 'score_7', 'newest', 'no humans', 'scenery'] },
+]
+const presetStore = storedRef<PromptPreset[]>('presets', [])
+const userPresets = presetStore.data
+const presetOpen = ref(false)
+const presetName = ref('')
+const presetDeleting = ref<string | null>(null)
+function builtinTags(values: string[]): SelectedTag[] {
+  return values.map(v => normalizeTagInput(v, allLibraryTags.value))
+}
+function applyPreset(tags: SelectedTag[]) {
+  for (const tag of tags) {
+    if (selectedTags.value.some(t => dedupeKey(t) === dedupeKey(tag)))
+      continue
+    selectedTags.value.push(JSON.parse(JSON.stringify(tag)))
+  }
+  presetOpen.value = false
+}
+function savePreset() {
+  const name = presetName.value.trim()
+  if (!name || selectedTags.value.length === 0)
+    return
+  const tags: SelectedTag[] = JSON.parse(JSON.stringify(selectedTags.value))
+  const same = userPresets.value.find(p => p.name === name)
+  if (same) same.tags = tags // 同名就覆盖，省得列表里出现两个一样的名字
+  else userPresets.value.push({ id: `${Date.now()}`, name, tags })
+  presetName.value = ''
+}
+// 删除点两下：第一下变红提示「再点一次」，防手滑
+function deletePreset(id: string) {
+  if (presetDeleting.value !== id) {
+    presetDeleting.value = id
+    return
+  }
+  userPresets.value = userPresets.value.filter(p => p.id !== id)
+  presetDeleting.value = null
+}
+watch(presetOpen, () => { presetDeleting.value = null })
 
 // 复制到剪贴板
 const copied = ref(false)
@@ -1159,10 +1216,61 @@ const pickedForAnima = computed(() => selectedTags.value.filter(t => !t.disabled
               <span class="icon-[lucide--languages] size-3.5" />
               <span class="rp-btn-text">{{ t('prompt.nlButton') }}</span>
             </Button>
+            <!-- 预设：内置一组 Anima 质量词 + 自己存的；点了往已选里加 -->
+            <Popover v-model:open="presetOpen">
+              <PopoverTrigger as-child>
+                <Button variant="outline" size="lg" class="rp-btn-wrap" :class="{ 'rp-btn-wrap-on': presetOpen }" :title="t('prompt.presetButton')">
+                  <span class="icon-[lucide--bookmark] size-3.5" />
+                  <span class="rp-btn-text">{{ t('prompt.presetButton') }}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" :side-offset="8" class="preset-pop w-80 p-2">
+                <div class="preset-head">{{ t('prompt.presetBuiltin') }}</div>
+                <button v-for="p in BUILTIN_PRESETS" :key="p.id" class="preset-item" :title="t('prompt.presetApplyTip')"
+                  @click="applyPreset(builtinTags(p.values))">
+                  <span class="icon-[lucide--sparkles] size-3.5 shrink-0 text-muted-foreground" />
+                  <span class="flex-1 min-w-0">
+                    <span class="block text-[13px]">{{ t(p.nameKey) }}</span>
+                    <span class="block text-[11.5px] text-muted-foreground truncate font-mono">{{ p.values.join(', ') }}</span>
+                  </span>
+                </button>
+
+                <div class="preset-head mt-1">{{ t('prompt.presetMine') }}</div>
+                <p v-if="!userPresets.length" class="px-2 pb-1.5 text-[12px] text-muted-foreground/70">{{ t('prompt.presetEmpty') }}</p>
+                <div v-else class="max-h-60 overflow-y-auto">
+                  <div v-for="p in userPresets" :key="p.id" class="preset-item group" :title="t('prompt.presetApplyTip')"
+                    @click="applyPreset(p.tags)">
+                    <span class="icon-[lucide--bookmark] size-3.5 shrink-0 text-muted-foreground" />
+                    <span class="flex-1 min-w-0">
+                      <span class="block text-[13px] truncate">{{ p.name }}</span>
+                      <span class="block text-[11.5px] text-muted-foreground truncate">{{ t('prompt.presetCount', { n: p.tags.length }) }} · {{ p.tags.map(x => x.value).join(', ') }}</span>
+                    </span>
+                    <button class="preset-del" :class="{ 'is-armed': presetDeleting === p.id }"
+                      :title="presetDeleting === p.id ? t('prompt.presetDeleteConfirm') : t('prompt.presetDelete')"
+                      @click.stop="deletePreset(p.id)">
+                      <span class="size-3.5" :class="presetDeleting === p.id ? 'icon-[lucide--trash-2]' : 'icon-[lucide--x]'" />
+                    </button>
+                  </div>
+                </div>
+
+                <div class="flex gap-1.5 pt-2 mt-1 border-t">
+                  <Input v-model="presetName" class="h-8 text-[13px]" :placeholder="t('prompt.presetNamePlaceholder')"
+                    @keydown.enter.prevent="savePreset" />
+                  <Button size="sm" class="h-8 shrink-0" :disabled="!presetName.trim() || selectedTags.length === 0" @click="savePreset">
+                    {{ t('prompt.presetSave') }}
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
             <span class="flex-1" />
-            <Button variant="outline" size="lg" class="rp-btn-clear" :disabled="selectedTags.length === 0" @click="clearAll">
+            <!-- 只清掉划掉（停用）的词，留着正在用的 -->
+            <Button variant="outline" size="lg" class="rp-btn-clear" :disabled="!hasDisabledTags" :title="t('prompt.clearDisabled')" @click="clearDisabled">
+              <span class="icon-[lucide--eraser] size-3.5" />
+              <span class="rp-btn-text">{{ t('prompt.clearDisabledLabel') }}</span>
+            </Button>
+            <Button variant="outline" size="lg" class="rp-btn-clear" :disabled="selectedTags.length === 0" :title="t('prompt.clear')" @click="clearAll">
               <span class="icon-[lucide--trash-2] size-3.5" />
-              {{ t('prompt.clear') }}
+              <span class="rp-btn-text">{{ t('prompt.clear') }}</span>
             </Button>
           </div>
         </div>
@@ -1977,6 +2085,56 @@ const pickedForAnima = computed(() => selectedTags.value.filter(t => !t.disabled
   background: hsl(210 70% 60% / 0.14) !important;
   border-color: hsl(210 70% 60% / 0.45) !important;
 }
+
+/* 复制中文 — 紫色调，跟复制英文区分开（只剩图标时也认得出） */
+.rp-btn-copy-zh {
+  border-color: hsl(265 60% 60% / 0.35) !important;
+  color: hsl(265 55% 50%) !important;
+  background: hsl(265 60% 60% / 0.06) !important;
+}
+.rp-btn-copy-zh:hover {
+  background: hsl(265 60% 60% / 0.14) !important;
+  border-color: hsl(265 60% 60% / 0.5) !important;
+}
+.dark .rp-btn-copy-zh {
+  color: hsl(265 70% 76%) !important;
+  border-color: hsl(265 60% 65% / 0.3) !important;
+  background: hsl(265 60% 65% / 0.06) !important;
+}
+.dark .rp-btn-copy-zh:hover {
+  background: hsl(265 60% 65% / 0.14) !important;
+  border-color: hsl(265 60% 65% / 0.45) !important;
+}
+
+/* 预设弹层 */
+.preset-head {
+  padding: 4px 8px 2px;
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+}
+.preset-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.preset-item:hover { background: var(--accent); }
+.preset-del {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  opacity: 0;
+}
+.preset-item:hover .preset-del, .preset-del.is-armed { opacity: 1; }
+.preset-del:hover { background: var(--background); color: var(--foreground); }
+.preset-del.is-armed { color: var(--destructive); }
 
 /* 已复制状态 — 绿色调 */
 .rp-btn-copied {
