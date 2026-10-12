@@ -27,7 +27,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: 'Fonts', labelKey: 'nav.fonts', icon: 'icon-[lucide--case-sensitive]', group: 'tool' },
   { id: 'Prompt', labelKey: 'nav.prompt', icon: 'icon-[lucide--wand-sparkles]', group: 'tool' },
   // 下卡片:后台功能的配置页,和最下面的应用设置挨在一起
-  { id: 'Palette', labelKey: 'nav.palette', icon: 'icon-[lucide--command]', group: 'config' },
+  // 命令面板 2026-10-12 并进了设置页（设置 → 命令面板 页签），这里不再单列
   { id: 'Dock', labelKey: 'nav.dock', icon: 'icon-[lucide--layout-grid]', group: 'config' },
   { id: 'KeyboardPet', labelKey: 'nav.keyboard', icon: 'icon-[lucide--keyboard]', group: 'config' },
   { id: 'Screenshot', labelKey: 'nav.screenshot', icon: 'icon-[lucide--focus]', group: 'config' },

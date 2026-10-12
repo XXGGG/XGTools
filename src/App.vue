@@ -91,7 +91,6 @@ const ConvertView = defineAsyncComponent(() => import('./views/Convert.vue'))
 const AudioView = defineAsyncComponent(() => import('./views/Audio.vue'))
 const FontsView = defineAsyncComponent(() => import('./views/Fonts.vue'))
 const PromptView = defineAsyncComponent(() => import('./views/Prompt.vue'))
-const PaletteView = defineAsyncComponent(() => import('./views/Palette.vue'))
 import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
 import PaletteWindow from './palette/PaletteWindow.vue'
@@ -368,7 +367,6 @@ onMounted(async () => {
             <VaultView v-if="currentView === 'Vault'" />
             <SettingsView v-else-if="currentView === 'Settings'" />
             <TimerView v-else-if="currentView === 'Timer'" />
-            <PaletteView v-else-if="currentView === 'Palette'" />
             <DockView v-else-if="currentView === 'Dock'" />
             <KeyboardPetView v-else-if="currentView === 'KeyboardPet'" />
             <ScreenshotView v-else-if="currentView === 'Screenshot'" />

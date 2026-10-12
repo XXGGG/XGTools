@@ -133,8 +133,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full w-full flex flex-col p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <div class="flex-1 overflow-y-auto space-y-3 max-w-2xl mx-auto w-full">
+  <!-- 现在嵌在设置页的「命令面板」页签里，外边距和滚动都由设置页管 -->
+  <div class="w-full flex flex-col">
+    <div class="space-y-3 w-full">
 
       <!-- 开启 -->
       <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">

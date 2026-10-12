@@ -305,6 +305,7 @@ onUnmounted(() => {
           <TabsTrigger value="keys" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.keys') }}</TabsTrigger>
           <TabsTrigger value="sidebar" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.nav') }}</TabsTrigger>
           <TabsTrigger value="vault" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.vault') }}</TabsTrigger>
+          <TabsTrigger value="palette" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('nav.palette') }}</TabsTrigger>
         </TitleBarTabs>
 
         <!-- ================= 常规（含外观 / 关于）================= -->
@@ -572,6 +573,10 @@ onUnmounted(() => {
         </TabsContent>
 
         <!-- ================= 笔记 ================= -->
+        <TabsContent value="palette">
+          <PaletteSettings />
+        </TabsContent>
+
         <TabsContent value="vault" class="space-y-6">
           <section class="space-y-2">
             <h3 class="text-sm font-medium">{{ t('settings.vaultSecLook') }}</h3>
