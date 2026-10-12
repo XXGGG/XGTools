@@ -897,7 +897,7 @@ async function saveToFile(fast = false) {
   const uint8 = new Uint8Array(arrayBuffer)
 
   if (fast) {
-    // 快速保存：下载/Screenshots/
+    // 快速保存：桌面
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const filename = `screenshot_${timestamp}.png`
     try {
@@ -907,7 +907,7 @@ async function saveToFile(fast = false) {
     }
   } else {
     /*
-      对话框保存。**默认落点给到「下载\Screenshots」** ——
+      对话框保存。**默认落点给到桌面** ——
       不给目录的话，对话框每次开在系统上次用过的地方，截个图还得自己翻目录。
       取不到就退回只给文件名，让系统自己决定。
       路径用正斜杠拼：Windows 的文件对话框照样认，省得为一个反斜杠在模板字符串里

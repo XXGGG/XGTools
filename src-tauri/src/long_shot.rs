@@ -397,15 +397,13 @@ pub async fn take_long_shot(
 
     tokio::task::spawn_blocking(move || {
         /*
-            默认存「下载\Screenshots」，和录屏那边一个道理：长截图是随手抓完
-            就发出去的东西，堆在桌面上碍眼，下载夹本来就是这种「拿了就走」的暂存处。
+            默认存桌面，和普通截图、录屏一致（2026-10-12 用户要求）。
         */
         let dir = match dir.as_deref().map(str::trim) {
             Some(s) if !s.is_empty() => std::path::PathBuf::from(s),
-            _ => dirs::download_dir()
-                .or_else(dirs::desktop_dir)
-                .ok_or("找不到下载目录")?
-                .join("Screenshots"),
+            _ => dirs::desktop_dir()
+                .or_else(dirs::download_dir)
+                .ok_or("找不到桌面目录")?,
         };
         std::fs::create_dir_all(&dir).map_err(|e| format!("建目录失败: {e}"))?;
         let path = dir.join(format!("long_{}.png", crate::record_commands::chrono_stamp()));

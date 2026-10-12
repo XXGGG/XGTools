@@ -73,7 +73,7 @@ const recordAudio = ref(true)
 const recordMaxMin = ref(30)
 const isRecordingRecShortcut = ref(false)
 
-/** 空 = 用默认的「桌面\Recordings」。显示成人话，别把空串直接摆出来 */
+/** 空 = 用默认的「桌面」。显示成人话，别把空串直接摆出来 */
 const recordDirLabel = computed(() => recordDir.value || t('screenshot.recDirDefault'))
 
 async function pickRecordDir() {

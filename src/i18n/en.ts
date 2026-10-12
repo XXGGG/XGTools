@@ -403,7 +403,7 @@ export const en: Messages = {
     recHotkey: 'Recording shortcut',
     recHotkeyHint: 'Press once to select an area, press again to cancel',
     recDir: 'Save to',
-    recDirDefault: 'Downloads \\ Recordings (default)',
+    recDirDefault: 'Desktop (default)',
     recDirPick: 'Choose folder',
     recDirReset: 'Reset',
     recAudio: 'Record system sound',

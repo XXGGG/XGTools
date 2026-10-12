@@ -76,15 +76,14 @@ pub(crate) fn ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     }
 }
 
-/// 录屏存哪。传空就用「下载\Recordings」—— 录屏是随手录完就发出去的东西，
-/// 堆在桌面上碍眼，下载夹本来就是这种「拿了就走」的暂存处
+/// 录屏存哪。传空就存桌面（2026-10-12 用户要求，原来是「下载\Recordings」）；
+/// 转出来的 GIF 跟录屏放同一个地方，所以也在桌面
 fn resolve_dir(custom: Option<String>) -> Result<PathBuf, String> {
     let dir = match custom.as_deref().map(str::trim) {
         Some(s) if !s.is_empty() => PathBuf::from(s),
-        _ => dirs::download_dir()
-            .or_else(dirs::desktop_dir)
-            .ok_or("找不到下载目录")?
-            .join("Recordings"),
+        _ => dirs::desktop_dir()
+            .or_else(dirs::download_dir)
+            .ok_or("找不到桌面目录")?,
     };
     std::fs::create_dir_all(&dir).map_err(|e| format!("建目录失败: {e}"))?;
     Ok(dir)
