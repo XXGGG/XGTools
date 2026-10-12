@@ -29,56 +29,59 @@ English | [官话 - 简体中文](README-cmn_CN.md) | [官話 - 繁體中文](RE
 
 ## 👋 Introduction
 
-XGTools puts the small utilities you reach for every day — a timer, a translator, a file
-converter, a screenshot tool with OCR, an app launcher, a key-press overlay — behind a
-single icon in the tray, instead of a separate program per task — each with its own
-updater, its own tray icon and its own idea of what a settings window should look like.
+XGTools puts the small utilities you reach for every day — a prompt tag library, a font
+manager, an audio browser, Markdown notes, a timer, a translator, a file converter, a
+screenshot tool with OCR, an app launcher — behind a single icon in the tray, instead of a
+separate program per task.
 
 It is a personal tool, built for one Windows machine and shared as-is.
 
 > [!IMPORTANT]
-> **v0.2.0 — everything listed below works, with one exception.** The *Keyboard Pet*
-> page currently only ships the key-press overlay; the pet itself is not built yet.
+> **v0.16.0 — everything listed below works, with these exceptions.** The *Keyboard Pet*
+> page only ships the key-press overlay; the pet itself is not built yet. Applying fonts to
+> *Affinity* is wired up but not finished.
 
 <div align="center">
   <img src="docs/images/social-preview.png" width="820" />
 </div>
 
 <div align="center">
-  <img src="docs/images/screenshot-home.png" width="820" />
+  <img src="docs/images/screenshot-prompt.png" width="820" />
 </div>
 
 ## ✨ What makes it different
 
-**The chrome floats, so content is centred against the whole window.** The sidebar and
-the title bar are overlays, not layout. A conventional app centres its content in
-"whatever is left after the sidebar and title bar", which pushes anything centred down
-and to the right by half the chrome. Here the content layer spans the entire window and
-the chrome sits on top of it, so centred things are genuinely centred.
+**One surface, not a stack of cards.** Pages sit directly on the window's mica / acrylic
+material; the only panels are the navigation bar and the page tabs, and those are
+translucent too. Lists fade out at their edges instead of being cut off by a card border.
 
-**One alignment constant instead of hand-tuned offsets.** The logo, the sidebar icon
-column and the window controls all derive from a single 72px column. Change that number
-and all three move together — there is no separate nudge for each.
-
-**Window materials are composed in CSS, not handed to the OS.** On Windows 11 build
-22523 and later, the acrylic and mica APIs ignore the tint colour you pass them, so the
-system only contributes the blur. Everything else — the base surface, the cards, the
-borders, the shadows — is layered in CSS, which is why the opacity slider actually moves
-something and why borders adapt instead of staying a hard white line.
-
-**Every tool page can be turned off.** The sidebar is user-defined: drag to reorder, drag
-across groups to change which card an entry belongs to, toggle any page off. Turn all of
-them off and the card disappears entirely — the settings entry is always there, so you
-can never lock yourself out.
+**A font manager that talks to your other apps.** Click a font and the selected text in
+Photoshop, DaVinci Resolve (Fusion Text+) or PhotoCraft switches to it. Fonts are installed
+into Windows' per-user Fonts folder — exactly like right-click → Install — so every program
+sees them; an always-on-top mini window keeps your favourites next to whatever you are
+designing in. Every font also gets a licence check: can it ship in a game, a video, print?
 
 <div align="center">
-  <img src="docs/images/screenshot-settings.png" width="820" />
+  <img src="docs/images/screenshot-fonts.png" width="820" />
+</div>
+
+**A prompt tag library built for anime models.** About 2,250 Danbooru tags in 139
+categories, colour-coded by layer (quality, camera, scene, character, outfit, pose…),
+de-duplicated by meaning, searchable with synonyms. A natural-language window turns a
+Chinese description into an English sentence for models like Anima, and presets store your
+own combinations.
+
+**It updates itself.** New versions are published on GitHub Releases; the app checks on
+start-up and installs an update with one click (signed, so a tampered package is refused).
+
+<div align="center">
+  <img src="docs/images/screenshot-audio.png" width="820" />
 </div>
 
 ## 🚀 Getting started
 
-Grab the installer from [Releases](https://github.com/XXGGG/XGTools/releases), or build
-it yourself:
+Download the installer from [Releases](https://github.com/XXGGG/XGTools/releases/latest)
+— after that, updates arrive inside the app. Or build it yourself:
 
 ```bash
 pnpm install
@@ -97,15 +100,23 @@ Win32 APIs directly and have no cross-platform path.
 
 | | |
 |---|---|
-| **Timer** | Cube timer driven by the spacebar, plus a pomodoro clock that keeps running when you switch pages |
-| **Translate** | Google / Bing / DeepL, plus OpenAI-compatible endpoints (OpenAI, DeepSeek, Claude, Gemini, Groq). Reads results aloud |
-| **Convert** | Images, audio and video via a bundled ffmpeg; extracts audio tracks from video |
-| **Launcher** | Full-screen app grid with drag-to-reorder, pages, and icons pulled straight out of the executables |
-| **Screenshot** | Region capture, annotation, window snapping, pin-to-screen, OCR (PaddleOCR) and translate-in-place |
-| **Keyboard** | Global key-press overlay that lays itself out, dodges the cursor and clears itself after a delay you choose |
+| **Prompt** | Danbooru tag library with layer colours, search, presets, and a natural-language → prompt window |
+| **Notes** | Local Markdown notes with tabs, backlinks, history and a canvas |
+| **Fonts** | Licence check, one-click installs, apply-to-app, mini window, drag a font file out |
+| **Audio** | Waveform browser for sound libraries: trim, convert, drag clips into your project |
+| **Timer** | Cube timer driven by the spacebar, plus a pomodoro dial that keeps running across pages |
+| **Translate** | Offline (Bergamot) or online engines, plus any OpenAI-compatible model |
+| **Convert** | Images, audio and video via a bundled ffmpeg |
+| **Launcher** | Full-screen app grid with drag-to-reorder and custom folder icons |
+| **Screenshot** | Region capture, annotation, pin-to-screen, recording, OCR and translate-in-place |
+| **Command palette** | One shortcut to search apps, notes, files — or translate what you type |
 
 <div align="center">
-  <img src="docs/images/screenshot-sidebar.png" width="820" />
+  <img src="docs/images/screenshot-notes.png" width="820" />
+</div>
+
+<div align="center">
+  <img src="docs/images/screenshot-timer.png" width="820" />
 </div>
 
 ## 📁 Layout
@@ -113,14 +124,16 @@ Win32 APIs directly and have no cross-platform path.
 ```
 src/
   App.vue                    window routing + the floating chrome
-  components/TitleBar.vue    logo, teleport target for page tabs, window controls
-  components/ParticleLogo.vue  canvas particle logo (samples an offscreen render)
-  composables/               shared reactive settings, persisted to settings.json
+  components/TitleBar.vue    teleport target for page tabs, window controls
+  composables/               shared reactive settings (settings.json), updater
   lib/sidebar-prefs.ts       sidebar order/visibility reconciliation (pure, testable)
+  lib/prompt/                prompt tag library, dedupe, synonyms
   views/                     one file per tool page
 src-tauri/src/
   window_effects.rs          mica / acrylic, and the dark-mode attribute Windows needs
-  *_commands.rs              screenshot, OCR, translate, convert, launcher, window detect
+  font_commands.rs           font scan / install (per-user Fonts folder + shared ledger)
+  font_apply.rs              apply a font to Photoshop / DaVinci Resolve / PhotoCraft
+  *_commands.rs              screenshot, OCR, translate, convert, audio, launcher
 ```
 
 ## 🙏 Credits
@@ -134,13 +147,11 @@ src-tauri/src/
 [ONNX Runtime](https://onnxruntime.ai)
 **Input & effects** — [rdev](https://github.com/Narsil/rdev),
 [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)
+**Offline translation** — [Bergamot](https://browser.mt) with Mozilla's translation models
+**Prompt tags** — tag names follow [Danbooru](https://danbooru.donmai.us)
 
 The app icon is a pocket, drawn from scratch — the *idea* comes from Doraemon's
 4D pocket (四次元ポケット), the bag he pulls every gadget out of. Fitting for a toolbox.
-
-The particle logo takes its *idea* from the interaction on
-[nuxtlabs.com](https://nuxtlabs.com) — the implementation here is written from scratch
-and shares no code with it.
 
 README layout follows [vitesse](https://github.com/antfu-collective/vitesse) and
 [BewlyBewly](https://github.com/BewlyBewly/BewlyBewly).

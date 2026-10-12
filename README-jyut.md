@@ -29,116 +29,128 @@
 
 ## 👋 講咩嚟嘅
 
-計時器、翻譯、轉格式、連 OCR 嘅截圖、啟動台、撳掣顯示 —— 呢啲日日都要用一用嘅細工具，
-XGTools 一次過收晒喺工作列嗰一個圖示入面，唔使一件事裝一個軟件 —— 每個都自己一個
-更新器、自己霸個圖示位、自己一套諗法嘅設定窗。
+XGTools 將日日都要用一用嘅細工具 —— 提示詞詞庫、字體庫、音頻試聽、Markdown 筆記、計時器、
+翻譯、轉格式、有 OCR 嘅截圖、啟動台 —— 收埋喺系統匣一個圖示度，唔使一樣功能裝一個軟件。
 
-自己整嚟自己用嘅嘢，淨係為一部 Windows 機寫，照原樣攞出嚟分享。
+呢個係自己用嘅工具，為一部 Windows 電腦整嘅，原汁原味分享出嚟。
 
 > [!IMPORTANT]
-> **v0.2.0 —— 下面列嗰啲全部用得，得一樣例外。**「鍵盤桌寵」嗰版而家淨係做咗撳掣顯示，
-> 隻寵物本身未整。
+> **v0.16.0 —— 下面列晒嘅都用得，除咗呢幾樣：**「鍵盤桌寵」頁暫時得按鍵顯示，隻寵物仲未整；
+> 字體「套用到 Affinity」接好咗連線，仲未搞掂。
 
 <div align="center">
   <img src="docs/images/social-preview.png" width="820" />
 </div>
 
 <div align="center">
-  <img src="docs/images/screenshot-home.png" width="820" />
+  <img src="docs/images/screenshot-prompt.png" width="820" />
 </div>
 
 ## ✨ 邊度唔同
 
-**框架係浮起嘅，所以內容係對住成個窗置中。** 側欄同頂欄係浮層，唔佔版面。
-一般做法係將內容擺喺「扣走側欄同頂欄之後淨低嗰嚿」入面置中，咁樣任何置中嘅嘢
-都會向右下各偏半個框架闊度。呢度內容層鋪滿成個窗、框架冚喺佢上面，所以置中係真置中。
+**成塊介面，唔係一疊卡。** 頁面直接鋪喺視窗嘅雲母 / 亞克力材質上面，得左邊導航欄同頂頭分頁係面板，
+而且都係通透嘅。清單碌到邊度係慢慢淡出，唔係俾卡片邊框一刀切走。
 
-**得一個對齊常數，唔使逐處手動補位。** Logo、側欄圖示嗰行、右上角控件全部由同一個
-72px 嘅欄推出嚟。改嗰個數，三樣嘢一齊郁，唔使為每一處另外加個偏移。
-
-**窗嘅材質喺 CSS 度砌，唔係掉畀系統。** Windows 11 build 22523 之後，亞加力同雲母
-嗰兩個 API 會直接無視你傳入嘅顏色，系統淨係負責「矇」呢一樣。底面、卡片、邊框、陰影
-全部由 CSS 一層層疊出嚟 —— 所以呢度嘅透明度掣真係推得郁，邊框亦都會跟住主題行，
-唔會成日都係一條死白線。
-
-**每一版功能都可以熄咗佢。** 側欄完全由你話事：拖嚟排序、跨組拖過去改佢屬邊張卡、
-逐項開關。全部熄晒嗰張卡會直情消失 —— 設定入口係長駐嘅，所以你點熄都唔會入唔返去。
+**識得同其他軟件夾手嘅字體庫。** 撳一款字，Photoshop、達芬奇（Fusion 嘅 Text+）、PhotoCraft
+入面揀咗嘅字就即刻換晒。字體裝入 Windows 嘅個人字體資料夾，同右鍵「安裝」一模一樣，個個軟件都認得；
+仲有個置頂嘅 mini 細窗，將成日用嘅字擺喺你做緊圖嗰個軟件隔籬。每款字都會睇埋授權，話你知可唔可以
+打包入遊戲、擺落片度、做圖印刷。
 
 <div align="center">
-  <img src="docs/images/screenshot-settings.png" width="820" />
+  <img src="docs/images/screenshot-fonts.png" width="820" />
+</div>
+
+**為二次元模型度身訂造嘅提示詞詞庫。** 大約 2250 個 Danbooru 標籤、139 個細類，按層上色（質素、
+鏡頭、場景、人物、衫褲、動作……），按意思去重，搜尋識得同義詞。自然語言窗口將中文描述執成
+Anima 呢類模型食得落嘅英文句子；成日用嘅組合可以存做預設。
+
+**自己識更新。** 新版本放喺 GitHub Releases，軟件一開就會檢查，撳一下就下載安裝（有簽名驗證，
+俾人改過嘅安裝檔會俾拒絕）。
+
+<div align="center">
+  <img src="docs/images/screenshot-audio.png" width="820" />
 </div>
 
 ## 🚀 點開始
 
-去 [Releases](https://github.com/XXGGG/XGTools/releases) 攞安裝檔，或者自己 build：
+去 [Releases](https://github.com/XXGGG/XGTools/releases/latest) 下載安裝檔 —— 裝好之後，
+更新喺軟件入面搞掂。或者自己 build：
 
 ```bash
 pnpm install
 
-# 轉格式要用 ffmpeg —— 將 ffmpeg.exe 同 ffprobe.exe 掉入
-# src-tauri/resources/ffmpeg/  （https://github.com/BtbN/FFmpeg-Builds/releases）
+# Format conversion needs ffmpeg — drop ffmpeg.exe and ffprobe.exe into
+# src-tauri/resources/ffmpeg/  (https://github.com/BtbN/FFmpeg-Builds/releases)
 
-pnpm tauri dev      # 開發
-pnpm dist           # 安裝檔 -> installer/
+pnpm tauri dev      # development
+pnpm dist           # installer -> installer/
 ```
 
-要求：Node.js 18+、Rust 1.77+、pnpm，同埋 Windows 10/11 —— 有幾個功能直接叫 Win32 API，
-冇跨平台嗰條路行。
+要咩環境：Node.js 18+、Rust 1.77+、pnpm，Windows 10/11 —— 好幾樣功能直接 call Win32 API，冇得跨平台。
 
 ## 📦 有啲乜
 
 | | |
 |---|---|
-| **計時器** | 撳空白鍵開嘅扭計骰計時，加埋轉版都唔會斷嘅蕃茄鐘 |
-| **翻譯** | Google / Bing / DeepL，仲有 OpenAI 相容嗰啲（OpenAI、DeepSeek、Claude、Gemini、Groq）。譯文讀得出聲 |
-| **轉格式** | 相、聲、片都得，內置 ffmpeg；仲可以由片度抽條聲出嚟 |
-| **啟動台** | 成個芒嘅程式格，拖得郁、分得版，圖示直接由 exe 度抽 |
-| **截圖** | 圈選、畫嘢、黐窗、釘住、OCR（PaddleOCR）、就地翻譯 |
-| **鍵盤** | 全域撳掣顯示，自動排位、識閃開老鼠，過咗你設嘅秒數自動清走 |
+| **提示詞** | Danbooru 標籤詞庫，分層配色、搜尋、預設，仲有自然語言 → 提示詞窗口 |
+| **筆記** | 本機 Markdown 筆記：分頁、反向連結、歷史版本、畫布 |
+| **字體庫** | 授權體檢、一撳安裝、套用到其他軟件、mini 細窗、成行拖字體檔出去 |
+| **音頻試聽** | 音效庫波形睇法：剪、轉格式、直接拖入專案 |
+| **計時器** | 用空格掣嘅扭計骰計時，加一個轉頁都唔停嘅番茄鐘錶盤 |
+| **翻譯** | 離線（Bergamot）或者網上引擎，亦都接得任何 OpenAI 相容嘅大模型 |
+| **轉格式** | 圖片、聲、片，用內置嘅 ffmpeg |
+| **啟動台** | 全螢幕程式格仔，拖嚟拖去排次序，資料夾換圖示 |
+| **截圖** | 框選、標註、釘喺螢幕、錄影、OCR、原地翻譯 |
+| **命令面板** | 一個快捷鍵搵程式、筆記、檔案，或者直接翻譯 |
 
 <div align="center">
-  <img src="docs/images/screenshot-sidebar.png" width="820" />
+  <img src="docs/images/screenshot-notes.png" width="820" />
+</div>
+
+<div align="center">
+  <img src="docs/images/screenshot-timer.png" width="820" />
 </div>
 
 ## 📁 結構
 
 ```
 src/
-  App.vue                    分窗 + 浮起嘅框架
-  components/TitleBar.vue    Logo、頁面 Tabs 嘅 Teleport 目標、窗控件
-  components/ParticleLogo.vue  canvas 粒子 Logo（離屏畫一次再採樣）
-  composables/               成個 app 共用嘅設定，寫入 settings.json
-  lib/sidebar-prefs.ts       側欄次序／顯唔顯示嘅對數邏輯（純函數，測得到）
-  views/                     一版工具一個檔
+  App.vue                    window routing + the floating chrome
+  components/TitleBar.vue    teleport target for page tabs, window controls
+  composables/               shared reactive settings (settings.json), updater
+  lib/sidebar-prefs.ts       sidebar order/visibility reconciliation (pure, testable)
+  lib/prompt/                prompt tag library, dedupe, synonyms
+  views/                     one file per tool page
 src-tauri/src/
-  window_effects.rs          雲母 / 亞加力，同埋 Windows 要嘅深色屬性
-  *_commands.rs              截圖、OCR、翻譯、轉格式、啟動台、偵測窗
+  window_effects.rs          mica / acrylic, and the dark-mode attribute Windows needs
+  font_commands.rs           font scan / install (per-user Fonts folder + shared ledger)
+  font_apply.rs              apply a font to Photoshop / DaVinci Resolve / PhotoCraft
+  *_commands.rs              screenshot, OCR, translate, convert, audio, launcher
 ```
 
 ## 🙏 多謝
 
 **框架** —— [Tauri](https://tauri.app)、[Vue.js](https://vuejs.org)、
 [Tailwind CSS](https://tailwindcss.com)
-**UI** —— [shadcn-vue](https://www.shadcn-vue.com)（行 [reka-ui](https://reka-ui.com)）、
+**介面** —— [shadcn-vue](https://www.shadcn-vue.com)（用嘅係 [reka-ui](https://reka-ui.com)）、
 [Lucide](https://lucide.dev) 圖示
-**截圖同 OCR** —— [xcap](https://github.com/nashaofu/xcap)、
+**截圖與 OCR** —— [xcap](https://github.com/nashaofu/xcap)、
 [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)、
 [ONNX Runtime](https://onnxruntime.ai)
-**輸入同特效** —— [rdev](https://github.com/Narsil/rdev)、
+**輸入與特效** —— [rdev](https://github.com/Narsil/rdev)、
 [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)
+**離線翻譯** —— [Bergamot](https://browser.mt) 同 Mozilla 嘅翻譯模型
+**提示詞標籤** —— 標籤名跟足 [Danbooru](https://danbooru.donmai.us)
 
-個 App 圖示係一個袋，啲線自己畫嘅 —— **諗頭**嚟自多啦A夢個百寶袋（四次元袋），
-咩法寶都由入面掏出嚟，用喺一個工具箱上面啱晒。
+程式圖示係一個口袋，由零開始畫 —— **諗頭**嚟自叮噹嘅四次元百寶袋，乜嘢法寶都係由入面掏出嚟。
+攞嚟做工具箱就啱晒。
 
-粒子 Logo 嗰個**諗頭**係睇返 [nuxtlabs.com](https://nuxtlabs.com) 上面嗰個互動 ——
-呢度嘅實作由零寫起，冇用過佢哋任何一行 code。
-
-README 版式參考 [vitesse](https://github.com/antfu-collective/vitesse) 同
+README 版面參考 [vitesse](https://github.com/antfu-collective/vitesse) 同
 [BewlyBewly](https://github.com/BewlyBewly/BewlyBewly)。
 
 ## 授權
 
-[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) ——
-用得、改得、派得，要註明出處，**唔可以商用**，改完出嚟嘅嘢要用返同一個授權。
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hant) —— 隨便用、
+隨便改、隨便分享，要註明出處、**唔可以商用**、改出嚟嘅嘢要用同一個授權。
 
 Copyright © 2026 [Xie Xiage](https://github.com/XXGGG)

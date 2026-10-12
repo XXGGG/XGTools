@@ -29,116 +29,128 @@
 
 ## 👋 简介
 
-计时器、翻译、格式转换、带 OCR 的截图、启动台、按键显示 —— 这些每天都要用一下的小工具，
-XGTools 把它们收进托盘里的一个图标，而不是一件事装一个软件 —— 各自带更新器、
-各自占一个托盘位、各自对「设置窗口该长什么样」有一套想法。
+XGTools 把每天要用一下的小工具 —— 提示词词库、字体库、音频试听、Markdown 笔记、计时器、
+翻译、格式转换、带 OCR 的截图、启动台 —— 收进托盘里的一个图标，不用一个功能装一个软件。
 
-自用工具，为一台 Windows 机器写的，原样分享。
+这是一个自用工具，为一台 Windows 电脑做的，原样分享出来。
 
 > [!IMPORTANT]
-> **v0.2.0 —— 下面列的都能用，只有一项例外。**「键盘桌宠」这一页目前只做了按键显示，
-> 桌宠本身还没做。
+> **v0.16.0 —— 下面列的都能用，除了这几样：**「键盘桌宠」页目前只有按键显示，桌宠本身还没做；
+> 字体「套用到 Affinity」接好了连接，还没做完。
 
 <div align="center">
   <img src="docs/images/social-preview.png" width="820" />
 </div>
 
 <div align="center">
-  <img src="docs/images/screenshot-home.png" width="820" />
+  <img src="docs/images/screenshot-prompt.png" width="820" />
 </div>
 
 ## ✨ 有什么不一样
 
-**框架是浮空的，所以内容是相对整个窗口居中。** 侧栏和顶栏是浮层，不参与布局。
-常规做法是把内容在「减掉侧栏和顶栏之后剩下的那块」里居中，结果任何居中的东西都会
-偏右下各半个框架宽度。这里内容层铺满整窗、框架压在它上面，所以居中是真的居中。
+**一整块界面，不是一摞卡片。** 页面直接铺在窗口的云母 / 亚克力材质上，只有左边导航栏和顶部页签
+是面板，而且也是通透的。列表滚到边上是渐隐，不是被卡片边框一刀切掉。
 
-**一个对齐常量，而不是各处手调偏移。** Logo、侧栏图标列、右上角控件都从同一个 72px
-的列推出来。改那一个数，三者一起动，不需要为每处单独补一个偏移。
-
-**窗口材质在 CSS 里合成，而不是交给系统。** Windows 11 build 22523 之后，亚克力和云母
-的 API 会忽略你传进去的着色，系统只负责「模糊」这一件事。底面、卡片、边框、阴影全部
-由 CSS 分层叠出来 —— 这也是为什么这里的不透明度滑块真的推得动东西，以及为什么边框会
-跟着主题走，而不是永远一条硬白线。
-
-**每个功能页都能关掉。** 侧栏完全由你定义：拖拽排序、跨组拖动改变它归哪张卡片、
-逐项开关。全部关掉那张卡片会整个消失 —— 设置入口是常驻的，所以不存在把自己关到进不去。
+**会跟别的软件联动的字体库。** 点一款字，Photoshop、达芬奇（Fusion 的 Text+）、PhotoCraft
+里选中的文字就换成它。字体装进 Windows 的个人字体文件夹，跟右键「安装」一模一样，所有软件都认；
+还有一个置顶的 mini 小窗，把常用的字放在你正在做图的软件旁边。每款字都会读协议，告诉你能不能
+打包进游戏、用在视频里、做图印刷。
 
 <div align="center">
-  <img src="docs/images/screenshot-settings.png" width="820" />
+  <img src="docs/images/screenshot-fonts.png" width="820" />
+</div>
+
+**给二次元模型准备的提示词词库。** 约 2250 个 Danbooru 标签、139 个小类，按层上色（质量、
+镜头、场景、人物、服装、动作……），按语义去重，搜索认同义词。自然语言窗口把中文描述整理成
+Anima 这类模型吃的英文句子；常用组合可以存成预设。
+
+**自己会更新。** 新版本发在 GitHub Releases，软件启动时检查，一键下载安装（带签名校验，
+被改过的安装包会被拒绝）。
+
+<div align="center">
+  <img src="docs/images/screenshot-audio.png" width="820" />
 </div>
 
 ## 🚀 开始用
 
-从 [Releases](https://github.com/XXGGG/XGTools/releases) 下安装包，或者自己构建：
+到 [Releases](https://github.com/XXGGG/XGTools/releases/latest) 下载安装包 —— 装好以后，
+更新都在软件里完成。也可以自己构建：
 
 ```bash
 pnpm install
 
-# 格式转换需要 ffmpeg —— 把 ffmpeg.exe 和 ffprobe.exe 放进
-# src-tauri/resources/ffmpeg/  （https://github.com/BtbN/FFmpeg-Builds/releases）
+# Format conversion needs ffmpeg — drop ffmpeg.exe and ffprobe.exe into
+# src-tauri/resources/ffmpeg/  (https://github.com/BtbN/FFmpeg-Builds/releases)
 
-pnpm tauri dev      # 开发
-pnpm dist           # 安装包 -> installer/
+pnpm tauri dev      # development
+pnpm dist           # installer -> installer/
 ```
 
-环境要求：Node.js 18+、Rust 1.77+、pnpm，以及 Windows 10/11 —— 有几个功能直接调
-Win32 API，没有跨平台的路。
+环境要求：Node.js 18+、Rust 1.77+、pnpm，Windows 10/11 —— 好几个功能直接调 Win32 API，没有跨平台的路。
 
 ## 📦 都有什么
 
 | | |
 |---|---|
-| **计时器** | 空格键驱动的魔方计时，外加切换页面也不中断的番茄钟 |
-| **翻译** | Google / Bing / DeepL，以及 OpenAI 兼容接口（OpenAI、DeepSeek、Claude、Gemini、Groq）。译文可朗读 |
-| **格式转换** | 图片、音频、视频，内置 ffmpeg；支持从视频里提取音轨 |
-| **启动台** | 全屏应用网格，可拖拽排序、分页，图标直接从可执行文件里抽 |
-| **截图** | 选区、标注、窗口吸附、钉图、OCR（PaddleOCR）、原地翻译 |
-| **键盘** | 全局按键显示，自动排布、躲避鼠标，延时可调后自动清除 |
+| **提示词** | Danbooru 标签词库，分层配色、搜索、预设，还有自然语言 → 提示词窗口 |
+| **笔记** | 本地 Markdown 笔记：标签页、反向链接、历史版本、画布 |
+| **字体库** | 协议体检、一键安装、套用到别的软件、mini 小窗、整行拖出字体文件 |
+| **音频试听** | 音效库波形浏览：裁剪、转格式、直接拖进项目 |
+| **计时器** | 空格键操作的魔方计时，加一个切页面也不停的番茄时钟表盘 |
+| **翻译** | 离线（Bergamot）或在线引擎，也能接任何 OpenAI 兼容的大模型 |
+| **格式转换** | 图片、音频、视频，用内置的 ffmpeg |
+| **启动台** | 全屏应用网格，拖动排序，文件夹换图标 |
+| **截图** | 框选、标注、钉在屏幕上、录屏、OCR、原地翻译 |
+| **命令面板** | 一个快捷键搜应用、笔记、文件，或者直接翻译 |
 
 <div align="center">
-  <img src="docs/images/screenshot-sidebar.png" width="820" />
+  <img src="docs/images/screenshot-notes.png" width="820" />
+</div>
+
+<div align="center">
+  <img src="docs/images/screenshot-timer.png" width="820" />
 </div>
 
 ## 📁 结构
 
 ```
 src/
-  App.vue                    窗口分流 + 浮空框架
-  components/TitleBar.vue    Logo、页面 Tabs 的 Teleport 目标、窗口控件
-  components/ParticleLogo.vue  canvas 粒子 Logo（离屏描一遍再采样）
-  composables/               全应用共享的设置状态，持久化到 settings.json
-  lib/sidebar-prefs.ts       侧栏顺序/可见性的对账逻辑（纯函数，可断言）
-  views/                     一个工具页一个文件
+  App.vue                    window routing + the floating chrome
+  components/TitleBar.vue    teleport target for page tabs, window controls
+  composables/               shared reactive settings (settings.json), updater
+  lib/sidebar-prefs.ts       sidebar order/visibility reconciliation (pure, testable)
+  lib/prompt/                prompt tag library, dedupe, synonyms
+  views/                     one file per tool page
 src-tauri/src/
-  window_effects.rs          云母 / 亚克力，以及 Windows 需要的深色属性
-  *_commands.rs              截图、OCR、翻译、转换、启动台、窗口检测
+  window_effects.rs          mica / acrylic, and the dark-mode attribute Windows needs
+  font_commands.rs           font scan / install (per-user Fonts folder + shared ledger)
+  font_apply.rs              apply a font to Photoshop / DaVinci Resolve / PhotoCraft
+  *_commands.rs              screenshot, OCR, translate, convert, audio, launcher
 ```
 
 ## 🙏 致谢
 
-**框架** —— [Tauri](https://tauri.app)、[Vue.js](https://vuejs.org)、
+**框架** —— [Tauri](https://tauri.app), [Vue.js](https://vuejs.org),
 [Tailwind CSS](https://tailwindcss.com)
-**UI** —— [shadcn-vue](https://www.shadcn-vue.com)（基于 [reka-ui](https://reka-ui.com)）、
+**界面** —— [shadcn-vue](https://www.shadcn-vue.com) (on [reka-ui](https://reka-ui.com)),
 [Lucide](https://lucide.dev) 图标
-**截图与 OCR** —— [xcap](https://github.com/nashaofu/xcap)、
-[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)、
+**截图与 OCR** —— [xcap](https://github.com/nashaofu/xcap),
+[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR),
 [ONNX Runtime](https://onnxruntime.ai)
-**输入与特效** —— [rdev](https://github.com/Narsil/rdev)、
+**输入与特效** —— [rdev](https://github.com/Narsil/rdev),
 [window-vibrancy](https://github.com/tauri-apps/window-vibrancy)
+**离线翻译** —— [Bergamot](https://browser.mt) 和 Mozilla 的翻译模型
+**提示词标签** —— 标签名沿用 [Danbooru](https://danbooru.donmai.us)
 
-应用图标是一个口袋，线条是自己画的 —— **灵感**来自哆啦A梦的百宝袋（四次元口袋），
-什么道具都从那里掏出来，放在一个工具箱上正合适。
+应用图标是一个口袋，从零画的 —— **点子**来自哆啦 A 梦的四次元口袋，所有道具都是从里面掏出来的。
+拿来当工具箱正合适。
 
-粒子 Logo 的**想法**来自 [nuxtlabs.com](https://nuxtlabs.com) 上的那个交互 ——
-这里的实现是从零写的，没有用他们的任何代码。
-
-README 版式参考 [vitesse](https://github.com/antfu-collective/vitesse) 与
+README 版式参考 [vitesse](https://github.com/antfu-collective/vitesse) 和
 [BewlyBewly](https://github.com/BewlyBewly/BewlyBewly)。
 
 ## 许可协议
 
-[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) ——
-可自由使用、修改、分发，需注明出处，**不可商用**，衍生作品需使用相同协议。
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans) —— 可以自由使用、
+修改和分享，需署名、**不可商用**、改编作品须用相同协议。
 
 Copyright © 2026 [Xie Xiage](https://github.com/XXGGG)
