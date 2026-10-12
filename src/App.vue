@@ -162,8 +162,8 @@ const isLsBar = ref(false)
 const shortcutWarning = ref('')
 
 /**
- * 启动黑布(见 BootCloth.vue):窗口一出来就盖在最上面的粒子 Logo,
- * 设置读完、材质贴好、首页画完之后散场。无论中间出什么岔子,6 秒后也一定撤掉。
+ * 启动遮布(见 BootCloth.vue):窗口一出来就盖在最上面的一块纯色布,
+ * 设置读完、材质贴好、首页画完之后淡出。无论中间出什么岔子,6 秒后也一定撤掉。
  */
 const booting = ref(true)
 const bootCloth = ref<InstanceType<typeof BootCloth> | null>(null)
@@ -203,10 +203,9 @@ onMounted(async () => {
     的窗口不肯画云母,底下一片白,只有最小化再还原才救得回来,而那一下用户看得见。那条路作废。
 
     现在的启动顺序:
-      1. 窗口一出来:不透明的主题底(html.boot-base,index.html 里按上次主题铺的)+ 同色黑/白布,
-         反色粒子从四面八方汇聚成 Logo(BootCloth);
+      1. 窗口一出来:不透明的主题底(html.boot-base,index.html 里按上次主题铺的)+ 同色黑/白布(BootCloth);
       2. 设置读完、组件起来、材质贴上 —— 这时才把不透明底摘掉,底面换成云母/亚克力;
-      3. 首页画完、粒子成形之后,粒子散出屏幕外,布淡出。
+      3. 首页画完之后布淡出。（原来有一段粒子汇聚 Logo 的开场,2026-10-12 用户嫌晃眼去掉了）
   */
   const clothShownAt = performance.now()
   window.setTimeout(() => { booting.value = false }, 6000)   // 无论中间出什么岔子,黑屏不能超过 6 秒
@@ -224,9 +223,9 @@ onMounted(async () => {
   // 材质贴好了,不透明底退场,底面换成材质 —— 这一下发生在黑布底下,用户看不到
   window.setTimeout(() => document.documentElement.classList.remove('boot-base'), 300)
 
-  // 首页画出来、材质贴好之后撤黑布;粒子至少要飞完成形(约 1.6s)
+  // 首页画出来、材质贴好之后撤布;不透明底 300ms 后才摘,布要等它摘完
   await nextTick()
-  const clothWait = Math.max(1600 - (performance.now() - clothShownAt), 400)
+  const clothWait = Math.max(350 - (performance.now() - clothShownAt), 350)
   window.setTimeout(async () => {
     await bootCloth.value?.dismiss()
     booting.value = false
@@ -379,7 +378,7 @@ onMounted(async () => {
     <TitleBar v-if="!zen.on" class="absolute top-2.5 left-2.5 right-2.5 z-50 flat:top-0 flat:left-0 flat:right-0"
       :active="false" />
 
-    <!-- 启动黑布:粒子汇聚成 Logo,一切就绪后散场淡出(见 BootCloth.vue) -->
+    <!-- 启动遮布:盖住材质切换那一下,就绪后淡出(见 BootCloth.vue) -->
     <BootCloth v-if="booting" ref="bootCloth" />
 
     <!--
