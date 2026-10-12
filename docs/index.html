@@ -11,7 +11,7 @@
 <link rel="icon" href="assets/favicon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Noto+Serif+SC:wght@500;700;900&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=ZCOOL+KuaiLe&family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 <style>
 :root {
   --bg: #0b0b0e;
@@ -24,9 +24,9 @@
   --tomato: #ff5e3a;
   --amber: #ffb347;
   --rose: #ff3d8b;
-  --serif: 'Instrument Serif', 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
-  --serif-zh: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
-  --sans: 'IBM Plex Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /* 标题用圆滚滚的字：英文 Fredoka、中文站酷快乐体，都是开源字体；正文换成同样圆润的 Nunito */
+  --round: 'Fredoka', 'ZCOOL KuaiLe', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --sans: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 * { box-sizing: border-box; }
@@ -37,6 +37,8 @@ body {
   color: var(--ink);
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
+  /* 快乐体只有一个字重，别让浏览器硬给它描粗 */
+  font-synthesis: none;
   overflow-x: hidden;
 }
 /* 颗粒 + 远处的暖光：像一个深夜的工作台 */
@@ -74,7 +76,7 @@ header {
   border-bottom: 1px solid var(--line);
 }
 .nav { display: flex; align-items: center; gap: 28px; height: 64px; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: 0.01em; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--round); font-size: 17px; font-weight: 600; letter-spacing: 0.01em; }
 .brand img { width: 26px; height: 26px; }
 .nav .links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; color: var(--ink2); }
 .nav .links a:hover { color: var(--ink); }
@@ -96,9 +98,10 @@ header {
   padding: 40px 0 80px;
 }
 .eyebrow {
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.24em;
+  font-family: var(--round);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--amber);
   display: inline-flex;
@@ -108,29 +111,27 @@ header {
 .eyebrow::before { content: ''; width: 28px; height: 1px; background: currentColor; opacity: 0.6; }
 h1 {
   margin: 22px 0 0;
-  font-family: var(--serif-zh);
-  font-weight: 900;
+  font-family: var(--round);
+  font-weight: 700;
   font-size: clamp(44px, 6.4vw, 84px);
-  line-height: 1.04;
+  line-height: 1.12;
   letter-spacing: -0.01em;
 }
 h1 em {
-  font-family: var(--serif);
-  font-style: italic;
-  font-weight: 400;
+  font-style: normal;
   background: linear-gradient(100deg, var(--tomato), var(--amber) 55%, var(--rose));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   padding-right: 0.06em;
 }
-html[lang='en'] h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(50px, 7vw, 96px); line-height: 0.98; }
+html[lang='en'] h1 { font-size: clamp(48px, 6.8vw, 92px); line-height: 1.02; }
 .lede { margin: 26px 0 0; max-width: 34em; font-size: 18px; line-height: 1.75; color: var(--ink2); }
 .cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 38px; }
 .btn {
   display: inline-flex; align-items: center; gap: 12px;
   height: 56px; padding: 0 26px 0 22px; border-radius: 16px;
-  font-weight: 600; font-size: 16px;
+  font-family: var(--round); font-weight: 600; font-size: 16px;
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 .btn-main {
@@ -165,7 +166,7 @@ html[lang='en'] h1 { font-family: var(--serif); font-weight: 400; font-size: cla
   position: absolute; left: 50%; top: 52%;
   display: inline-flex; align-items: center; gap: 8px;
   padding: 9px 14px 9px 10px; border-radius: 14px;
-  font-size: 13.5px; font-weight: 500; white-space: nowrap;
+  font-family: var(--round); font-size: 14px; font-weight: 500; white-space: nowrap;
   background: rgb(20 20 26 / 0.72);
   border: 1px solid rgb(255 255 255 / 0.1);
   backdrop-filter: blur(10px);
@@ -188,11 +189,10 @@ html[lang='en'] h1 { font-family: var(--serif); font-weight: 400; font-size: cla
 section { padding: 110px 0; }
 .sec-head { display: flex; align-items: end; justify-content: space-between; gap: 30px; margin-bottom: 44px; flex-wrap: wrap; }
 h2 {
-  margin: 0; font-family: var(--serif-zh); font-weight: 700;
+  margin: 0; font-family: var(--round); font-weight: 700;
   font-size: clamp(32px, 4vw, 52px); line-height: 1.12; max-width: 14em;
 }
-html[lang='en'] h2 { font-family: var(--serif); font-weight: 400; }
-h2 em { font-family: var(--serif); font-style: italic; font-weight: 400; color: var(--amber); }
+h2 em { font-style: normal; color: var(--amber); }
 .sec-note { max-width: 30em; color: var(--ink2); line-height: 1.75; font-size: 15.5px; }
 
 /* 截图橱窗 */
@@ -202,7 +202,7 @@ h2 em { font-family: var(--serif); font-style: italic; font-weight: 400; color: 
   all: unset; cursor: pointer; padding: 16px 18px; border-radius: 16px; border: 1px solid transparent;
   transition: background 200ms ease, border-color 200ms ease;
 }
-.tab b { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: var(--ink2); }
+.tab b { display: flex; align-items: center; gap: 10px; font-family: var(--round); font-size: 17px; font-weight: 600; color: var(--ink2); }
 .tab b::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 12px var(--c); opacity: 0.5; }
 .tab p { margin: 8px 0 0 18px; font-size: 13.5px; line-height: 1.65; color: var(--ink3); display: none; }
 .tab.on { background: var(--glass); border-color: var(--line); }
@@ -229,9 +229,8 @@ h2 em { font-family: var(--serif); font-style: italic; font-weight: 400; color: 
   padding: 30px 28px 32px; border-radius: 22px; background: var(--glass); border: 1px solid var(--line);
   position: relative; overflow: hidden;
 }
-.card .no { font-family: var(--serif); font-style: italic; font-size: 54px; line-height: 1; color: var(--c); opacity: 0.9; }
-.card h3 { margin: 18px 0 10px; font-size: 19px; font-family: var(--serif-zh); font-weight: 700; }
-html[lang='en'] .card h3 { font-family: var(--sans); font-weight: 600; }
+.card .no { font-family: var(--round); font-weight: 700; font-size: 50px; line-height: 1; color: var(--c); opacity: 0.9; }
+.card h3 { margin: 18px 0 10px; font-size: 20px; font-family: var(--round); font-weight: 600; }
 .card p { margin: 0; color: var(--ink2); line-height: 1.75; font-size: 14.5px; }
 .card::after {
   content: ''; position: absolute; right: -60px; top: -60px; width: 180px; height: 180px; border-radius: 50%;
@@ -247,7 +246,7 @@ html[lang='en'] .card h3 { font-family: var(--sans); font-weight: 600; }
 .tool:hover { transform: translateY(-4px); background: rgb(255 255 255 / 0.05); border-color: color-mix(in oklab, var(--c) 40%, transparent); }
 .tool .ic { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in oklab, var(--c) 18%, transparent); color: var(--c); }
 .tool .ic svg { width: 20px; height: 20px; }
-.tool h4 { margin: 14px 0 6px; font-size: 15px; font-weight: 600; }
+.tool h4 { margin: 14px 0 6px; font-family: var(--round); font-size: 16px; font-weight: 600; }
 .tool p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink3); }
 
 /* 收尾 */
