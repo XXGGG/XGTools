@@ -4,6 +4,7 @@
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
+import { STAGE_W, STAGE_H } from './stage'
 
 export type PetConfig = { scale: number; sign: boolean; locked: boolean }
 export const PET_DEFAULTS: PetConfig = { scale: 0.85, sign: true, locked: false }
@@ -35,8 +36,8 @@ export async function openPet() {
   new WebviewWindow(PET_LABEL, {
     url: 'index.html',
     title: 'XGTools Pet',
-    width: Math.round(400 * c.scale),
-    height: Math.round(320 * c.scale),
+    width: Math.round(STAGE_W * c.scale),
+    height: Math.round(STAGE_H * c.scale),
     decorations: false,
     shadow: false,
     transparent: true,
@@ -76,7 +77,7 @@ export async function resetPetPosition() {
   const c = await loadPetConfig()
   if (!m) return
   const sf = m.scaleFactor
-  const x = m.position.x / sf + m.size.width / sf - 400 * c.scale - 40
-  const y = m.position.y / sf + m.size.height / sf - 320 * c.scale - 80
+  const x = m.position.x / sf + m.size.width / sf - STAGE_W * c.scale - 40
+  const y = m.position.y / sf + m.size.height / sf - STAGE_H * c.scale - 80
   await w.setPosition(new LogicalPosition(Math.round(x), Math.round(y)))
 }
