@@ -690,7 +690,7 @@ onBeforeUnmount(() => {
         列表标题这一行就放在顶栏的高度上：它同时是窗口拖拽带（文字和空白处都能拖），
         右边给红黄绿让位。对比按钮也在这一行。
       -->
-      <div class="h-[var(--bar-h)] shrink-0 flex items-center gap-2 pl-4 pr-2 flat:h-[var(--flat-bar-h)]"
+      <div class="h-[calc(var(--bar-h)+10px)] shrink-0 flex items-center gap-2 pl-4 pr-2 flat:h-[var(--flat-bar-h)]"
         :class="zenMode ? '' : 'mr-[calc(var(--ctrl-zone)-10px)] flat:mr-[var(--ctrl-zone)]'">
         <span class="text-[14px] font-medium">{{ catTitle }}</span>
         <span class="text-[12px] text-muted-foreground tabular-nums">

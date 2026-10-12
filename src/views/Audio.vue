@@ -44,33 +44,10 @@ import {
 const { t } = useI18n()
 const zenMode = computed(() => zen.on)
 
-// ── 目录栏开合 / 窄窗口 ──
-//
-// 页面宽度不够同时摆下目录栏（280）和列表时，目录栏**自动收起**，列表占满。
-// 这时再点展开，目录栏是**盖在列表上面**拉出来的一层，不去挤列表 ——
-// 挤的话列表只剩一条缝，波形和按钮全压扁，那还不如不展开。点外面、按 Esc 就收回去。
-// 够宽的时候照笔记页那套：顶卡上一颗收起，收起后左边留一张 58×58 的方卡片用来展开。
-
+// 目录栏一直在（2026-10-12 去掉了收起按钮和窄窗口抽屉：窗口最小 1120，放得下）
 const rootEl = ref<HTMLElement | null>(null)
-/** 页面（含左边让出的导航栏位置）窄过这个就自动收起目录栏 */
-const NARROW_PX = 1040
-const narrow = ref(false)
-/** 窄窗口下临时拉出来的那一层 */
-const drawer = ref(false)
-/** 目录栏在正常排版里（宽窗口、没被手动收起） */
-const treeInFlow = computed(() => !narrow.value && settings.audioTreeOpen)
-const treeVisible = computed(() => treeInFlow.value || (narrow.value && drawer.value))
-function showTree() {
-  if (narrow.value) drawer.value = true
-  else settings.audioTreeOpen = true
-}
-function hideTree() {
-  if (narrow.value) drawer.value = false
-  else settings.audioTreeOpen = false
-}
-let resizeObs: ResizeObserver | null = null
 
-type SubDir = { name: string; path: string }
+type SubDir = { name: string; path: string; count: number }
 type Listing = { dirs: SubDir[]; files: AudioFile[] }
 type DeepListing = { files: AudioFile[]; truncated: boolean }
 type PathKind = { path: string; is_dir: boolean; is_audio: boolean }
@@ -173,15 +150,16 @@ function removeRoot(path: string) {
   for (const e of [...expanded]) if (samePath(e, path) || isUnder(e, path)) expanded.delete(e)
 }
 
-type TRow = { path: string; name: string; depth: number; root: boolean }
+type TRow = { path: string; name: string; depth: number; root: boolean; count: number | null }
 const rows = computed<TRow[]>(() => {
   const out: TRow[] = []
-  const walk = (path: string, name: string, depth: number, root: boolean) => {
-    out.push({ path, name, depth, root })
+  // 条数：自己读过就用自己那份（最新），没读过用上一层列目录时顺带数的
+  const walk = (path: string, name: string, depth: number, root: boolean, count: number | null) => {
+    out.push({ path, name, depth, root, count: listings.get(path)?.files.length ?? count })
     if (!expanded.has(path)) return
-    for (const d of listings.get(path)?.dirs ?? []) walk(d.path, d.name, depth + 1, false)
+    for (const d of listings.get(path)?.dirs ?? []) walk(d.path, d.name, depth + 1, false, d.count)
   }
-  for (const r of settings.audioRoots) walk(r, baseName(r) || r, 0, true)
+  for (const r of settings.audioRoots) walk(r, baseName(r) || r, 0, true, null)
   return out
 })
 
@@ -263,10 +241,6 @@ function onKey(e: KeyboardEvent) {
     e.preventDefault()
     files.value.forEach((f) => picked.add(f.path))
   } else if (e.key === 'Escape') {
-    if (drawer.value) {
-      drawer.value = false
-      return
-    }
     picked.clear()
   } else if (e.key === ' ') {
     // 空格：放 / 停当前那一行
@@ -778,13 +752,6 @@ const isDropDir = (p: string) =>
 // ── 进出页面 ──
 
 onMounted(async () => {
-  resizeObs = new ResizeObserver(() => {
-    const w = rootEl.value?.clientWidth ?? 0
-    narrow.value = w > 0 && w < NARROW_PX
-    // 宽回来了：抽屉那层没用了，目录栏回到正常排版
-    if (!narrow.value) drawer.value = false
-  })
-  if (rootEl.value) resizeObs.observe(rootEl.value)
   void bindDrop()
   window.addEventListener('keydown', onKey)
   for (const r of settings.audioRoots) {
@@ -809,7 +776,6 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  resizeObs?.disconnect()
   disposed = true
   unlistenDrop?.()
   unlistenDrop = null
@@ -825,12 +791,12 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- 网格和笔记页一样：10 的间距，58 的顶卡，左让位 78 -->
-  <div ref="rootEl" class="absolute inset-0 pt-2.5 pr-2.5 pb-2.5 flex gap-2.5 flat:pt-0 flat:pr-0 flat:pb-0 flat:gap-0"
+  <div ref="rootEl" class="absolute inset-0 flex"
     :class="[zenMode ? 'pl-2.5' : 'pl-[4.875rem] flat:pl-0', treeDrag ? 'select-none' : '']">
 
     <!-- ═══════ 还没有工作区 ═══════ -->
     <div v-if="!settings.audioRoots.length" data-audio-tree
-      class="flex-1 float-card rounded-[14px] border bg-card flex items-center justify-center"
+      class="flex-1 flex items-center justify-center"
       :style="dropHit.kind === 'tree' ? { outline: '2px solid ' + settings.vaultAccent, outlineOffset: '-2px' } : undefined">
       <div class="max-w-sm text-center px-6">
         <span class="icon-[lucide--audio-lines] w-10 h-10 mx-auto block text-muted-foreground/60" />
@@ -843,19 +809,15 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-else>
-      <!-- 窄窗口下拉出目录栏时垫在底下的一层：点它就收回去 -->
-      <div v-if="narrow && drawer" class="absolute inset-0 z-20" @pointerdown="drawer = false" />
 
       <!-- ═══════ 左：目录树 ═══════ -->
-      <div v-if="treeVisible" class="w-[280px] flex flex-col gap-2.5 flat:gap-0"
-        :class="treeInFlow ? 'shrink-0'
-          : ['tree-drawer absolute z-30 top-2.5 bottom-2.5 drop-shadow-2xl flat:top-0 flat:bottom-0', zenMode ? 'left-2.5' : 'left-[4.875rem] flat:left-0']">
-        <div class="float-card h-[var(--bar-h)] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
-          <!-- 收起放最左，和收起后那张「展开」方卡片同一个位置；细线隔开，免得和添加工作区挨着点错 -->
-          <button @click="hideTree" :title="t('audio.hideTree')" class="tool-btn">
-            <span class="icon-[lucide--panel-left-close] w-4 h-4" />
-          </button>
-          <span class="w-px h-5 mx-1 shrink-0 bg-border flat:bg-transparent" />
+      <!--
+        2026-10-12 一体化：左栏不再是两张卡片，整条铺在窗口上、上下渐隐；原来顶上那排按钮挪到底部的磨砂条里。
+        收起目录栏的按钮去掉了（窗口最小 1120，放得下）。
+      -->
+      <div class="w-[272px] shrink-0 relative">
+        <!-- 顶上那排按钮：没有底板，每颗单独的，鼠标移上去 / 开着的时候才显出圆角底；跟右边标题、红黄绿在一条水平线上 -->
+        <div class="tree-bar absolute inset-x-0 top-0 z-10 h-[calc(var(--bar-h)+10px)] flex items-center gap-0.5 pl-1.5 pr-2">
           <button @click="pickRoot" :title="t('audio.addRoot')" class="tool-btn">
             <span class="icon-[lucide--folder-plus] w-4 h-4" />
           </button>
@@ -879,7 +841,7 @@ onBeforeUnmount(() => {
         <ContextMenu>
           <ContextMenuTrigger as-child>
             <aside data-audio-tree
-              class="float-card flex-1 min-h-0 rounded-[14px] border bg-card overflow-y-auto px-1.5 py-2 flat:rounded-none"
+              class="fade-y absolute inset-x-0 bottom-0 top-[calc(var(--bar-h)+10px)] overflow-y-auto pl-1 pr-1.5 pt-1 pb-2.5"
               :style="dropHit.kind === 'tree' ? { outline: '2px solid ' + settings.vaultAccent, outlineOffset: '-2px' } : undefined">
               <ContextMenu v-for="r in rows" :key="r.path">
                 <ContextMenuTrigger as-child>
@@ -907,6 +869,7 @@ onBeforeUnmount(() => {
                       :title="r.root ? r.path : undefined">{{ r.name }}</span>
                     <span v-if="failed.has(r.path)" :title="failed.get(r.path)"
                       class="icon-[lucide--triangle-alert] w-3.5 h-3.5 shrink-0 ml-auto text-destructive" />
+                    <span v-else-if="r.count" class="ml-auto shrink-0 pl-2 text-[12px] text-muted-foreground tabular-nums">{{ r.count }}</span>
                   </button>
                 </ContextMenuTrigger>
                 <ContextMenuContent class="w-auto min-w-44 whitespace-nowrap"
@@ -945,22 +908,10 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- ═══════ 右：音频列表 ═══════ -->
-      <div class="flex-1 min-w-0 flex flex-col gap-2.5 flat:gap-0">
-        <div class="flex gap-2.5 shrink-0 flat:gap-0">
-          <!--
-            目录栏收起来之后，展开按钮是顶卡前面一张 58×58 的方卡片 ——
-            和笔记页一样：入口留在目录栏原来的位置，一眼就找得到。
-          -->
-          <button v-if="!treeVisible" @click="showTree" :title="t('audio.showTree')"
-            class="size-[var(--bar-h)] shrink-0 rounded-[10px] hover:bg-muted/60 flat:size-[var(--flat-bar-h)] flat:rounded-none
-                   flex items-center justify-center text-muted-foreground
-                   transition-colors hover:text-foreground">
-            <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
-          </button>
-
+      <div class="flex-1 min-w-0 flex flex-col">
+        <div class="flex shrink-0">
         <!-- 右边留出窗口控制点的位置：它们浮在最上层，排到那儿的按钮会被压住点不到 -->
-        <div class="float-card h-[var(--bar-h)] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
-                 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-2 flat:gap-2"
+        <div class="h-[calc(var(--bar-h)+10px)] flex-1 min-w-0 flex items-center gap-3 pl-4 pr-2 flat:h-[var(--flat-bar-h)]"
           :class="zenMode ? '' : 'mr-[calc(var(--ctrl-zone)-10px)] flat:mr-[var(--ctrl-zone)]'">
           <span class="icon-[lucide--folder-open] w-4 h-4 shrink-0 text-muted-foreground" />
           <!-- 名字至少留出几个字的位置：窄的时候先让提示文字让路，别把文件夹名挤没了 -->
@@ -987,7 +938,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div data-audio-list
-          class="float-card flex-1 min-h-0 rounded-[14px] border bg-card overflow-y-auto p-2 flat:rounded-none"
+          class="fade-y flex-1 min-h-0 overflow-y-auto px-2 pt-1 pb-2.5"
           :style="dropHit.kind === 'list' ? { outline: '2px solid ' + settings.vaultAccent, outlineOffset: '-2px' } : undefined">
           <p v-if="!selected" class="mt-10 text-center text-sm text-muted-foreground">{{ t('audio.pickFolder') }}</p>
           <p v-else-if="failed.has(selected)" class="mt-10 text-center text-sm text-destructive">
@@ -1054,11 +1005,14 @@ onBeforeUnmount(() => {
 .tool-btn.is-on {
   background: color-mix(in srgb, var(--foreground) 10%, transparent);
 }
-/*
-  窄窗口拉出来的目录栏是压在列表上面的一层。开了云母/亚克力时卡片只有 92% 实心，
-  平铺着没关系，一叠到别的卡片上，底下的文件夹名、波形就会透上来 —— 这里改成全实心。
-*/
-.tree-drawer .bg-card {
-  background-color: var(--card);
+/* 左栏顶上那排按钮：不要底板，只在悬停 / 开着时显出圆角底 */
+.tree-bar .tool-btn { width: 2rem; height: 2rem; border-radius: 0.5rem; }
+/* 上下渐隐：滚动内容在两头淡出；左栏底下压着按钮条，尾巴淡得长一点 */
+.fade-y {
+  --fade: 14px;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade), #000 calc(100% - var(--fade)), transparent 100%);
+}
+.fade-y-tall {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade), #000 calc(100% - 64px), transparent 100%);
 }
 </style>

@@ -142,6 +142,23 @@ fn stamp(meta: Option<&std::fs::Metadata>) -> (u64, i64) {
 pub struct SubDir {
     name: String,
     path: String,
+    /// 这个文件夹**直接**装着几条音频（不算更深的子文件夹）。目录树每行右边显示它
+    count: usize,
+}
+
+/// 数一个文件夹直接装着几条音频。读不了就当 0
+fn audio_count(dir: &Path) -> usize {
+    std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    let meta = e.metadata().ok();
+                    !is_hidden(&name, meta.as_ref()) && meta.is_some_and(|m| m.is_file()) && is_audio(&e.path())
+                })
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 #[derive(Serialize)]
@@ -167,7 +184,7 @@ pub async fn audio_list_dir(path: String) -> Result<Listing, String> {
             let Ok(ft) = ent.file_type() else { continue };
             // 快捷方式式的目录联接（junction / symlink）也当文件夹看
             if ft.is_dir() || (ft.is_symlink() && p.is_dir()) {
-                dirs.push(SubDir { name, path: p.to_string_lossy().to_string() });
+                dirs.push(SubDir { name, count: audio_count(&p), path: p.to_string_lossy().to_string() });
             } else if is_audio(&p) {
                 let (size, modified) = stamp(meta.as_ref());
                 files.push(AudioFile { name, path: p.to_string_lossy().to_string(), size, modified, dir: None });
