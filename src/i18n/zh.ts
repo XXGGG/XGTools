@@ -353,7 +353,12 @@ export const zh = {
     open: '开启显示',
     close: '关闭显示',
     petTitle: '键盘桌宠',
-    petSoon: '即将来袭',
+    petHint: '一群小动物挤在键盘上，打字时按到的那只会蹦起来；按住就能拖着走',
+    petSize: '大小',
+    petSign: '显示按键小牌',
+    petLock: '锁定（鼠标穿透）',
+    petLockHint: '锁定后点不到它，也拖不动，鼠标直接穿过去点后面的东西',
+    petReset: '拖丢了？放回屏幕右下角',
   },
   convert: {
     title: '格式转换',

@@ -7,6 +7,8 @@ import { LogicalSize } from '@tauri-apps/api/window'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { useI18n } from '@/i18n'
+import { Switch } from '@/components/ui/switch'
+import { closePet, isPetOpen, loadPetConfig, openPet, PET_DEFAULTS, resetPetPosition, savePetConfig, type PetConfig } from '@/pet/petWindow'
 
 const { t } = useI18n()
 const isKeyVisOpen = ref(false)
@@ -54,6 +56,23 @@ const checkWindowState = async () => {
 }
 
 onMounted(() => checkWindowState())
+
+// ── 键盘桌宠 ──
+const petOpen = ref(false)
+const pet = ref<PetConfig>({ ...PET_DEFAULTS })
+onMounted(async () => {
+  petOpen.value = await isPetOpen()
+  pet.value = await loadPetConfig()
+})
+async function togglePet() {
+  if (petOpen.value) await closePet()
+  else await openPet()
+  petOpen.value = !petOpen.value
+}
+async function setPet(patch: Partial<PetConfig>) {
+  pet.value = { ...pet.value, ...patch }
+  await savePetConfig(pet.value)
+}
 
 const toggleAutoClear = async () => {
   isAutoClear.value = !isAutoClear.value
@@ -171,12 +190,47 @@ onUnmounted(() => emit('toggle-key-visualizer-edit', false))
       <span class="shrink-0 w-12 text-right text-sm font-mono text-muted-foreground">{{ autoClearSec }}s</span>
     </div>
 
-    <div class="w-full max-w-2xl mx-auto flex-1 border border-dashed rounded-lg p-8 flex flex-col items-center justify-center space-y-4 text-muted-foreground/60">
-      <span class="icon-[lucide--cat] w-12 h-12" />
-      <div class="text-center space-y-1">
-        <h3 class="font-medium text-base">{{ t('keyboard.petTitle') }}</h3>
-        <p class="text-sm">{{ t('keyboard.petSoon') }}</p>
+    <!-- 键盘桌宠：一群小动物挤在一块简化键盘上，打字时按到的那只会蹦起来（见 src/pet） -->
+    <div class="w-full max-w-2xl mx-auto border rounded-lg divide-y">
+      <div class="p-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
+            <span class="icon-[lucide--cat] w-5 h-5" />
+          </div>
+          <div>
+            <div class="font-medium">{{ t('keyboard.petTitle') }}</div>
+            <div class="text-xs text-muted-foreground">{{ t('keyboard.petHint') }}</div>
+          </div>
+        </div>
+        <Switch :model-value="petOpen" @update:model-value="togglePet" />
       </div>
+      <template v-if="petOpen">
+        <div class="p-4 flex items-center gap-4">
+          <span class="icon-[lucide--scaling] w-5 h-5 text-muted-foreground shrink-0 ml-2" />
+          <span class="text-sm shrink-0 w-20">{{ t('keyboard.petSize') }}</span>
+          <Slider class="flex-1" :model-value="[pet.scale]" :min="0.5" :max="1.5" :step="0.05"
+            @update:model-value="(v) => v?.[0] && setPet({ scale: v[0] })" />
+          <span class="shrink-0 w-12 text-right text-sm font-mono text-muted-foreground">{{ Math.round(pet.scale * 100) }}%</span>
+        </div>
+        <div class="p-4 flex items-center gap-4">
+          <span class="icon-[lucide--sticky-note] w-5 h-5 text-muted-foreground shrink-0 ml-2" />
+          <span class="text-sm flex-1">{{ t('keyboard.petSign') }}</span>
+          <Switch :model-value="pet.sign" @update:model-value="(v: boolean) => setPet({ sign: v })" />
+        </div>
+        <div class="p-4 flex items-center gap-4">
+          <span class="icon-[lucide--mouse-pointer-2-off] w-5 h-5 text-muted-foreground shrink-0 ml-2" />
+          <div class="flex-1">
+            <div class="text-sm">{{ t('keyboard.petLock') }}</div>
+            <div class="text-xs text-muted-foreground">{{ t('keyboard.petLockHint') }}</div>
+          </div>
+          <Switch :model-value="pet.locked" @update:model-value="(v: boolean) => setPet({ locked: v })" />
+        </div>
+        <div class="p-4 flex items-center gap-4">
+          <span class="icon-[lucide--rotate-ccw] w-5 h-5 text-muted-foreground shrink-0 ml-2" />
+          <span class="text-sm flex-1">{{ t('keyboard.petReset') }}</span>
+          <Button variant="outline" size="sm" @click="resetPetPosition">{{ t('keyboard.resetPosition') }}</Button>
+        </div>
+      </template>
     </div>
   </div>
 </template>

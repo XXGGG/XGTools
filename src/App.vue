@@ -95,6 +95,8 @@ import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
 import PaletteWindow from './palette/PaletteWindow.vue'
 import FontMiniWindow from './components/fonts/FontMiniWindow.vue'
+import PetWindow from './pet/PetWindow.vue'
+import { restorePet } from './pet/petWindow'
 import TrayMenu from './views/TrayMenu.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
@@ -153,6 +155,7 @@ const isKeyVisualizer = ref(false)
 const isDockWindow = ref(false)
 const isPaletteWindow = ref(false)
 const isFontMini = ref(false)
+const isPet = ref(false)
 const isTrayMenu = ref(false)
 const isScreenshotWindow = ref(false)
 const isPinWindow = ref(false)
@@ -194,6 +197,7 @@ onMounted(async () => {
   if (win.label === 'dock') { isDockWindow.value = true; return }
   if (win.label === 'palette') { isPaletteWindow.value = true; return }
   if (win.label === 'font_mini') { isFontMini.value = true; return }
+  if (win.label === 'key_pet') { isPet.value = true; return }
   if (win.label === 'tray-menu') { isTrayMenu.value = true; return }
   if (win.label === 'screenshot') { isScreenshotWindow.value = true; return }
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
@@ -240,6 +244,7 @@ onMounted(async () => {
   const store = new LazyStore('settings.json')
   await store.init()
   try {
+    void restorePet().catch(() => {})   // 键盘桌宠：上次开着就再开
     const savedKeyVisState = await store.get<boolean>('key_visualizer_enabled')
     let keyVisWin = await WebviewWindow.getByLabel('key_visualizer')
     const isOpen = keyVisWin ? await keyVisWin.isVisible() : false
@@ -295,6 +300,7 @@ onMounted(async () => {
   <DockWindow v-else-if="isDockWindow" />
   <PaletteWindow v-else-if="isPaletteWindow" />
   <FontMiniWindow v-else-if="isFontMini" />
+  <PetWindow v-else-if="isPet" />
   <TrayMenu v-else-if="isTrayMenu" />
   <ScreenshotWindow v-else-if="isScreenshotWindow" />
   <PinWindow v-else-if="isPinWindow" />
