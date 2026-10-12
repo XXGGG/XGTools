@@ -524,7 +524,7 @@ onUnmounted(() => {
               filter=".no-drag" :prevent-on-filter="false" ghost-class="opacity-30" @end="persistOrder"
               class="rounded-xl border divide-y overflow-hidden min-h-16">
               <div v-for="item in toolList" :key="item.id"
-                class="flex items-center gap-4 px-4 py-4 bg-background flat-clear cursor-grab active:cursor-grabbing">
+                class="flex items-center gap-4 px-4 py-4 flat-clear cursor-grab active:cursor-grabbing">
                 <span class="icon-[lucide--grip-vertical] w-4 h-4 shrink-0 text-muted-foreground" />
                 <span :class="item.icon" class="w-5 h-5 shrink-0"
                   :style="{ opacity: hiddenSet.has(item.id) ? 0.4 : 1 }" />
@@ -550,7 +550,7 @@ onUnmounted(() => {
               filter=".no-drag" :prevent-on-filter="false" ghost-class="opacity-30" @end="persistOrder"
               class="rounded-xl border divide-y overflow-hidden min-h-16">
               <div v-for="item in configList" :key="item.id"
-                class="flex items-center gap-4 px-4 py-4 bg-background flat-clear cursor-grab active:cursor-grabbing">
+                class="flex items-center gap-4 px-4 py-4 flat-clear cursor-grab active:cursor-grabbing">
                 <span class="icon-[lucide--grip-vertical] w-4 h-4 shrink-0 text-muted-foreground" />
                 <span :class="item.icon" class="w-5 h-5 shrink-0"
                   :style="{ opacity: hiddenSet.has(item.id) ? 0.4 : 1 }" />

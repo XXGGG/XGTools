@@ -457,7 +457,7 @@ onMounted(async () => {
         四周留白 = (栏宽 - 格子) / 2,自动算。
       -->
       <aside v-if="!zen.on"
-        class="absolute left-2.5 top-2.5 bottom-2.5 z-40 w-[58px] flex flex-col overflow-y-auto
+        class="side-nav absolute left-0 top-0 bottom-0 z-40 w-[78px] p-2.5 flex flex-col overflow-y-auto
                flat:left-0 flat:top-0 flat:bottom-0 flat:w-[var(--flat-side-w)]">
         <nav v-if="tools.length" class="float-card rounded-[14px] border bg-card p-1.5 flex flex-col items-center gap-1
                                         flat:rounded-none flat:border-0 flat:bg-transparent flat:p-[calc((var(--flat-side-w)_-_var(--flat-nav-btn))/2)]">

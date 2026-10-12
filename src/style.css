@@ -308,6 +308,21 @@ body.vibrancy .shadow-lg {
     0 2px 4px rgb(0 0 0 / 0.05),   /* 接触影变淡:离开底面了 */
     0 10px 24px rgb(0 0 0 / 0.09); /* 环境影摊开:偏移和模糊都变大 */
 }
+/* 左边导航栏的两张卡片不做悬停浮起：导航栏得能上下滚（overflow），影子摊到 24px 会被滚动框切掉，
+   浅色主题下看着像被裁了一刀（2026-10-12 用户截图报的）。四周留了 10px，静止时那层小影子放得下 */
+/* 开了云母/亚克力时，左边导航栏那两张卡片也要透：不刷回 92% 实心那层（body.vibrancy .bg-card），
+   只淡淡染一层前景色、留一圈细边，材质直接透过来（2026-10-12 用户要的：它是现在唯一的底板） */
+body.vibrancy .side-nav .float-card,
+body.vibrancy .xg-tb-tabs.float-card {
+  background-color: color-mix(in srgb, var(--foreground) 4%, transparent);
+  border-color: color-mix(in srgb, var(--foreground) 9%, transparent);
+  backdrop-filter: none;
+}
+.side-nav .float-card:hover {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.07),
+    0 2px 5px rgb(0 0 0 / 0.06);
+}
 
 /* 扁平版:所有面板(浮空卡片)透明、不要边框,直接透出窗口底面 —— 开了云母/亚克力就是材质本身。
    第二行是给云母/亚克力的:上面 body.vibrancy .bg-card 会把卡片刷回 92% 实心,优先级更高,得单独压住。

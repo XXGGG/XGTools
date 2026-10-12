@@ -1142,7 +1142,8 @@ const pickedForAnima = computed(() => selectedTags.value.filter(t => !t.disabled
       <!-- 顶上空出顶栏那么高：同时是窗口拖拽带，右边的红黄绿也不会压到第一行标签 -->
       <div class="h-[var(--bar-h)] shrink-0 flat:h-[var(--flat-bar-h)]" />
 
-      <div class="flex-1 min-h-0 relative overflow-hidden">
+      <!-- 不能 overflow-hidden：右下角那块浮空底板的影子会被切掉（浅色主题下很明显） -->
+      <div class="flex-1 min-h-0 relative">
         <!-- 自然语言浮窗：盖住已选标签和输出框，只把最下面那排按钮露出来 -->
         <div v-if="nlOpen" class="nl-window absolute left-2 right-2 bottom-[64px] max-h-[calc(100%-72px)] z-20 rounded-xl border overflow-hidden flex flex-col">
           <AnimaPanel :library="allLibraryTags" :picked-tags="pickedForAnima" :embedded="embeddedSentences"
