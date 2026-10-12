@@ -1119,7 +1119,7 @@ const pickedForAnima = computed(() => selectedTags.value.filter(t => !t.disabled
         <!-- 底部：输出框 + 自定义输入 + 操作 -->
         <!-- 底部输出区：半透明磨砂底板浮在已选标签上面（和笔记页顶部标题栏一个做法） -->
         <div ref="rpBottomEl" class="rp-bottom absolute left-2 right-2 bottom-2 z-10
-                  rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl shadow-[0_6px_24px_rgb(0_0_0/0.18)]">
+                  rounded-xl border border-border/40 bg-card/80 backdrop-blur-3xl shadow-[0_6px_24px_rgb(0_0_0/0.18)]">
           <div class="rp-output">
             <Textarea :model-value="promptText" class="rp-textarea" :placeholder="t('prompt.outputPlaceholder')"
               @update:model-value="promptText = String($event)" />
@@ -1139,24 +1139,25 @@ const pickedForAnima = computed(() => selectedTags.value.filter(t => !t.disabled
 
           <div class="rp-actions">
             <Button variant="outline" size="lg" :class="copied ? 'rp-btn-copied' : 'rp-btn-copy'"
-              :disabled="selectedTags.length === 0 && !copied" @click="copyToClipboard">
+              :disabled="selectedTags.length === 0 && !copied" :title="t('prompt.copy')" @click="copyToClipboard">
               <span :class="copied ? 'icon-[lucide--check]' : 'icon-[lucide--copy]'" class="size-3.5" />
-              {{ copied ? t('prompt.copied') : t('prompt.copy') }}
+              <!-- 主按钮，窄了也保留文字 -->
+              <span>{{ copied ? t('prompt.copied') : t('prompt.copy') }}</span>
             </Button>
-            <Button variant="outline" size="lg" :class="copiedZh ? 'rp-btn-copied' : 'rp-btn-copy'"
-              :disabled="selectedTags.length === 0 && !copiedZh" @click="copyPromptZh">
-              <span :class="copiedZh ? 'icon-[lucide--check]' : 'icon-[lucide--copy]'" class="size-3.5" />
-              {{ copiedZh ? t('prompt.copied') : t('prompt.copyChinese') }}
+            <Button variant="outline" size="lg" :class="copiedZh ? 'rp-btn-copied' : 'rp-btn-copy-zh'"
+              :disabled="selectedTags.length === 0 && !copiedZh" :title="t('prompt.copyChinese')" @click="copyPromptZh">
+              <span :class="copiedZh ? 'icon-[lucide--check]' : 'icon-[lucide--clipboard-type]'" class="size-3.5" />
+              <span class="rp-btn-text">{{ copiedZh ? t('prompt.copied') : t('prompt.copyChinese') }}</span>
             </Button>
             <Button variant="outline" size="lg" class="rp-btn-wrap" :class="{ 'rp-btn-wrap-on': lineWrap }"
               :disabled="selectedTags.length === 0" :title="lineWrap ? t('prompt.wrapOn') : t('prompt.wrapOff')"
               @click="lineWrap = !lineWrap">
               <span class="icon-[lucide--wrap-text] size-3.5" />
-              {{ lineWrap ? t('prompt.wrapLabelOn') : t('prompt.wrapLabelOff') }}
+              <span class="rp-btn-text">{{ lineWrap ? t('prompt.wrapLabelOn') : t('prompt.wrapLabelOff') }}</span>
             </Button>
-            <Button variant="outline" size="lg" class="rp-btn-wrap" :class="{ 'rp-btn-wrap-on': nlOpen }" @click="nlOpen = !nlOpen">
+            <Button variant="outline" size="lg" class="rp-btn-wrap" :class="{ 'rp-btn-wrap-on': nlOpen }" :title="t('prompt.nlButton')" @click="nlOpen = !nlOpen">
               <span class="icon-[lucide--languages] size-3.5" />
-              {{ t('prompt.nlButton') }}
+              <span class="rp-btn-text">{{ t('prompt.nlButton') }}</span>
             </Button>
             <span class="flex-1" />
             <Button variant="outline" size="lg" class="rp-btn-clear" :disabled="selectedTags.length === 0" @click="clearAll">
@@ -1884,7 +1885,8 @@ const pickedForAnima = computed(() => selectedTags.value.filter(t => !t.disabled
   font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
   resize: none;
   line-height: 1.6;
-  background: var(--background);
+  /* 稍微透一点，能隐约看到后面的标签（2026-10-12 用户要的「透一点点」） */
+  background: color-mix(in oklab, var(--background) 82%, transparent);
   border-color: color-mix(in oklab, var(--border) 50%, transparent);
   border-radius: 8px;
   overflow-y: auto;
@@ -1936,6 +1938,12 @@ const pickedForAnima = computed(() => selectedTags.value.filter(t => !t.disabled
   gap: 8px;
   justify-content: space-between;
   padding: 6px 14px 10px;
+  /* 按钮一排放不下就只留图标（文字收进 title 悬停提示），清空按钮不会被挤出去 */
+  container-type: inline-size;
+}
+@container (max-width: 760px) {
+  .rp-btn-text { display: none; }
+  .rp-actions > * { padding-inline: 0.75rem; }
 }
 
 .rp-actions-left {

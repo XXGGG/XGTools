@@ -16,7 +16,7 @@
         "title": "XGTools",
         "width": 1440,
         "height": 900,
-        "minWidth": 960,
+        "minWidth": 1120,
         "minHeight": 600,
         "decorations": false,
         "shadow": true,
