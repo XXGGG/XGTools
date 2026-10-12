@@ -316,6 +316,17 @@ export const en: Messages = {
     deleteTitle: 'Delete "{name}"?',
     deleteBody: 'It goes to the trash, not gone for good — you can get it back.',
   },
+  update: {
+    available: 'New version v{v}',
+    later: 'Later',
+    install: 'Update now',
+    installV: 'Update to v{v}',
+    downloading: 'Downloading update {p}%',
+    check: 'Check for updates',
+    checking: 'Checking…',
+    latest: 'Up to date',
+    failed: 'Update check failed',
+  },
   timer: {
     cube: 'Cube timer',
     pomodoro: 'Pomodoro',

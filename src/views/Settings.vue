@@ -6,6 +6,8 @@ import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart'
 import { VueDraggable } from 'vue-draggable-plus'
 import { Tabs, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
+import { useUpdater } from '@/composables/useUpdater'
+import PaletteSettings from '@/views/Palette.vue'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SelectSeparator } from 'reka-ui'
@@ -30,6 +32,7 @@ import {
 const { t, setLocale } = useI18n()
 
 const version = ref('')
+const updater = useUpdater()
 const autostart = ref(false)
 const effectError = ref('')
 
@@ -393,6 +396,15 @@ onUnmounted(() => {
               <span class="icon-xg-pocket w-5 h-5 shrink-0 text-muted-foreground" />
               <div class="flex-1 min-w-0"><div class="text-sm">{{ t('settings.version') }}</div></div>
               <span class="text-sm font-mono text-muted-foreground">v{{ version || '—' }}</span>
+              <!-- 检查更新：跟右下角那个更新提示共用一份结果（见 useUpdater） -->
+              <span v-if="updater.state.value === 'latest'" class="text-[12px] text-muted-foreground">{{ t('update.latest') }}</span>
+              <span v-else-if="updater.state.value === 'error'" class="text-[12px] text-destructive max-w-56 truncate" :title="updater.error.value">{{ t('update.failed') }}</span>
+              <button v-if="updater.state.value === 'available'" class="h-7 px-2.5 rounded-lg text-[12px] font-medium bg-primary text-primary-foreground"
+                @click="updater.installUpdate()">{{ t('update.installV', { v: updater.newVersion.value }) }}</button>
+              <button v-else class="h-7 px-2.5 rounded-lg text-[12px] border hover:bg-muted/50 transition-colors disabled:opacity-50"
+                :disabled="updater.state.value === 'checking' || updater.state.value === 'downloading'" @click="updater.checkForUpdate()">
+                {{ updater.state.value === 'checking' ? t('update.checking') : updater.state.value === 'downloading' ? t('update.downloading', { p: Math.round(updater.progress.value * 100) }) : t('update.check') }}
+              </button>
             </div>
             <button class="w-full flex items-center gap-4 px-4 py-3.5 text-left hover:bg-muted/50 transition-colors"
               @click="open('https://github.com/XXGGG/XGTools')">

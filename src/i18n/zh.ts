@@ -310,6 +310,17 @@ export const zh = {
     deleteTitle: '要删除「{name}」吗？',
     deleteBody: '会移到回收站，不是彻底抹掉，误删了还能捞回来。',
   },
+  update: {
+    available: '有新版本 v{v}',
+    later: '稍后',
+    install: '立即更新',
+    installV: '更新到 v{v}',
+    downloading: '正在下载更新 {p}%',
+    check: '检查更新',
+    checking: '正在检查…',
+    latest: '已是最新',
+    failed: '检查更新失败',
+  },
   timer: {
     cube: '魔方计时',
     pomodoro: '番茄时钟',

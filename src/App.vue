@@ -81,6 +81,7 @@ import { zen } from './composables/useZen'
 import { bindBrowserKeys } from './composables/useBrowserKeys'
 const VaultView = defineAsyncComponent(() => import('./views/Vault.vue'))
 import SettingsView from './views/Settings.vue'
+import { useUpdater } from './composables/useUpdater'
 import TimerView from './views/Timer.vue'
 import DockView from './views/Dock.vue'
 import KeyboardPetView from './views/KeyboardPet.vue'
@@ -161,6 +162,9 @@ const isRecBar = ref(false)
 const isLsBar = ref(false)
 
 const shortcutWarning = ref('')
+
+// 自动更新：主窗口启动后静默查一次，有新版就在右下角提示（开发版不查）
+const updater = useUpdater()
 
 /**
  * 启动遮布(见 BootCloth.vue):窗口一出来就盖在最上面的一块纯色布,
@@ -282,6 +286,7 @@ onMounted(async () => {
   })
   // 后台重试把键抢回来了(见 lib.rs),提示就没必要再挂着
   listen('shortcut-register-recovered', () => { shortcutWarning.value = '' })
+  if (!import.meta.env.DEV) window.setTimeout(() => { void updater.checkForUpdate() }, 4000)
 
 })
 </script>
@@ -390,7 +395,31 @@ onMounted(async () => {
     <Transition enter-active-class="transition-all duration-300 ease-out"
       enter-from-class="opacity-0 translate-y-2" leave-active-class="transition-all duration-200 ease-in"
       leave-to-class="opacity-0 translate-y-2">
-      <div v-if="shortcutWarning"
+      <div v-if="updater.state.value === 'available' && !updater.dismissed.value && !shortcutWarning"
+        class="float-card flat-keep fixed bottom-4 right-4 z-[60] w-80 rounded-[14px] border bg-card px-4 py-3 text-sm">
+        <div class="flex items-center gap-2">
+          <span class="icon-[lucide--sparkles] w-4 h-4 text-amber-500 shrink-0" />
+          <span class="flex-1 font-medium">{{ t('update.available', { v: updater.newVersion.value }) }}</span>
+        </div>
+        <p v-if="updater.notes.value" class="mt-1.5 text-[12px] text-muted-foreground line-clamp-4 whitespace-pre-line">{{ updater.notes.value }}</p>
+        <div class="mt-3 flex justify-end gap-2">
+          <button class="h-8 px-3 rounded-lg text-[12.5px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            @click="updater.dismissed.value = true">{{ t('update.later') }}</button>
+          <button class="h-8 px-3 rounded-lg text-[12.5px] font-medium bg-primary text-primary-foreground"
+            @click="updater.installUpdate()">{{ t('update.install') }}</button>
+        </div>
+      </div>
+      <div v-else-if="updater.state.value === 'downloading'"
+        class="float-card flat-keep fixed bottom-4 right-4 z-[60] w-80 rounded-[14px] border bg-card px-4 py-3 text-sm">
+        <div class="flex items-center gap-2">
+          <span class="icon-[lucide--loader-circle] w-4 h-4 animate-spin shrink-0" />
+          <span class="flex-1">{{ t('update.downloading', { p: Math.round(updater.progress.value * 100) }) }}</span>
+        </div>
+        <div class="mt-2 h-1 rounded-full bg-muted overflow-hidden">
+          <div class="h-full bg-primary transition-[width]" :style="{ width: updater.progress.value * 100 + '%' }" />
+        </div>
+      </div>
+      <div v-else-if="shortcutWarning"
         class="float-card flat-keep fixed bottom-4 right-4 z-[60] max-w-sm rounded-[14px] border bg-card
                px-4 py-3 flex items-center gap-3 text-sm">
         <span class="icon-[lucide--triangle-alert] w-4 h-4 text-amber-500 shrink-0" />

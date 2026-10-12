@@ -62,6 +62,7 @@ tauri-plugin-drag = "2.1.1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
+tauri-plugin-updater = "~2.9"
 
 [target.'cfg(windows)'.dependencies]
 # winreg:字体库要读写「字体」那张注册表(HKCU 装给自己、HKLM 看系统里有什么),见 font_commands.rs

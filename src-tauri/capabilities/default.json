@@ -48,6 +48,8 @@
     "global-shortcut:allow-unregister-all",
     "global-shortcut:allow-is-registered",
     "process:allow-exit",
+    "process:allow-restart",
+    "updater:default",
     "shell:allow-open",
     "shell:allow-execute",
     "dialog:allow-open",
