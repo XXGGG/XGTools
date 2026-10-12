@@ -20,26 +20,24 @@ const props = defineProps<{
   text: string
   size: number
   selected: boolean
-  picked: boolean
   favorite: boolean
   /** 停用的、没装的：整行淡一点 */
   dim: boolean
   /** 右边的主按钮（推荐里的「安装」）。busy 是进度 0~1 */
   action?: { label: string; busy?: number | null; done?: boolean } | null
   accent: string
-  pickLabel: string
   favLabel: string
   copyLabel: string
-  dragLabel: string
+  detailLabel: string
   failLabel: string
 }>()
 
 const emit = defineEmits<{
   select: [e: MouseEvent]
-  pick: []
   fav: []
   copy: []
   drag: []
+  detail: []
   action: []
 }>()
 
@@ -73,15 +71,32 @@ onMounted(() => {
 })
 onBeforeUnmount(() => obs?.disconnect())
 watch(() => props.fontKey, () => void load())
+
+/*
+  整行都能拖出去（2026-10-12 用户要的：做游戏时直接把字体拖进项目文件夹）。
+  按下不立刻拖：挪出 5px 才算拖，没挪就还是普通点击（选中看详情）。
+  按在按钮上的不算，按钮自己有事要做。
+*/
+let downAt: { x: number; y: number } | null = null
+function onDown(e: PointerEvent) {
+  if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return
+  downAt = { x: e.clientX, y: e.clientY }
+}
+function onMove(e: PointerEvent) {
+  if (!downAt || !(e.buttons & 1)) { downAt = null; return }
+  if (Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 5) return
+  downAt = null
+  emit('drag')
+}
 </script>
 
 <template>
   <div ref="root" data-font-row :data-state="state" :data-name="name" @click="emit('select', $event)"
-    class="group relative flex items-center gap-4 rounded-[10px] px-3 py-2 cursor-default transition-colors"
+    @pointerdown="onDown" @pointermove="onMove" @pointerup="downAt = null"
+    class="group relative flex items-center gap-4 rounded-[10px] px-3 py-2 cursor-grab active:cursor-grabbing transition-colors select-none"
     :class="selected ? 'bg-muted' : 'hover:bg-muted/50'"
     :style="{
       minHeight: Math.max(64, size * 1.35 + 22) + 'px',
-      boxShadow: selected ? `inset 3px 0 0 ${accent}` : undefined,
     }">
     <!-- 名字和标签 -->
     <div class="w-[196px] shrink-0 min-w-0" :class="dim ? 'opacity-55' : ''">
@@ -112,11 +127,7 @@ watch(() => props.fontKey, () => void load())
 
     <!-- 操作：鼠标移上来才出现，选中的行常亮 -->
     <div class="shrink-0 flex items-center gap-0.5"
-      :class="selected || picked ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'">
-      <button @click.stop="emit('pick')" :title="pickLabel" class="row-btn"
-        :style="picked ? { color: accent } : undefined">
-        <span class="w-4 h-4" :class="picked ? 'icon-[lucide--square-check]' : 'icon-[lucide--square]'" />
-      </button>
+      :class="selected ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'">
       <button @click.stop="emit('fav')" :title="favLabel" class="row-btn"
         :style="favorite ? { color: '#f2b21c' } : undefined">
         <span class="icon-[lucide--star] w-4 h-4" />
@@ -124,9 +135,8 @@ watch(() => props.fontKey, () => void load())
       <button @click.stop="emit('copy')" :title="copyLabel" class="row-btn">
         <span class="icon-[lucide--copy] w-4 h-4" />
       </button>
-      <!-- 按住这里拖出去：系统级拖放，Godot、PS 都接得住 -->
-      <button @click.stop @pointerdown.stop.prevent="emit('drag')" :title="dragLabel" class="row-btn cursor-grab">
-        <span class="icon-[lucide--grip-vertical] w-4 h-4" />
+      <button @click.stop="emit('detail')" :title="detailLabel" class="row-btn">
+        <span class="icon-[lucide--panel-right-open] w-4 h-4" />
       </button>
     </div>
 

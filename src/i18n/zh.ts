@@ -711,6 +711,16 @@ export const zh = {
     // 顶栏
     samplePlaceholder: '打一句话，所有字体一起换成这句',
     onlySafe: '只看放心商用',
+    onlySafeShort: '只看商用',
+    applyTip: '套用到：选一个软件后，点一款字，那个软件里选中的文字就换成这款（软件要开着）。再点一次取消',
+    applyResolve: '达芬奇',
+    detail: '看详情（协议、放进场景里看）',
+    applyNeedInstall: '这款还没装，装好才能套用',
+    applyPhotocraftLink: '连不上 PhotoCraft：要用右上角「联动模式打开」启动它（普通方式打开的连不上）',
+    applyAffinityLink: '连不上 Affinity：在 Affinity 的 设置 → Model Context Protocol 里打开 MCP 服务器，然后重启它',
+    applyPhotocraftLaunch: '联动模式打开',
+    applyPhotocraftLaunchTip: '带上联动参数启动 PhotoCraft。已经开着的先关掉，否则那个连不上',
+    applyPhotocraftLaunched: '已启动 PhotoCraft（联动模式），等它打开后选中文字图层再点字体',
     compare: '对比 {n} 款',
     // 列表
     count: '{n} 款',

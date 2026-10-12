@@ -195,7 +195,6 @@ const cat = computed({
   get: () => settings.fontCat || 'all',
   set: (v: string) => {
     settings.fontCat = v
-    if (narrowTree.value) drawer.value = false
   },
 })
 const query = ref('')
@@ -205,7 +204,6 @@ const LOCAL_CATS: { id: string; label: string; test: (f: Family) => boolean }[] 
   { id: 'all', label: 'fonts.catAll', test: () => true },
   { id: 'mine', label: 'fonts.catMine', test: isMine },
   { id: 'xgtools', label: 'fonts.catXgtools', test: (f) => f.source === 'xgtools' },
-  { id: 'xgcut', label: 'fonts.catXgcut', test: (f) => f.source === 'xgcut' },
   { id: 'windows', label: 'fonts.catWindows', test: (f) => f.source === 'windows' },
   { id: 'machine', label: 'fonts.catMachine', test: (f) => f.source === 'machine' },
   { id: 'disabled', label: 'fonts.catDisabled', test: (f) => f.faces.some((x) => x.disabled) },
@@ -272,6 +270,57 @@ const catTitle = computed(() => {
 // ── 选中、对比 ──
 
 const selectedId = ref<string | null>(null)
+
+// ── 套用到别的软件（2026-10-12）：点一款字，PS / 达芬奇 / PhotoCraft / Affinity 里选中的文字跟着换 ──
+// 后端见 font_apply.rs。只连已经开着的软件；PhotoCraft 要用「联动模式」启动，Affinity 要在它的设置里开 MCP 服务器
+const APPLY_TARGETS = [
+  { id: 'photoshop', label: 'Photoshop' },
+  { id: 'resolve', label: 'fonts.applyResolve' },
+  { id: 'photocraft', label: 'PhotoCraft' },
+  { id: 'affinity', label: 'Affinity' },
+] as const
+const applying = ref(false)
+function applyFace(fam: Family) {
+  // 优先常规体（400、非斜体），没有就用代表字重
+  return fam.faces.find((f) => !f.disabled && f.weight === 400 && !f.italic) ?? repFace(fam)
+}
+async function applyTo(it: Item) {
+  const target = settings.fontApplyTarget
+  if (!target || applying.value) return
+  if (!it.family) {
+    flash(t('fonts.applyNeedInstall'), true)
+    return
+  }
+  const face = applyFace(it.family)
+  applying.value = true
+  try {
+    const msg = await invoke<string>('font_apply', {
+      target,
+      font: {
+        family: it.family.nameEn || face.legacyFamily || it.family.name,
+        familyLocal: it.family.name,
+        postscript: face.postscript,
+        style: face.style || 'Regular',
+      },
+    })
+    flash(`${msg} · ${it.name}`)
+  } catch (e) {
+    const err = String(e)
+    if (err === 'PHOTOCRAFT_NOT_LINKED') flash(t('fonts.applyPhotocraftLink'), true)
+    else if (err === 'AFFINITY_NOT_LINKED') flash(t('fonts.applyAffinityLink'), true)
+    else flash(err, true)
+  } finally {
+    applying.value = false
+  }
+}
+async function launchPhotocraft() {
+  try {
+    await invoke('font_launch_photocraft')
+    flash(t('fonts.applyPhotocraftLaunched'))
+  } catch (e) {
+    flash(String(e), true)
+  }
+}
 function itemById(id: string | null): Item | null {
   if (!id) return null
   if (id.startsWith('f:')) {
@@ -296,29 +345,16 @@ watch(
   { immediate: true },
 )
 
-const picked = reactive(new Set<string>())
-const comparing = ref(false)
-function togglePick(id: string) {
-  if (picked.has(id)) picked.delete(id)
-  else if (picked.size < 4) picked.add(id)
-  else flash(t('fonts.pickMax'), true)
-  if (picked.size < 2) comparing.value = false
-}
-const pickedItems = computed(() => [...picked].map(itemById).filter((x): x is Item => !!x))
-const compareCss = reactive(new Map<string, string | null>())
-watch(
-  () => pickedItems.value.map((i) => i.fontKey).join(),
-  async () => {
-    for (const it of pickedItems.value) {
-      if (!compareCss.has(it.id)) compareCss.set(it.id, await it.resolve())
-    }
-  },
-)
-
-const detailOpen = computed(() => (comparing.value && picked.size >= 2) || !!selected.value)
+// 点一行只是选中（顺带套用到别的软件）；右侧详情要点行上的「详情」按钮才打开（2026-10-12 用户要的）。
+// 详情开着时再点别的行，详情跟着换
+const detailShown = ref(false)
+const detailOpen = computed(() => !!selected.value && detailShown.value)
 function closeDetail() {
-  if (comparing.value) comparing.value = false
-  else selectedId.value = null
+  detailShown.value = false
+}
+function showDetail(id: string) {
+  selectedId.value = id
+  detailShown.value = true
 }
 
 // ── 操作 ──
@@ -438,7 +474,6 @@ function askUninstall(f: Family) {
       await invoke('font_uninstall', { paths, label: f.name })
       flash(t('fonts.uninstalledOk'))
       if (selectedId.value === 'f:' + f.key) selectedId.value = null
-      picked.delete('f:' + f.key)
       await scan()
     } catch (e) {
       flash(String(e), true)
@@ -490,24 +525,11 @@ const when = (ms: number) => new Date(ms).toLocaleString()
 
 const rootEl = ref<HTMLElement | null>(null)
 const width = ref(1920)
-const narrowTree = computed(() => width.value < 1100)
 const narrowDetail = computed(() => width.value < 1380)
-const drawer = ref(false)
-const treeInFlow = computed(() => !narrowTree.value && settings.fontTreeOpen)
-const treeVisible = computed(() => treeInFlow.value || (narrowTree.value && drawer.value))
-function showTree() {
-  if (narrowTree.value) drawer.value = true
-  else settings.fontTreeOpen = true
-}
-function hideTree() {
-  if (narrowTree.value) drawer.value = false
-  else settings.fontTreeOpen = false
-}
 
 function onKey(e: KeyboardEvent) {
   if (e.key !== 'Escape' || confirmBox.value) return
-  if (drawer.value) drawer.value = false
-  else if (detailOpen.value) closeDetail()
+  if (detailOpen.value) closeDetail()
 }
 
 let resizeObs: ResizeObserver | null = null
@@ -517,7 +539,6 @@ let disposed = false
 onMounted(async () => {
   resizeObs = new ResizeObserver(() => {
     width.value = rootEl.value?.clientWidth ?? 1920
-    if (!narrowTree.value) drawer.value = false
   })
   if (rootEl.value) resizeObs.observe(rootEl.value)
   window.addEventListener('keydown', onKey)
@@ -541,142 +562,142 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="rootEl" class="absolute inset-0 pt-2.5 pr-2.5 pb-2.5 flex gap-2.5 flat:pt-0 flat:pr-0 flat:pb-0 flat:gap-0"
-    :class="zenMode ? 'pl-2.5' : 'pl-[4.875rem] flat:pl-0'">
+  <!--
+    2026-10-12 跟提示词页一样「去掉面板、一体化」：左栏不再是两张卡片（搜索卡 + 分类卡），
+    整条铺在窗口上，上下渐隐，搜索嵌在左栏底部；收起左栏的按钮去掉了（窗口最小 1120，放得下）。
+    顶上那张只放「只看商用 / 对比」的卡片也撤了：只看商用挪到「协议体检」标题右边（它本来就是按协议筛），
+    对比挪到列表标题那一行。
+  -->
+  <div ref="rootEl" class="absolute inset-0 flex" :class="zenMode ? 'pl-2.5' : 'pl-[4.875rem] flat:pl-0'">
 
-    <!-- 窄窗口下拉出分类栏时垫在底下的一层：点它就收回去 -->
-    <div v-if="narrowTree && drawer" class="absolute inset-0 z-20" @pointerdown="drawer = false" />
-
-    <!-- ═══════ 左：分类栏 ═══════ -->
-    <div v-if="treeVisible" class="w-[248px] flex flex-col gap-2.5 flat:gap-0"
-      :class="treeInFlow ? 'shrink-0'
-        : ['font-drawer absolute z-30 top-2.5 bottom-2.5 drop-shadow-2xl flat:top-0 flat:bottom-0', zenMode ? 'left-2.5' : 'left-[4.875rem] flat:left-0']">
-      <div class="float-card h-[var(--bar-h)] shrink-0 rounded-[14px] border bg-card flex items-center gap-1 px-3 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-1.5 flat:gap-0.5">
-        <!-- 收起放最左，和收起后那张「展开」方卡片同一个位置（笔记、音频试听也是这样） -->
-        <button @click="hideTree" :title="t('fonts.hideTree')" class="tool-btn">
-          <span class="icon-[lucide--panel-left-close] w-4 h-4" />
-        </button>
-        <span class="w-px h-5 mx-1 shrink-0 bg-border flat:bg-transparent" />
-        <span class="icon-[lucide--search] w-4 h-4 shrink-0 text-muted-foreground" />
-        <input v-model="query" :placeholder="t('fonts.searchPlaceholder')"
-          class="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-muted-foreground/70" />
-        <button @click="scan" :title="t('fonts.refresh')" class="tool-btn">
-          <span class="w-4 h-4" :class="scanning ? 'icon-[lucide--loader-circle] animate-spin' : 'icon-[lucide--refresh-cw]'" />
-        </button>
-      </div>
-
-      <aside class="float-card flex-1 min-h-0 rounded-[14px] border bg-card overflow-y-auto px-1.5 py-2 flex flex-col gap-3 flat:rounded-none">
-        <!-- 协议体检：整台电脑一眼看完 -->
-        <section>
-          <div class="flex items-center gap-1 px-2 pb-1.5">
+    <!-- ═══════ 左：分类栏（一整条，搜索在底部） ═══════ -->
+    <div class="w-[232px] shrink-0 relative">
+      <aside class="fade-y fade-y-tall absolute inset-0 overflow-y-auto pl-1 pr-1.5 pt-2.5 pb-16 flex flex-col gap-2">
+        <!-- 协议体检：整台电脑一眼看完；只看放心商用的开关也放这儿 -->
+        <section class="f-group">
+          <div class="flex items-center gap-1 pl-2 pr-0.5 pb-1">
             <span class="text-[12px] font-medium text-muted-foreground">{{ t('fonts.secCheck') }}</span>
             <InfoTip :text="t('fonts.checkTip')" />
+            <span class="flex-1" />
+            <button @click="settings.fontOnlySafe = !settings.fontOnlySafe" :title="t('fonts.onlySafe')"
+              class="safe-btn" :class="settings.fontOnlySafe ? 'is-on' : ''"
+              :style="settings.fontOnlySafe ? { color: TIER_COLOR.open, borderColor: TIER_COLOR.open } : undefined">
+              <span class="icon-[lucide--shield-check] w-3.5 h-3.5" />
+              <span>{{ t('fonts.onlySafeShort') }}</span>
+            </button>
           </div>
           <div v-if="families.length" class="mx-2 mb-1.5 flex h-1.5 rounded-full overflow-hidden">
             <span v-for="tier in TIERS" :key="tier" :title="t(`fonts.tier_${tier}`) + ' ' + tierCounts[tier]"
               :style="{ flexGrow: tierCounts[tier], background: TIER_COLOR[tier] }" />
           </div>
           <button v-for="tier in TIERS" :key="tier" @click="cat = 'tier:' + tier" class="cat-row"
-            :class="cat === 'tier:' + tier ? 'bg-muted' : ''">
+            :class="cat === 'tier:' + tier ? 'is-active' : ''">
             <span class="size-2 rounded-full shrink-0" :style="{ background: TIER_COLOR[tier] }" />
             <span class="flex-1 truncate">{{ t(`fonts.tier_${tier}`) }}</span>
             <span class="cat-n">{{ tierCounts[tier] }}</span>
           </button>
         </section>
 
-        <section>
-          <div class="px-2 pb-1 text-[12px] font-medium text-muted-foreground">{{ t('fonts.secLocal') }}</div>
-          <button v-for="c in localCats" :key="c.id" @click="cat = c.id" class="cat-row"
-            :class="cat === c.id ? 'bg-muted' : ''">
+        <!-- 本机字体：蓝 -->
+        <section class="f-group fg fg-local">
+          <div class="cat-head">
+            <span class="icon-[lucide--hard-drive] w-4 h-4 shrink-0" />
+            <span class="flex-1 truncate">{{ t('fonts.secLocal') }}</span>
+          </div>
+          <button v-for="c in localCats" :key="c.id" @click="cat = c.id" class="cat-row cat-sub"
+            :class="cat === c.id ? 'is-active' : ''">
             <span class="flex-1 truncate">{{ t(c.label) }}</span>
             <span class="cat-n">{{ c.n }}</span>
           </button>
-          <button @click="cat = 'trash'" class="cat-row" :class="cat === 'trash' ? 'bg-muted' : ''">
+          <button @click="cat = 'trash'" class="cat-row cat-sub" :class="cat === 'trash' ? 'is-active' : ''">
             <span class="flex-1 truncate">{{ t('fonts.catTrash') }}</span>
             <span class="cat-n">{{ trash.length }}</span>
           </button>
         </section>
 
-        <section>
-          <div class="flex items-center gap-1 px-2 pb-1">
-            <span class="text-[12px] font-medium text-muted-foreground">{{ t('fonts.secRec') }}</span>
-            <InfoTip :text="t('fonts.recTip')" />
-          </div>
-          <template v-for="g in USE_GROUPS" :key="g.id">
-            <button @click="cat = 'use:' + g.id" class="cat-row font-medium" :class="cat === 'use:' + g.id ? 'bg-muted' : ''">
-              <span class="w-4 h-4 shrink-0 text-muted-foreground" :class="{
-                game: 'icon-[lucide--gamepad-2]', video: 'icon-[lucide--clapperboard]', ps: 'icon-[lucide--image]',
-              }[g.id]" />
-              <span class="flex-1 truncate">{{ t(`fonts.group${camel(g.id)}`) }}</span>
-              <span class="cat-n">{{ useCount(g.id) }}</span>
-            </button>
-            <button v-for="u in g.uses" :key="u" @click="cat = 'use:' + u" class="cat-row pl-8!"
-              :class="cat === 'use:' + u ? 'bg-muted' : ''">
-              <span class="flex-1 truncate">{{ useLabel(u) }}</span>
-              <span class="cat-n">{{ useCount(u) }}</span>
-            </button>
-          </template>
+        <!-- 推荐：每个大类一个色系，小类同色变淡 -->
+        <div class="flex items-center gap-1 px-2 -mb-1">
+          <span class="text-[12px] font-medium text-muted-foreground">{{ t('fonts.secRec') }}</span>
+          <InfoTip :text="t('fonts.recTip')" />
+        </div>
+        <section v-for="g in USE_GROUPS" :key="g.id" class="f-group fg" :class="`fg-${g.id}`">
+          <button @click="cat = 'use:' + g.id" class="cat-row cat-head" :class="cat === 'use:' + g.id ? 'is-active' : ''">
+            <span class="w-4 h-4 shrink-0" :class="{
+              game: 'icon-[lucide--gamepad-2]', video: 'icon-[lucide--clapperboard]', ps: 'icon-[lucide--image]',
+            }[g.id]" />
+            <span class="flex-1 truncate">{{ t(`fonts.group${camel(g.id)}`) }}</span>
+            <span class="cat-n">{{ useCount(g.id) }}</span>
+          </button>
+          <button v-for="u in g.uses" :key="u" @click="cat = 'use:' + u" class="cat-row cat-sub"
+            :class="cat === 'use:' + u ? 'is-active' : ''">
+            <span class="flex-1 truncate">{{ useLabel(u) }}</span>
+            <span class="cat-n">{{ useCount(u) }}</span>
+          </button>
         </section>
 
-        <section>
-          <button @click="cat = 'fav'" class="cat-row" :class="cat === 'fav' ? 'bg-muted' : ''">
-            <span class="icon-[lucide--star] w-4 h-4 shrink-0" style="color: #f2b21c" />
+        <section class="f-group fg fg-fav">
+          <button @click="cat = 'fav'" class="cat-row cat-head" :class="cat === 'fav' ? 'is-active' : ''">
+            <span class="icon-[lucide--star] w-4 h-4 shrink-0" />
             <span class="flex-1 truncate">{{ t('fonts.catFav') }}</span>
             <span class="cat-n">{{ settings.fontFavorites.length }}</span>
           </button>
         </section>
       </aside>
+
+      <!-- 搜索：浮在左栏底部的磨砂条（跟提示词页的搜索条一个样子） -->
+      <div class="search-pill absolute left-1 right-1.5 bottom-2.5 z-10 h-10 flex items-center gap-1.5 pl-3 pr-1 rounded-md border">
+        <span class="icon-[lucide--search] w-4 h-4 shrink-0 text-muted-foreground" />
+        <input v-model="query" :placeholder="t('fonts.searchPlaceholder')"
+          class="flex-1 min-w-0 bg-transparent text-[13.5px] outline-none placeholder:text-muted-foreground/70" />
+        <button v-if="query" @click="query = ''" :title="t('common.cancel')" class="tool-btn size-7! shrink-0">
+          <span class="icon-[lucide--x] w-3.5 h-3.5" />
+        </button>
+        <button @click="scan" :title="t('fonts.refresh')" class="tool-btn size-8! shrink-0">
+          <span class="w-4 h-4" :class="scanning ? 'icon-[lucide--loader-circle] animate-spin' : 'icon-[lucide--refresh-cw]'" />
+        </button>
+      </div>
     </div>
 
     <!-- ═══════ 右 ═══════ -->
-    <div class="flex-1 min-w-0 flex flex-col gap-2.5 flat:gap-0">
-      <div class="flex gap-2.5 shrink-0 flat:gap-0">
-        <button v-if="!treeVisible" @click="showTree" :title="t('fonts.showTree')"
-          class="size-[var(--bar-h)] shrink-0 rounded-[10px] hover:bg-muted/60 flex items-center justify-center flat:size-[var(--flat-bar-h)] flat:rounded-none
-                 text-muted-foreground transition-colors hover:text-foreground">
-          <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
+    <div class="flex-1 min-w-0 flex flex-col">
+      <!--
+        列表标题这一行就放在顶栏的高度上：它同时是窗口拖拽带（文字和空白处都能拖），
+        右边给红黄绿让位。对比按钮也在这一行。
+      -->
+      <div class="h-[var(--bar-h)] shrink-0 flex items-center gap-2 pl-4 pr-2 flat:h-[var(--flat-bar-h)]"
+        :class="zenMode ? '' : 'mr-[calc(var(--ctrl-zone)-10px)] flat:mr-[var(--ctrl-zone)]'">
+        <span class="text-[14px] font-medium">{{ catTitle }}</span>
+        <span class="text-[12px] text-muted-foreground tabular-nums">
+          {{ cat === 'trash' ? t('fonts.count', { n: trash.length }) : t('fonts.count', { n: items.length }) }}
+        </span>
+        <InfoTip v-if="cat === 'trash'" :text="t('fonts.trashTip')" />
+        <span v-if="notice" class="flex-1 min-w-0 truncate text-[12px] text-right"
+          :class="notice.bad ? 'text-destructive' : 'text-muted-foreground'">{{ notice.text }}</span>
+        <div v-else class="flex-1" />
+        <button v-if="cat === 'trash' && trash.length" @click="askPurge(null)" class="text-[12px] text-destructive hover:underline shrink-0">
+          {{ t('fonts.purgeAll') }}
         </button>
-
-        <!--
-          顶卡：只放「只看放心商用」和「对比」。右边给窗口控制点让位。
-
-          **这一行同时是窗口的拖拽带**，所以不放输入框和滑块：输入框会把拖拽吃掉，
-          滑块按下去反而被当成拖窗口（光标形状是 default，见 App.vue 的 isBlankSpot）。
-          试字那句话改成浮在列表底部的磨砂条，字号和底色两个开关撤掉（2026-09-20 用户提的）。
-        -->
-        <div class="float-card h-[var(--bar-h)] flex-1 min-w-0 rounded-[14px] border bg-card flex items-center gap-3 px-4
-                 flat:h-[var(--flat-bar-h)] flat:rounded-none flat:px-2 flat:gap-2"
-          :class="zenMode ? '' : 'mr-[calc(var(--ctrl-zone)-10px)] flat:mr-[var(--ctrl-zone)]'">
-          <div class="flex-1 min-w-0" />
-          <button @click="settings.fontOnlySafe = !settings.fontOnlySafe" :title="t('fonts.onlySafe')"
-            class="tool-btn shrink-0" :class="settings.fontOnlySafe ? 'is-on' : ''"
-            :style="settings.fontOnlySafe ? { color: TIER_COLOR.open } : undefined">
-            <span class="icon-[lucide--shield-check] w-4 h-4" />
+        <!-- 套用到：选了软件之后，点一款字就让那个软件里选中的文字换成它 -->
+        <button v-if="settings.fontApplyTarget === 'photocraft'" @click="launchPhotocraft" :title="t('fonts.applyPhotocraftLaunchTip')"
+          class="shrink-0 h-7 px-2.5 rounded-lg text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted/60 whitespace-nowrap">
+          {{ t('fonts.applyPhotocraftLaunch') }}
+        </button>
+        <div class="apply-seg shrink-0" :title="t('fonts.applyTip')">
+          <span class="icon-[lucide--mouse-pointer-click] w-3.5 h-3.5 mx-1.5 text-muted-foreground" />
+          <button v-for="a in APPLY_TARGETS" :key="a.id" class="apply-opt"
+            :class="settings.fontApplyTarget === a.id ? 'is-on' : ''"
+            @click="settings.fontApplyTarget = settings.fontApplyTarget === a.id ? '' : a.id">
+            {{ a.label.startsWith('fonts.') ? t(a.label) : a.label }}
           </button>
-          <button v-if="picked.size >= 2" @click="comparing = true"
-            class="shrink-0 h-8 px-3 rounded-lg text-[12.5px] font-medium text-white whitespace-nowrap"
-            :style="{ background: accent }">{{ t('fonts.compare', { n: picked.size }) }}</button>
+          <span v-if="applying" class="icon-[lucide--loader-circle] w-3.5 h-3.5 mx-1 animate-spin text-muted-foreground" />
         </div>
       </div>
 
-      <div class="flex-1 min-h-0 flex gap-2.5 relative flat:gap-0">
+      <div class="flex-1 min-h-0 flex relative">
         <!-- ═══════ 列表 ═══════ -->
         <!-- relative:底部那条试字输入框浮在这一栏上,不跟着列表滚 -->
         <div class="flex-1 min-w-0 relative flex">
-        <div class="float-card flex-1 min-w-0 rounded-[14px] border bg-card overflow-y-auto p-2 pb-16 flex flex-col flat:rounded-none">
-          <div class="flex items-center gap-2 px-3 pt-1 pb-2 shrink-0">
-            <span class="text-[14px] font-medium">{{ catTitle }}</span>
-            <span class="text-[12px] text-muted-foreground tabular-nums">
-              {{ cat === 'trash' ? t('fonts.count', { n: trash.length }) : t('fonts.count', { n: items.length }) }}
-            </span>
-            <InfoTip v-if="cat === 'trash'" :text="t('fonts.trashTip')" />
-            <span v-if="notice" class="flex-1 min-w-0 truncate text-[12px] text-right"
-              :class="notice.bad ? 'text-destructive' : 'text-muted-foreground'">{{ notice.text }}</span>
-            <div v-else class="flex-1" />
-            <button v-if="cat === 'trash' && trash.length" @click="askPurge(null)" class="text-[12px] text-destructive hover:underline shrink-0">
-              {{ t('fonts.purgeAll') }}
-            </button>
-          </div>
+        <div class="fade-y fade-y-tall flex-1 min-w-0 overflow-y-auto px-2 pt-1 pb-16 flex flex-col">
 
           <!-- 回收区 -->
           <template v-if="cat === 'trash'">
@@ -710,16 +731,17 @@ onBeforeUnmount(() => {
             <FontRow v-for="it in items" :key="it.id"
               :name="it.name" :name-en="it.nameEn" :chips="it.chips" :resolve="it.resolve" :font-key="it.fontKey"
               :text="textOf(it)" :size="sizeOf(it)" :accent="accent"
-              :selected="selectedId === it.id" :picked="picked.has(it.id)" :favorite="favs.has(it.id)" :dim="it.dim"
+              :selected="selectedId === it.id" :favorite="favs.has(it.id)" :dim="it.dim"
               :action="it.pack ? {
                 label: it.family || it.pack.installedBy ? t('fonts.installed') : t('fonts.install'),
                 busy: installing.get(it.pack.id) ?? null,
                 done: !!(it.family || it.pack.installedBy),
               } : null"
-              :pick-label="t('fonts.pick')" :fav-label="t('fonts.fav')" :copy-label="t('fonts.copyName')"
-              :drag-label="t('fonts.drag')" :fail-label="t('fonts.fail')"
-              @select="selectedId = it.id; comparing = false"
-              @pick="togglePick(it.id)" @fav="toggleFav(it.id)" @copy="copy(it.name)"
+              :fav-label="t('fonts.fav')" :copy-label="t('fonts.copyName')"
+              :fail-label="t('fonts.fail')"
+              @select="selectedId = it.id; applyTo(it)"
+              :detail-label="t('fonts.detail')" @detail="showDetail(it.id)"
+              @fav="toggleFav(it.id)" @copy="copy(it.name)"
               @drag="dragItem(it)" @action="it.pack && install(it.pack)" />
           </template>
         </div>
@@ -728,8 +750,8 @@ onBeforeUnmount(() => {
           试字：浮在列表底部的磨砂条。原来在顶卡里，而顶卡那一行是窗口的拖拽带，
           输入框把拖拽吃掉了（2026-09-20 用户提的）。列表底部留了 pb-16，最后一行不会被压住。
         -->
-        <div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-[min(560px,88%)] h-11 px-3
-                    flex items-center gap-2 rounded-xl border border-border/40 bg-card/55 backdrop-blur-xl">
+        <div class="search-pill absolute bottom-2.5 left-1/2 -translate-x-1/2 z-10 w-[min(560px,88%)] h-10 px-3
+                    flex items-center gap-2 rounded-md border">
           <span class="icon-[lucide--type] w-4 h-4 shrink-0 text-muted-foreground" />
           <input v-model="settings.fontSample" :placeholder="t('fonts.samplePlaceholder')"
             class="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-muted-foreground/70" />
@@ -743,37 +765,14 @@ onBeforeUnmount(() => {
         <!-- 窄窗口：详情盖在列表上面，点外面收回 -->
         <div v-if="narrowDetail && detailOpen" class="absolute inset-0 z-10" @pointerdown="closeDetail" />
 
-        <!-- ═══════ 详情 / 对比 ═══════ -->
+        <!-- ═══════ 详情 ═══════ -->
         <div v-if="detailOpen"
-          class="float-card w-[400px] max-w-full rounded-[14px] border bg-card overflow-y-auto px-4 py-4 flat:rounded-none"
-          :class="narrowDetail ? 'font-drawer absolute right-0 top-0 bottom-0 z-20 drop-shadow-2xl' : 'shrink-0'">
-          <template v-if="comparing && picked.size >= 2">
-            <div class="flex items-center gap-2 mb-3">
-              <span class="text-[15px] font-medium">{{ t('fonts.compareTitle') }}</span>
-              <div class="flex-1" />
-              <button @click="picked.clear(); comparing = false" class="text-[12px] text-muted-foreground hover:text-foreground">
-                {{ t('fonts.clearPick') }}
-              </button>
-              <button @click="comparing = false" :title="t('fonts.close')" class="tool-btn -mr-1">
-                <span class="icon-[lucide--x] w-4 h-4" />
-              </button>
-            </div>
-            <div class="flex flex-col gap-2">
-              <div v-for="it in pickedItems" :key="it.id" class="rounded-[10px] border px-3 py-2.5">
-                <div class="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-1">
-                  <span class="truncate">{{ it.name }}</span>
-                  <button @click="togglePick(it.id)" class="ml-auto icon-[lucide--x] w-3.5 h-3.5 hover:text-foreground" />
-                </div>
-                <div class="break-words" :style="{ fontFamily: compareCss.get(it.id) ?? undefined, fontSize: sizeOf(it, 32) + 'px', lineHeight: 1.3 }">
-                  {{ textOf(it) }}
-                </div>
-              </div>
-            </div>
-          </template>
-          <FontDetail v-else-if="selected" :family="selected.family" :pack="selected.pack" :css="detailCss"
+          class="w-[400px] max-w-full overflow-y-auto px-4 pt-1 pb-4"
+          :class="narrowDetail ? 'font-drawer bg-card rounded-l-[14px] border-l absolute right-0 top-0 bottom-2.5 z-20 drop-shadow-2xl pt-4' : 'fade-y shrink-0 border-l border-border/50'">
+          <FontDetail v-if="selected" :family="selected.family" :pack="selected.pack" :css="detailCss"
             :latin="selected.latin" :custom="settings.fontSample" :accent="accent"
             :installing="selected.pack ? installing.get(selected.pack.id) ?? null : null"
-            @close="selectedId = null"
+            @close="detailShown = false"
             @toggle="(on) => selected?.family && toggle(selected.family, on)"
             @uninstall="selected?.family && askUninstall(selected.family)"
             @install="selected?.pack && install(selected.pack)"
@@ -830,6 +829,94 @@ onBeforeUnmount(() => {
 .cat-row:hover {
   background: color-mix(in srgb, var(--muted) 60%, transparent);
 }
+.cat-row.is-active {
+  background: var(--muted);
+}
+
+/* ===== 左栏分组上色（2026-10-12，跟提示词页大纲一个做法）=====
+   每组一套 --h 色相 / --s 饱和 / --l 浅色主题亮度 / --ld 深色主题亮度：
+   大类（组标题）用实色，小类同色系但淡一些；本机字体、推荐三大类、收藏各一个色系。 */
+
+.f-group {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 5px;
+}
+.f-group.fg {
+  border-color: color-mix(in oklab, var(--c) 28%, transparent);
+  background: color-mix(in oklab, var(--c) 6%, transparent);
+}
+.cat-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.fg .cat-head { color: var(--c); }
+.fg .cat-sub {
+  padding-left: 2rem;
+  font-size: 13px;
+  color: color-mix(in oklab, var(--c) 62%, var(--muted-foreground));
+}
+.fg .cat-row:hover { background: color-mix(in oklab, var(--c) 10%, transparent); }
+.fg .cat-row.is-active {
+  background: color-mix(in oklab, var(--c) 18%, transparent);
+  color: var(--c);
+}
+
+/* 「只看放心商用」开关：协议体检标题右边的小胶囊 */
+.safe-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.safe-btn:hover { color: var(--foreground); background: color-mix(in srgb, var(--muted) 60%, transparent); }
+.apply-seg {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 2px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+}
+.apply-opt {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.apply-opt:hover { color: var(--foreground); }
+.apply-opt.is-on { background: var(--muted); color: var(--foreground); font-weight: 500; }
+.safe-btn.is-on { background: color-mix(in oklab, #22a55b 12%, transparent); }
+
+/* 浮空磨砂条：左栏搜索、列表底部试字 */
+.search-pill {
+  background: color-mix(in oklab, var(--card) 78%, transparent);
+  border-color: color-mix(in oklab, var(--border) 80%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+}
+
+/* 上下渐隐：滚动内容在两头淡出（遮罩，不受背景色影响）；底下压着磨砂条的那一栏尾巴淡得长一点 */
+.fade-y {
+  --fade: 14px;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade), #000 calc(100% - var(--fade)), transparent 100%);
+}
+.fade-y-tall {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade), #000 calc(100% - 64px), transparent 100%);
+}
 .cat-n {
   font-size: 12px;
   color: var(--muted-foreground);
@@ -843,4 +930,18 @@ onBeforeUnmount(() => {
 .font-drawer .bg-card {
   background-color: var(--card);
 }
+</style>
+
+<!--
+  分组色放在不带 scoped 的块里：scoped 里写 :global(.dark) .fg 会被编译成只剩 .dark{}（踩过）。
+  类名都带 fg- 前缀，不会撞别的页面。
+-->
+<style>
+.fg { --c: hsl(var(--h) var(--s) var(--l)); }
+.dark .fg { --c: hsl(var(--h) var(--s) var(--ld)); }
+.fg-local { --h: 210; --s: 65%; --l: 45%; --ld: 70%; } /* 本机字体：蓝 */
+.fg-game  { --h: 270; --s: 60%; --l: 52%; --ld: 74%; } /* 游戏：紫 */
+.fg-video { --h: 22;  --s: 80%; --l: 48%; --ld: 68%; } /* 剪辑：橙 */
+.fg-ps    { --h: 168; --s: 55%; --l: 34%; --ld: 62%; } /* PS：青绿 */
+.fg-fav   { --h: 42;  --s: 90%; --l: 44%; --ld: 62%; } /* 收藏：金 */
 </style>
