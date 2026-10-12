@@ -4,10 +4,12 @@
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import { STAGE_W, STAGE_H } from './dims'
+import { stageSize, type PetKind } from './dims'
+import type { Ink } from './keyboardPet'
 
-export type PetConfig = { scale: number; sign: boolean; locked: boolean }
-export const PET_DEFAULTS: PetConfig = { scale: 0.85, sign: true, locked: false }
+/** kind：键盘款（默认）还是小动物款；ink：键盘款的配色 */
+export type PetConfig = { scale: number; sign: boolean; locked: boolean; kind: PetKind; ink: Ink }
+export const PET_DEFAULTS: PetConfig = { scale: 0.85, sign: true, locked: false, kind: 'keyboard', ink: 'rainbow' }
 export const PET_LABEL = 'key_pet'
 
 const store = new LazyStore('pet.json')
@@ -33,11 +35,12 @@ export async function isPetOpen() {
 export async function openPet() {
   if (await isPetOpen()) return
   const c = await loadPetConfig()
+  const { w, h } = stageSize(c.kind)
   new WebviewWindow(PET_LABEL, {
     url: 'index.html',
     title: 'XGTools Pet',
-    width: Math.round(STAGE_W * c.scale),
-    height: Math.round(STAGE_H * c.scale),
+    width: Math.round(w * c.scale),
+    height: Math.round(h * c.scale),
     decorations: false,
     shadow: false,
     transparent: true,
@@ -77,7 +80,8 @@ export async function resetPetPosition() {
   const c = await loadPetConfig()
   if (!m) return
   const sf = m.scaleFactor
-  const x = m.position.x / sf + m.size.width / sf - STAGE_W * c.scale - 40
-  const y = m.position.y / sf + m.size.height / sf - STAGE_H * c.scale - 80
+  const { w: sw, h: sh } = stageSize(c.kind)
+  const x = m.position.x / sf + m.size.width / sf - sw * c.scale - 40
+  const y = m.position.y / sf + m.size.height / sf - sh * c.scale - 80
   await w.setPosition(new LogicalPosition(Math.round(x), Math.round(y)))
 }

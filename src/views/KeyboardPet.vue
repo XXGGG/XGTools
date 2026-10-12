@@ -190,12 +190,12 @@ onUnmounted(() => emit('toggle-key-visualizer-edit', false))
       <span class="shrink-0 w-12 text-right text-sm font-mono text-muted-foreground">{{ autoClearSec }}s</span>
     </div>
 
-    <!-- 键盘桌宠：一群小动物挤在一块简化键盘上，打字时按到的那只会蹦起来（见 src/pet） -->
+    <!-- 桌宠（见 src/pet）：键盘款（默认）跟着你按键；小动物款按到哪个字母哪只蹦 -->
     <div class="w-full max-w-2xl mx-auto border rounded-lg divide-y">
       <div class="p-4 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground">
-            <span class="icon-[lucide--cat] w-5 h-5" />
+            <span class="icon-[lucide--keyboard] w-5 h-5" />
           </div>
           <div>
             <div class="font-medium">{{ t('keyboard.petTitle') }}</div>
@@ -206,13 +206,33 @@ onUnmounted(() => emit('toggle-key-visualizer-edit', false))
       </div>
       <template v-if="petOpen">
         <div class="p-4 flex items-center gap-4">
+          <span class="icon-[lucide--shapes] w-5 h-5 text-muted-foreground shrink-0 ml-2" />
+          <span class="text-sm flex-1">{{ t('keyboard.petKind') }}</span>
+          <div class="flex gap-1">
+            <Button v-for="k in (['keyboard', 'animals'] as const)" :key="k" size="sm"
+              :variant="pet.kind === k ? 'default' : 'outline'" @click="setPet({ kind: k })">
+              {{ t(k === 'keyboard' ? 'keyboard.petKindKeyboard' : 'keyboard.petKindAnimals') }}
+            </Button>
+          </div>
+        </div>
+        <div v-if="pet.kind === 'keyboard'" class="p-4 flex items-center gap-4">
+          <span class="icon-[lucide--palette] w-5 h-5 text-muted-foreground shrink-0 ml-2" />
+          <span class="text-sm flex-1">{{ t('keyboard.petInk') }}</span>
+          <div class="flex gap-1">
+            <Button v-for="ink in (['rainbow', 'white', 'black'] as const)" :key="ink" size="sm"
+              :variant="pet.ink === ink ? 'default' : 'outline'" @click="setPet({ ink })">
+              {{ t(ink === 'rainbow' ? 'keyboard.petInkRainbow' : ink === 'white' ? 'keyboard.petInkWhite' : 'keyboard.petInkBlack') }}
+            </Button>
+          </div>
+        </div>
+        <div class="p-4 flex items-center gap-4">
           <span class="icon-[lucide--scaling] w-5 h-5 text-muted-foreground shrink-0 ml-2" />
           <span class="text-sm shrink-0 w-20">{{ t('keyboard.petSize') }}</span>
           <Slider class="flex-1" :model-value="[pet.scale]" :min="0.5" :max="1.5" :step="0.05"
             @update:model-value="(v) => v?.[0] && setPet({ scale: v[0] })" />
           <span class="shrink-0 w-12 text-right text-sm font-mono text-muted-foreground">{{ Math.round(pet.scale * 100) }}%</span>
         </div>
-        <div class="p-4 flex items-center gap-4">
+        <div v-if="pet.kind === 'animals'" class="p-4 flex items-center gap-4">
           <span class="icon-[lucide--sticky-note] w-5 h-5 text-muted-foreground shrink-0 ml-2" />
           <span class="text-sm flex-1">{{ t('keyboard.petSign') }}</span>
           <Switch :model-value="pet.sign" @update:model-value="(v: boolean) => setPet({ sign: v })" />
