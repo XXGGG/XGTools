@@ -51,6 +51,7 @@ export const defaultPromptData: PromptCategory[] = [
           { label: 'Pony质量9', value: 'score_9' },
           { label: 'Pony质量8+', value: 'score_8_up' },
           { label: 'Pony质量7+', value: 'score_7_up' },
+          { label: '评分7(Anima)', value: 'score_7' },
         ],
       },
       {
@@ -193,6 +194,7 @@ export const defaultPromptData: PromptCategory[] = [
           { label: '女孩焦点', value: 'girl focus' },
           { label: '男性为主(male focus)', value: 'male focus' },
           { label: '风景/场景为主(弱化人物)', value: 'scenery' },
+          { label: '无人(画面里不出现人)', value: 'no humans' },
           { label: '男性出框', value: 'male out of frame', nsfw: true },
           { label: '男孩出框', value: 'boy out of frame', nsfw: true },
           { label: '男性躯干', value: 'male torso', nsfw: true },
@@ -216,25 +218,38 @@ export const defaultPromptData: PromptCategory[] = [
     icon: 'icon-[tabler--layout]',
     subcategories: [
       {
-        name: '拍摄角度',
+        name: '正反面',
         conflict: 'warn',
         tags: [
           { label: '正面', value: 'from front' },
           { label: '背面', value: 'from behind' },
           { label: '侧面/侧视', value: 'from side' },
+          { label: '四分之三视角', value: 'three quarter view' },
+        ],
+      },
+      {
+        name: '视角高度',
+        conflict: 'warn',
+        tags: [
+          { label: '平视(正对·不俯不仰)', value: 'straight-on' },
           { label: '俯视/高角度', value: 'from above' },
           { label: '仰视/低角度', value: 'from below' },
-          { label: '斜角', value: 'dutch angle' },
-          { label: '从上后方', value: 'from above and behind' },
-          { label: '戏剧性角度', value: 'dramatic angle' },
           { label: '正下方仰视', value: 'low angle from directly below' },
-          { label: '四分之三视角', value: 'three quarter view' },
-          { label: '过肩视角', value: 'over shoulder' },
+          { label: '从上后方', value: 'from above and behind' },
+          { label: '鸟瞰(正上方往下)', value: 'bird\'s-eye view' },
+        ],
+      },
+      {
+        name: '特殊机位',
+        tags: [
+          { label: '斜角', value: 'dutch angle' },
+          { label: '戏剧性角度', value: 'dramatic angle' },
           { label: '动态角度', value: 'dynamic angle' },
-          { label: '平视(正对·不俯不仰)', value: 'straight-on' },
+          { label: '过肩视角', value: 'over shoulder' },
+          { label: '从外面往里看(隔窗)', value: 'from outside' },
           { label: '倒置画面(上下颠倒)', value: 'upside-down' },
           { label: '侧躺画面(画面转 90°)', value: 'sideways' },
-          { label: '从外面往里看(隔窗)', value: 'from outside' },
+          { label: '等距视角(2.5D 斜俯)', value: 'isometric' },
         ],
       },
       {
@@ -252,6 +267,9 @@ export const defaultPromptData: PromptCategory[] = [
           { label: '超远景', value: 'very wide shot' },
           { label: '消失点透视', value: 'vanishing point' },
           { label: '第一人称·看到自己的手', value: 'pov hands' },
+          { label: '第一人称·隔桌对坐', value: 'pov across table' },
+          { label: '第一人称·床上对面', value: 'pov across bed' },
+          { label: '第一人称·门口往里看', value: 'pov doorway' },
         ],
       },
       {
@@ -263,6 +281,7 @@ export const defaultPromptData: PromptCategory[] = [
           { label: '脚出框(约及小腿)', value: 'feet out of frame' },
           { label: '裁掉腿', value: 'cropped legs' },
           { label: '裁掉躯干', value: 'cropped torso' },
+          { label: '背部聚焦', value: 'back focus' },
         ],
       },
       {
