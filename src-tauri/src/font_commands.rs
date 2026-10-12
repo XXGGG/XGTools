@@ -270,7 +270,6 @@ pub enum Source {
     Windows,
     Machine,
     User,
-    Xgcut,
     Xgtools,
 }
 
@@ -377,11 +376,10 @@ pub struct FamilyOut {
     catalog: Option<String>,
 }
 
-fn source_of(e: &FileEntry, f: &FaceInfo) -> Source {
-    if under(&e.path, &our_root()) {
+fn source_of(e: &FileEntry, f: &FaceInfo, ledger: &[InstallRec]) -> Source {
+    // XGCut 装的跟自己装的算一类（2026-10-12 用户说左栏不用单列「XGCut 装的」）
+    if installed_by(&e.path, ledger).as_deref() == Some("xgtools") || under(&e.path, &our_root()) {
         Source::Xgtools
-    } else if under(&e.path, &xgcut_root()) {
-        Source::Xgcut
     } else if !e.machine {
         Source::User
     } else if under(&e.path, &windows_fonts_dir()) && font_license::is_windows_family(&f.family_en) {
@@ -400,6 +398,8 @@ fn catalog_id_for(family_en: &str) -> Option<String> {
 }
 
 fn scan() -> Vec<FamilyOut> {
+    migrate_legacy();
+    let ledger = load_ledger();
     let files = font_files();
     let parsed: Vec<(usize, Vec<FaceInfo>, u64)> = files
         .par_iter()
@@ -449,7 +449,7 @@ fn scan() -> Vec<FamilyOut> {
                     full_name_zh: f.full_name_zh.clone(),
                     postscript: f.postscript.clone(),
                     legacy_family: f.legacy_family.clone(),
-                    source: source_of(e, f),
+                    source: source_of(e, f, &ledger),
                     disabled: e.disabled,
                     bytes: *bytes,
                 })
@@ -593,6 +593,9 @@ pub struct TrashEntry {
     items: Vec<TrashItem>,
     #[serde(default)]
     bytes: u64,
+    /// 卸载时从共享清单里拿掉的那部分，恢复时放回去
+    #[serde(default)]
+    installs: Vec<InstallRec>,
 }
 
 fn now_ms() -> u64 {
@@ -777,8 +780,20 @@ pub fn font_uninstall(paths: Vec<String>, label: String) -> Result<String, Strin
     let keep: Vec<RegItem> = disabled.into_iter().filter(|it| !gone.contains(&norm(&reg_path(it)))).collect();
     write_json(&disabled_path(), &keep)?;
 
+    let mut taken: Vec<InstallRec> = vec![];
+    let _ = edit_ledger(|v| {
+        for r in v.iter_mut() {
+            let (out, keep): (Vec<String>, Vec<String>) =
+                r.files.iter().cloned().partition(|f| gone.contains(&norm(Path::new(f))));
+            if !out.is_empty() {
+                taken.push(InstallRec { files: out, ..r.clone() });
+                r.files = keep;
+            }
+        }
+    });
+
     let items: Vec<TrashItem> = plan.into_iter().map(|(it, _, _)| it).collect();
-    let entry = TrashEntry { id: id.clone(), label, time: now_ms(), bytes: dir_size(&entry_dir), items };
+    let entry = TrashEntry { id: id.clone(), label, time: now_ms(), bytes: dir_size(&entry_dir), items, installs: taken };
     write_json(&entry_dir.join("entry.json"), &entry)?;
     Ok(id)
 }
@@ -849,6 +864,17 @@ pub fn font_trash_restore(id: String) -> Result<(), String> {
         }
     }
     write_json(&disabled_path(), &disabled)?;
+    if !entry.installs.is_empty() {
+        let back = entry.installs.clone();
+        edit_ledger(|v| {
+            for b in back {
+                match v.iter_mut().find(|r| r.id == b.id && r.by == b.by) {
+                    Some(r) => r.files.extend(b.files),
+                    None => v.push(b),
+                }
+            }
+        })?;
+    }
     broadcast();
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
@@ -893,21 +919,21 @@ struct Manifest {
 
 #[tauri::command]
 pub fn font_catalog() -> Vec<PackOut> {
+    let ledger = load_ledger();
     font_catalog::CATALOG
         .iter()
         .map(|p| {
-            let ours = our_root().join(p.id);
+            // 新装法看共享清单；XGCut 还没改过来之前，它的老目录也认
+            let rec = ledger.iter().find(|r| r.id == p.id && r.files.iter().any(|f| Path::new(f).exists()));
             let theirs = xgcut_root().join(p.id);
-            let (installed_by, dir) = if ours.join(MANIFEST).exists() {
-                (Some("xgtools"), Some(ours))
+            let (installed_by, mut files): (Option<&'static str>, Vec<String>) = if let Some(r) = rec {
+                let by = if r.by == "xgcut" { "xgcut" } else { "xgtools" };
+                (Some(by), r.files.iter().filter(|f| Path::new(f).exists()).cloned().collect())
             } else if theirs.join("_xgcut.txt").exists() {
-                (Some("xgcut"), Some(theirs))
+                (Some("xgcut"), font_files_in(&theirs).iter().map(|f| f.to_string_lossy().to_string()).collect())
             } else {
-                (None, None)
+                (None, vec![])
             };
-            let mut files: Vec<String> = dir
-                .map(|d| font_files_in(&d).iter().map(|f| f.to_string_lossy().to_string()).collect())
-                .unwrap_or_default();
             files.sort();
             PackOut { pack: p.clone(), installed_by, files }
         })
@@ -1000,8 +1026,9 @@ fn register(files: &[PathBuf]) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn font_install(app: AppHandle, id: String) -> Result<Vec<String>, String> {
     let pack = font_catalog::find(&id).ok_or_else(|| format!("推荐里没有这款字体：{id}"))?;
-    let dir = our_root().join(pack.id);
-    if dir.join(MANIFEST).exists() {
+    // 装进 Windows「为当前用户安装」的字体文件夹（见下面「装到哪、谁装的」）
+    let dir = user_fonts_dir();
+    if load_ledger().iter().any(|r| r.id == id && r.files.iter().any(|f| Path::new(f).exists())) {
         return Err("已经装过了".into());
     }
     let emit = |got: u64, total: u64, stage: &'static str| {
@@ -1050,15 +1077,16 @@ pub async fn font_install(app: AppHandle, id: String) -> Result<Vec<String>, Str
             for name in &chosen {
                 let mut f = zip.by_name(name).map_err(|e| e.to_string())?;
                 let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
-                let out = dir2.join(base);
-                let mut o = std::fs::File::create(&out).map_err(|e| format!("写文件失败：{e}"))?;
-                std::io::copy(&mut f, &mut o).map_err(|e| format!("解压失败：{e}"))?;
+                let mut bytes = vec![];
+                std::io::Read::read_to_end(&mut f, &mut bytes).map_err(|e| format!("解压失败：{e}"))?;
+                let out = free_name_in(&dir2, base, Some(&bytes));
+                std::fs::write(&out, &bytes).map_err(|e| format!("写文件失败：{e}"))?;
                 written.push(out);
             }
         } else {
             let raw = url.rsplit('/').next().unwrap_or("font.ttf");
             let base = urlencoding::decode(raw).map(|s| s.into_owned()).unwrap_or_else(|_| raw.to_string());
-            let out = dir2.join(base);
+            let out = free_name_in(&dir2, &base, Some(&buf));
             std::fs::write(&out, &buf).map_err(|e| format!("写文件失败：{e}"))?;
             written.push(out);
         }
@@ -1073,13 +1101,161 @@ pub async fn font_install(app: AppHandle, id: String) -> Result<Vec<String>, Str
     let families = match register(&written) {
         Ok(f) => f,
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&dir);
+            for f in &written {
+                let _ = std::fs::remove_file(f);
+            }
             return Err(e);
         }
     };
-    write_json(&dir.join(MANIFEST), &Manifest { id: id.clone(), families: families.clone() })?;
+    let rec = InstallRec {
+        id: id.clone(),
+        by: "xgtools".into(),
+        families: families.clone(),
+        files: written.iter().map(|f| f.to_string_lossy().to_string()).collect(),
+        time: now_ms(),
+    };
+    edit_ledger(|v| {
+        v.retain(|r| !(r.id == rec.id && r.by == rec.by));
+        v.push(rec);
+    })?;
     emit(1, 1, "done");
     Ok(families)
+}
+
+// ─── 装到哪、谁装的（2026-10-12 改）──────────────
+//
+// 以前字体库把字体放在 %LOCALAPPDATA%\XGTools\fonts\<款>\，只在注册表登记一笔。
+// Windows 和多数软件认这种装法，但有的软件（PhotoCraft 实测）只扫字体文件夹、不看注册表，
+// 装了也找不到。现在一律放进 Windows「为当前用户安装」的那个文件夹，跟右键「安装」一模一样，
+// 谁都认得。
+//
+// 文件混在一个文件夹里以后，「哪几个文件是哪一款、谁装的」靠一份共享清单记：
+// %LOCALAPPDATA%\XGFonts\installed.json。XGTools 和 XGCut 读写同一份，各写各的条目（by 字段），
+// 改之前重读、改完原子替换，谁也不覆盖谁的。
+
+fn ledger_path() -> PathBuf {
+    local_appdata().join("XGFonts").join("installed.json")
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallRec {
+    /// 推荐目录里的 id
+    pub id: String,
+    /// xgtools / xgcut
+    pub by: String,
+    pub families: Vec<String>,
+    /// 完整路径（都在当前用户的字体文件夹里）
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub time: u64,
+}
+
+fn load_ledger() -> Vec<InstallRec> {
+    std::fs::read(ledger_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+/// 读-改-写，改的那一下在锁里。跨进程（XGCut）靠「每次都重读」+ 原子替换，碰巧同一毫秒写的概率可以不管
+fn edit_ledger(f: impl FnOnce(&mut Vec<InstallRec>)) -> Result<(), String> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _g = LOCK.lock().unwrap();
+    let mut v = load_ledger();
+    f(&mut v);
+    v.retain(|r| !r.files.is_empty());
+    write_json(&ledger_path(), &v)
+}
+
+/// 这个文件是谁装的（清单里有记录才算）
+fn installed_by(p: &Path, ledger: &[InstallRec]) -> Option<String> {
+    let k = norm(p);
+    ledger.iter().find(|r| r.files.iter().any(|f| norm(Path::new(f)) == k)).map(|r| r.by.clone())
+}
+
+/// 用户字体文件夹里给这个文件找个不撞名的位置：同名同内容就直接用那个
+fn free_name_in(dir: &Path, name: &str, same_as: Option<&[u8]>) -> PathBuf {
+    let p = dir.join(name);
+    if !p.exists() {
+        return p;
+    }
+    if let (Some(bytes), Ok(old)) = (same_as, std::fs::read(&p)) {
+        if old == bytes {
+            return p;
+        }
+    }
+    let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+    (2..).map(|i| dir.join(format!("{stem}_{i}.{ext}"))).find(|p| !p.exists()).unwrap()
+}
+
+/// 老位置（%LOCALAPPDATA%\XGTools\fonts\<款>\）装的字体搬进用户字体文件夹，注册表跟着改，记进清单。
+/// 被别的软件占着搬不动的那款先留在原地，下次进页面再试
+fn migrate_legacy() {
+    // 单元测试会调 scan()，别在测试里真去搬用户的字体
+    if cfg!(test) {
+        return;
+    }
+    let root = our_root();
+    let Ok(rd) = std::fs::read_dir(&root) else { return };
+    let user_dir = user_fonts_dir();
+    let _ = std::fs::create_dir_all(&user_dir);
+    let mut changed = false;
+    for d in rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+        let Some(man) = std::fs::read(d.join(MANIFEST)).ok().and_then(|b| serde_json::from_slice::<Manifest>(&b).ok())
+        else {
+            continue;
+        };
+        let files = font_files_in(&d);
+        let hkcu = reg::values(false);
+        let mut disabled = load_disabled();
+        let mut moved: Vec<(PathBuf, PathBuf)> = vec![];
+        let mut ok = true;
+        for f in &files {
+            let name = f.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let bytes = std::fs::read(f).ok();
+            let dest = free_name_in(&user_dir, &name, bytes.as_deref());
+            gdi(f, false);
+            let res = if dest.exists() { std::fs::remove_file(f) } else { move_path(f, &dest) };
+            if res.is_err() {
+                gdi(f, true);
+                ok = false;
+                break;
+            }
+            moved.push((f.clone(), dest));
+        }
+        if !ok {
+            // 搬回去，这一款下次再试
+            for (from, to) in &moved {
+                let _ = move_path(to, from);
+            }
+            continue;
+        }
+        for (from, to) in &moved {
+            for it in hkcu.iter().filter(|it| norm(&reg_path(it)) == norm(from)) {
+                let _ = reg::set(&RegItem { name: it.name.clone(), data: to.to_string_lossy().to_string() });
+                gdi(to, true);
+            }
+            for it in disabled.iter_mut().filter(|it| norm(&reg_path(it)) == norm(from)) {
+                it.data = to.to_string_lossy().to_string();
+            }
+        }
+        let _ = write_json(&disabled_path(), &disabled);
+        let rec = InstallRec {
+            id: man.id.clone(),
+            by: "xgtools".into(),
+            families: man.families.clone(),
+            files: moved.iter().map(|(_, t)| t.to_string_lossy().to_string()).collect(),
+            time: now_ms(),
+        };
+        let _ = edit_ledger(|v| {
+            v.retain(|r| !(r.id == rec.id && r.by == rec.by));
+            v.push(rec);
+        });
+        let _ = std::fs::remove_dir_all(&d);
+        changed = true;
+    }
+    if changed {
+        broadcast();
+    }
+    let _ = std::fs::remove_dir(&root); // 空了就删
 }
 
 // ─── 查字 ───────────────────────────────────────
