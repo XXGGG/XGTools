@@ -29,7 +29,8 @@ const { t } = useI18n()
 const zenMode = computed(() => zen.on)
 
 // 存档（prompt.json）。读完之后再做去重 / 补翻译
-const nsfwStore = storedRef<NsfwMode>('nsfw_mode', 'all')
+// 默认隐藏 NSFW（2026-10-12：要给别人下载用，第一次打开别直接满屏 NSFW）
+const nsfwStore = storedRef<NsfwMode>('nsfw_mode', 'hide')
 const selectedStore = storedRef<SelectedTag[]>('selected', [])
 const lineWrapStore = storedRef('line_wrap', false)
 // 词块上显示哪种文字：中文 / 英文可以同时亮，但至少留一个（两个都亮时：词库中文在前，右边已选英文在前）
