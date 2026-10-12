@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { PixelSnap } from './pixelSnap'
 import { translateBlocks } from '@/lib/translateChain'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getCurrentWindow, availableMonitors } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { save } from '@tauri-apps/plugin-dialog'
@@ -39,6 +39,13 @@ let scaleFactor = window.devicePixelRatio
 /* 这块显示器在虚拟桌面里的原点。录屏要把选区换算回屏幕绝对坐标，靠它 */
 let monitorX = 0
 let monitorY = 0
+/*
+  这块显示器的「工作区」上下沿（CSS px，相对显示器左上角）= 去掉任务栏后的区域。
+  截图窗口铺满整块屏，任务栏那一条也在画布里；工具栏要是按整屏高度算，
+  选区贴底时会落到任务栏上、甚至掉出屏幕（2026-10-12 用户反馈）。
+*/
+let workTop = 0
+let workBottom = 0
 
 const appWindow = getCurrentWindow()
 
@@ -121,7 +128,7 @@ function updatePanelBasePosition() {
   // 垂直：跟选区中心对齐
   let py = r.y + (r.h - panelH) / 2
   // 限制在屏幕内
-  py = Math.max(8, Math.min(py, screenH - panelH - 8))
+  py = Math.max(workTop + 8, Math.min(py, (workBottom || screenH) - panelH - 8))
 
   panelBaseX.value = px
   panelBaseY.value = py
@@ -177,7 +184,8 @@ function onToolbarDragMove(e: MouseEvent) {
   // 别拖出屏幕:留 4px 边,和自动定位用的一样
   const w = document.querySelector<HTMLElement>('.toolbar')?.offsetWidth ?? 0
   toolbarX.value = Math.max(4, Math.min(_tbStartX + (e.clientX - _tbMouseStartX), window.innerWidth - w - 4))
-  toolbarY.value = Math.max(4, Math.min(_tbStartY + (e.clientY - _tbMouseStartY), window.innerHeight - 44))
+  const h = document.querySelector<HTMLElement>('.toolbar')?.offsetHeight ?? 48
+  toolbarY.value = Math.max(workTop + 4, Math.min(_tbStartY + (e.clientY - _tbMouseStartY), (workBottom || window.innerHeight) - h - 4))
 }
 
 function onToolbarDragEnd() {
@@ -589,30 +597,28 @@ function initSelectionManager() {
 function updateToolbarPosition() {
   if (!selMgr) return
   const r = selMgr.rect
-  const toolbarH = 40
   const gap = 8
-  const screenH = imgHeight / scaleFactor
   const screenW = imgWidth / scaleFactor
+  // 上下边界用工作区（去掉任务栏），不是整块屏
+  const top = workTop + 4
+  const bottom = (workBottom || imgHeight / scaleFactor) - 4
 
-  // 工具栏宽度，取 DOM 实际宽度（fallback 用较大值保证不截断）
+  // 工具栏宽高，取 DOM 实际尺寸（以前写死 40 高，实际是 48，贴底时会多出去一截）
   const toolbarEl = document.querySelector('.toolbar') as HTMLElement | null
   const toolbarW = toolbarEl ? toolbarEl.offsetWidth : 700
+  const toolbarH = toolbarEl?.offsetHeight || 48
 
   // 水平定位：选区右对齐（仿 Snow-Shot: max_x - toolbarWidth）
   let tx = r.x + r.w - toolbarW
   tx = Math.max(4, Math.min(tx, screenW - toolbarW - 4))
 
-  // 垂直定位：优先选区下方
+  // 垂直定位：优先选区下方 → 放不下翻到上方 → 都不行就放选区里面靠底
   let ty = r.y + r.h + gap
-  if (ty + toolbarH > screenH) {
-    // 下方放不下，改为选区上方
+  if (ty + toolbarH > bottom) {
     ty = r.y - toolbarH - gap
-    if (ty < 0) {
-      // 上方也放不下，放在选区内部底部
-      ty = r.y + r.h - toolbarH - gap
-      ty = Math.max(0, ty)
-    }
+    if (ty < top) ty = Math.min(r.y + r.h, bottom) - toolbarH - gap
   }
+  ty = Math.max(top, Math.min(ty, bottom - toolbarH))
 
   toolbarX.value = tx
   toolbarY.value = ty
@@ -2023,6 +2029,15 @@ async function _doExecuteScreenshot() {
 
     const cssW = imgWidth / scaleFactor
     const cssH = imgHeight / scaleFactor
+    workTop = 0
+    workBottom = cssH
+    try {
+      const mon = (await availableMonitors()).find(m => m.position.x === monX && m.position.y === monY)
+      if (mon?.workArea) {
+        workTop = Math.max(0, (mon.workArea.position.y - monY) / scaleFactor)
+        workBottom = Math.min(cssH, (mon.workArea.position.y + mon.workArea.size.height - monY) / scaleFactor)
+      }
+    } catch { /* 拿不到就按整屏算 */ }
     for (const c of [bgCanvas, olCanvas, anCanvas]) {
       c.style.width = `${cssW}px`
       c.style.height = `${cssH}px`
