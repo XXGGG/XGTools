@@ -10,7 +10,7 @@
   目录名用英文而不是「安装包」:仓库里其它目录都是英文,而且中文路径在有些工具和控制台里会变成乱码。
   发版走 GitHub Releases,这个目录纯粹是本机的取件口。
 */
-import { copyFileSync, mkdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, existsSync, statSync, readdirSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -37,6 +37,19 @@ for (const { from, to } of jobs) {
   found++
   const mb = (statSync(to).size / 1024 / 1024).toFixed(0)
   console.log(`${to}  (${mb} MB)`)
+}
+/*
+  打完包顺手把 bundle 里旧版本的安装包删掉，只留这一版（2026-10-12 用户要的：攒了 50 多版、11GB）。
+  旧版要用去 GitHub Releases 拿；只删文件名里带版本号、又不是当前版本的，别的东西不碰。
+*/
+if (found) {
+  for (const sub of ['nsis', 'msi']) {
+    const dir = join(root, 'src-tauri/target/release/bundle', sub)
+    if (!existsSync(dir)) continue
+    for (const f of readdirSync(dir)) {
+      if (/^XGTools_\d+\.\d+\.\d+_/.test(f) && !f.startsWith(`XGTools_${version}_`)) rmSync(join(dir, f), { force: true })
+    }
+  }
 }
 if (!found) {
   console.error(`没找到 v${version} 的安装包 —— 先跑一次 pnpm tauri build`)
