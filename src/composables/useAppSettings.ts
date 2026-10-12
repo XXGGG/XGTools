@@ -130,6 +130,8 @@ export type AppSettings = {
   fontFavorites: string[]
   /** 字体库：只看放心商用（OFL 这类开源协议）的 */
   fontOnlySafe: boolean
+  /** 字体库「套用到」：点一款字就让这个软件里选中的文字换字体。'' = 关 */
+  fontApplyTarget: '' | 'photoshop' | 'resolve' | 'photocraft' | 'affinity'
   /** 字体库：上次停在哪个分类 */
   fontCat: string
   /** 字体库：分类栏开着没有（宽窗口时） */
@@ -259,6 +261,7 @@ const DEFAULTS: AppSettings = {
   fontSize: 30,
   fontFavorites: [] as string[],
   fontOnlySafe: false,
+  fontApplyTarget: '',
   fontCat: 'all',
   fontTreeOpen: true,
   vaultColorHeadings: true,

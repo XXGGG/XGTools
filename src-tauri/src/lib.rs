@@ -14,6 +14,7 @@ mod font_sfnt;
 mod font_license;
 mod font_catalog;
 mod font_commands;
+mod font_apply;
 mod window_effects;
 mod taskbar_icon;
 mod vault_commands;
@@ -306,6 +307,9 @@ pub fn run() {
             audio_commands::audio_list_deep,
             audio_commands::audio_move,
             font_commands::font_scan,
+            font_apply::font_apply,
+            font_apply::font_launch_photocraft,
+            font_apply::font_affinity_script,
             font_commands::font_set_enabled,
             font_commands::font_uninstall,
             font_commands::font_trash_list,
