@@ -41,6 +41,7 @@ FAITHFULNESS (most important, overrides everything below)
 - Every tag and every sentence must come from words in the user's description. If you cannot point to the Chinese words a tag came from, delete that tag.
 - Never add people, nationality, species, eye/hair color, hair length, body type, clothing, expression, emotion, lighting, weather, objects or actions the user did not write. "女孩" is just "1girl": not korean, not demon, no eye color.
 - If the user is vague, stay vague. Do not fill gaps.
+- No person unless the user wrote one. "双手靠在一起" has no subject: do NOT turn it into "a girl", "she" or "1girl". Describe only what is written (the hands). If an action implies someone ("站在雨里") but no gender is written, say "a person" / "someone" and use no 1girl / 1boy tag.
 - If the user names a character, artist or series, keep it. Artist tags get an @ prefix (e.g. @wlop).
 
 CANDIDATE TAGS
@@ -54,14 +55,14 @@ EXACT VERBS (the model ignores weak verbs, so pick the precise one)
 
 TAGS (one line, comma separated)
 - Real Danbooru tags only, lowercase, spaces instead of underscores.
-- Order: one safety tag (safe / sensitive / nsfw / explicit, judged from the content), subject count (1girl, 1boy, 2girls, 1other...), character, series, @artist, then appearance, clothing, expression, pose and action, objects, setting, framing.
+- Order: one safety tag (safe / sensitive / nsfw / explicit, judged from the content), subject count (1girl, 1boy, 2girls, 1other... only if the user wrote a person), character, series, @artist, then appearance, clothing, expression, pose and action, objects, setting, framing.
 - "solo" only when there is exactly one character. Two girls = "2girls" without "solo".
 - Held objects: "holding x" plus the object tag; a color the user gave goes on the object (e.g. "holding candle, red candle").
 - If no real tag fits an idea, leave it out of the tags and say it in the text. Never invent tags.
 - Do NOT write quality tags (masterpiece, best quality, score_*, highres). The app adds them.
 
 TEXT (2 to 4 short English sentences)
-- Same content as the tags, nothing more. Start with the subject, then what they do.
+- Same content as the tags, nothing more. Start with the subject the user wrote, then what they do. If they wrote no person, start with the thing they did describe.
 - Bind every attribute to its owner ("She grips the red candle tightly in her fist"). With several characters, describe each separately and say who does what to whom.
 - No quality words, no poetic filler, no mood words, no camera jargon the user did not ask for.
 
@@ -72,7 +73,7 @@ CHECK BEFORE ANSWERING
 - Re-read the user's description. Remove every tag or phrase that is not in it.
 
 LITERAL
-- The user's description translated into ONE natural English sentence, same meaning, nothing added or dropped. This is a plain translation, not the polished TEXT.
+- The user's description translated into ONE natural English sentence, same meaning, nothing added or dropped. No subject the user did not write. This is a plain translation, not the polished TEXT.
 
 TAGS_ZH
 - The Chinese meaning of each tag, in the same order as TAGS, comma separated, one item per tag.
@@ -83,7 +84,13 @@ ZH
 Output JSON only, no markdown fences:
 {"tags": "...", "tags_zh": "...", "literal": "...", "text": "...", "zh": "..."}
 
-Example
+Examples
+Input: 双手靠在一起
+Output: {"tags": "safe, own hands together", "tags_zh": "安全, 双手合在一起", "literal": "Hands placed together.", "text": "Two hands are placed together, palms touching.", "zh": "两只手靠在一起，掌心相贴。"}
+
+Input: 站在雨里看着远方
+Output: {"tags": "safe, solo, standing, rain, looking afar", "tags_zh": "安全, 单人, 站立, 雨, 眺望远方", "literal": "Someone standing in the rain, looking into the distance.", "text": "A person stands in the rain. They look into the distance.", "zh": "一个人站在雨里，望向远方。"}
+
 Input: 一个女孩站在石地板上手握着红色蜡烛
 Output: {"tags": "safe, 1girl, solo, standing, holding candle, red candle, stone floor", "tags_zh": "安全, 1个女孩, 单人, 站立, 握着蜡烛, 红色蜡烛, 石地板", "literal": "A girl standing on a stone floor, gripping a red candle in her hand.", "text": "A girl stands on a stone floor. She grips a red candle tightly in her fist, her fingers closed around it.", "zh": "一个女孩站在石地板上。她用拳头紧紧握住一根红色蜡烛，手指包住蜡烛。"}`
 
@@ -182,9 +189,28 @@ export async function polishForAnima(description: string, library: PromptTag[], 
   catch (e) {
     throw friendlyError(e, config.api_url)
   }
-  const j = parseJson(raw)
+  const j = neuterIfUnstated(parseJson(raw), [description, hintTags.join(' '), reminders].join(' '))
   if (!j.tags && !j.text) throw new Error('模型没给出内容，再点一次试试')
   return { tags: cleanTags(j.tags ?? ''), tagZh: pairTagZh(j.tags ?? '', j.tags_zh ?? ''), literal: (j.literal ?? '').trim(), text: (j.text ?? '').trim(), zh: (j.zh ?? '').trim(), engine, mode: 'ai' }
+}
+
+/**
+ * 用户没写男女，就不许冒出「一个女孩」。
+ * 「双手靠在一起」「在海边奔跑」这种没写主语的描述，小模型十有八九补成 a girl / 1girl
+ * （2026-10-14 用户报的）。系统提示词里讲了还是会漏，这里兜底：描述、手选标签、提醒里都没有性别字眼时，
+ * 删掉 1girl / 1boy 这类人数标签，句子里的 girl / boy / she / he 换成中性说法。
+ */
+const GENDER_WORDS = /[女男她他娘妹姐哥弟郎]|girl|boy|woman|man\b|female|male/i
+function neuterIfUnstated(j: Record<string, string>, said: string) {
+  if (GENDER_WORDS.test(said)) return j
+  const en = (t = '') => t
+    .replace(/\b(a|the) (young |little )?(girl|boy|woman|man)\b/gi, (_m, a: string) => (a[0] === a[0].toUpperCase() ? 'A person' : 'a person'))
+    .replace(/\b(girl|boy)'s\b/gi, "person's")
+    .replace(/\b(She|He)\b/g, 'The person').replace(/\b(she|he)\b/g, 'the person')
+    .replace(/\b(Her|His)\b/g, 'Their').replace(/\b(her|his)\b/g, 'their').replace(/\b(herself|himself)\b/g, 'themselves')
+  const zh = (t = '') => t.replace(/(一个)?(年轻的|小)?(女孩|男孩|少女|少年|女生|男生|女人|男人)/g, '一个人').replace(/[她他]/g, 'TA')
+  const tags = (t = '') => t.split(',').map(x => x.trim()).filter(x => x && !/^\d\+?(girls?|boys?)$|^multiple (girls|boys)$/i.test(x)).join(', ')
+  return { ...j, tags: tags(j.tags), literal: en(j.literal), text: en(j.text), zh: zh(j.zh) }
 }
 
 /** 模型给的 tags 和 tags_zh 按顺序一一配对（数量对不上就只配能配的） */
