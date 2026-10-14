@@ -55,8 +55,9 @@ EXACT VERBS (the model ignores weak verbs, so pick the precise one)
 
 TAGS (one line, comma separated)
 - Real Danbooru tags only, lowercase, spaces instead of underscores.
-- Order: one safety tag (safe / sensitive / nsfw / explicit, judged from the content), subject count (1girl, 1boy, 2girls, 1other... only if the user wrote a person), character, series, @artist, then appearance, clothing, expression, pose and action, objects, setting, framing.
-- "solo" only when there is exactly one character. Two girls = "2girls" without "solo".
+- No default tags: do NOT add a safety tag (safe / sensitive / nsfw / explicit) or "solo" on your own. Write "nsfw" / "explicit" only if the user's words are clearly sexual.
+- Order: subject count (1girl, 1boy, 2girls, 1other... only if the user wrote a person), character, series, @artist, then appearance, clothing, expression, pose and action, objects, setting, framing.
+- "solo" only when the user literally says the person is alone (单人 / 独自). Two girls = "2girls" without "solo".
 - Held objects: "holding x" plus the object tag; a color the user gave goes on the object (e.g. "holding candle, red candle").
 - If no real tag fits an idea, leave it out of the tags and say it in the text. Never invent tags.
 - Do NOT write quality tags (masterpiece, best quality, score_*, highres). The app adds them.
@@ -86,13 +87,13 @@ Output JSON only, no markdown fences:
 
 Examples
 Input: 双手靠在一起
-Output: {"tags": "safe, own hands together", "tags_zh": "安全, 双手合在一起", "literal": "Hands placed together.", "text": "Two hands are placed together, palms touching.", "zh": "两只手靠在一起，掌心相贴。"}
+Output: {"tags": "own hands together", "tags_zh": "双手合在一起", "literal": "Hands placed together.", "text": "Two hands are placed together, palms touching.", "zh": "两只手靠在一起，掌心相贴。"}
 
 Input: 站在雨里看着远方
-Output: {"tags": "safe, solo, standing, rain, looking afar", "tags_zh": "安全, 单人, 站立, 雨, 眺望远方", "literal": "Someone standing in the rain, looking into the distance.", "text": "A person stands in the rain. They look into the distance.", "zh": "一个人站在雨里，望向远方。"}
+Output: {"tags": "standing, rain, looking afar", "tags_zh": "站立, 雨, 眺望远方", "literal": "Someone standing in the rain, looking into the distance.", "text": "A person stands in the rain. They look into the distance.", "zh": "一个人站在雨里，望向远方。"}
 
 Input: 一个女孩站在石地板上手握着红色蜡烛
-Output: {"tags": "safe, 1girl, solo, standing, holding candle, red candle, stone floor", "tags_zh": "安全, 1个女孩, 单人, 站立, 握着蜡烛, 红色蜡烛, 石地板", "literal": "A girl standing on a stone floor, gripping a red candle in her hand.", "text": "A girl stands on a stone floor. She grips a red candle tightly in her fist, her fingers closed around it.", "zh": "一个女孩站在石地板上。她用拳头紧紧握住一根红色蜡烛，手指包住蜡烛。"}`
+Output: {"tags": "1girl, standing, holding candle, red candle, stone floor", "tags_zh": "1个女孩, 站立, 握着蜡烛, 红色蜡烛, 石地板", "literal": "A girl standing on a stone floor, gripping a red candle in her hand.", "text": "A girl stands on a stone floor. She grips a red candle tightly in her fist, her fingers closed around it.", "zh": "一个女孩站在石地板上。她用拳头紧紧握住一根红色蜡烛，手指包住蜡烛。"}`
 
 /** mode：ai = 大模型按 Anima 写法整理过；plain = 没配 AI 引擎，只做了直译 */
 /** literal：整句直译（不加工的一句英文）；text：按 Anima 写法打磨过的描述 */
@@ -127,13 +128,18 @@ function parseJson(raw: string): { tags?: string, tags_zh?: string, literal?: st
   return JSON.parse(s.slice(a, b + 1))
 }
 
-/** 标签再过一遍：去下划线、全小写（score_ 例外）、去掉模型硬塞的质量词、去重 */
-function cleanTags(tags: string): string {
+/**
+ * 标签再过一遍：去下划线、全小写（score_ 例外）、去掉模型硬塞的质量词、去重。
+ * 也去掉模型爱默认塞的 safe / sensitive 和 solo（2026-10-14 用户：不要默认带这几个），
+ * solo 只在用户自己写了「单人 / 独自」时留下。
+ */
+function cleanTags(tags: string, description = ''): string {
   const QUALITY = /^(masterpiece|best quality|high quality|good quality|normal quality|highres|absurdres|score_\d.*)$/
   const seen = new Set<string>()
   const list = tags.split(',').map(t => t.trim()).filter(Boolean)
     .map(t => (/^score_/i.test(t) ? t : t.replace(/_/g, ' ').toLowerCase()))
     .filter(t => !QUALITY.test(t.toLowerCase()))
+    .filter(t => !/^(safe|sensitive)$/.test(t) && (t !== 'solo' || /单人|独自|独身/.test(description)))
     .filter((t) => { const k = t.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true })
   // 不止一个人（2girls、multiple boys、或者同时有 1girl 和 1boy）时 solo 是错的，小模型老忘，这里兜底删掉
   const people = list.filter(t => /^(\d\+?|multiple )(girls?|boys?|others?)$/.test(t))
@@ -191,7 +197,7 @@ export async function polishForAnima(description: string, library: PromptTag[], 
   }
   const j = neuterIfUnstated(parseJson(raw), [description, hintTags.join(' '), reminders].join(' '))
   if (!j.tags && !j.text) throw new Error('模型没给出内容，再点一次试试')
-  return { tags: cleanTags(j.tags ?? ''), tagZh: pairTagZh(j.tags ?? '', j.tags_zh ?? ''), literal: (j.literal ?? '').trim(), text: (j.text ?? '').trim(), zh: (j.zh ?? '').trim(), engine, mode: 'ai' }
+  return { tags: cleanTags(j.tags ?? '', description), tagZh: pairTagZh(j.tags ?? '', j.tags_zh ?? ''), literal: (j.literal ?? '').trim(), text: (j.text ?? '').trim(), zh: (j.zh ?? '').trim(), engine, mode: 'ai' }
 }
 
 /**
