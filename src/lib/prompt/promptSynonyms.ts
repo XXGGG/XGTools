@@ -32,7 +32,7 @@ export const PROMPT_SYNONYMS: Record<string, string[]> = {
   "from front": ["正面","正拍"],
   "from behind": ["viewed from behind","背影","后面","从后面"],
   "from side": ["side","side view","viewed from side","侧拍","侧视","侧身"],
-  "from above": ["aerial view","viewed from above","view from above","俯拍","鸟瞰","高机位","上帝视角","从上往下"],
+  "from above": ["viewed from above","view from above","俯拍","高机位","从上往下"],
   "from below": ["low angle","viewed from below","view from below","仰拍","虫视","低机位","从下往上"],
   "dutch angle": ["倾斜镜头","歪镜头","荷兰角"],
   "straight-on": ["head-on","平视","平拍","正视","齐眼高","水平视角","不俯不仰"],

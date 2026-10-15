@@ -52,6 +52,7 @@ EXACT VERBS (the model ignores weak verbs, so pick the precise one)
 - 拿着 = holding (normal hold). 端着 = carrying something on a tray or flat on the palms. 捧着 = cupping with both hands. 举着 = raising it up. 抱着 = hugging it against the body.
 - 蹲 = squatting (not kneeling). 跪 = kneeling. 站 = standing. 坐 = sitting. 趴 = on stomach. 躺 = lying.
 - 从下往上拍 = from below. 从上往下拍 = from above. 平视 = straight-on. 背在身后 = behind back.
+- 顶视 / 正上方往下 / 上帝视角 = "from above" tag, and say "viewed from directly above, top-down view" in TEXT. 鸟瞰 = "from above, very wide shot" tags, and "aerial view from high above" in TEXT. 虫视 / 贴地仰拍 = "from below" tag, and "worm's-eye view from ground level" in TEXT. 过肩镜头 = "over-the-shoulder shot" in TEXT (the "over shoulder" tag means carrying something on the shoulder).
 
 TAGS (one line, comma separated)
 - Real Danbooru tags only, lowercase, spaces instead of underscores.
