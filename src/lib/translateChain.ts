@@ -119,10 +119,23 @@ export async function translateBlocks(texts: string[], target: 'zh' | 'en'): Pro
     const engine = order[i]
     if (engineMeta(engine)?.kind === 'ai') {
       try {
-        const sep = '\n---BLOCK---\n'
-        const r = await translateWith(engine, texts.join(sep), target, cfgs)
-        const parts = r.text.split(/---BLOCK---/).map((s) => s.trim())
-        return { texts: texts.map((_, k) => parts[k] || ''), engine }
+        /*
+          每块前面打一个编号记号 ⟦0⟧ ⟦1⟧ …，翻完再按记号切回去。
+          以前的分隔符是 ---BLOCK---，AI 会把它也翻成「--- 区块 ---」，切不开，
+          整批译文就全堆进了第一块（2026-10-16 用户截图里那一大段）。
+          记号是符号加数字，模型不会去翻；万一对不上块数，就退回逐块翻，绝不拿错位的结果。
+        */
+        const r = await translateWith(engine, texts.map((t, k) => `⟦${k}⟧ ${t}`).join('\n'), target, cfgs)
+        const parts: string[] = []
+        const marks = [...r.text.matchAll(/⟦\s*(\d+)\s*⟧/g)]
+        marks.forEach((m, j) => {
+          const end = j + 1 < marks.length ? marks[j + 1].index : r.text.length
+          parts[Number(m[1])] = r.text.slice(m.index! + m[0].length, end).trim()
+        })
+        if (marks.length === texts.length && texts.every((_, k) => parts[k]))
+          return { texts: texts.map((_, k) => parts[k]), engine }
+        const each = await Promise.all(texts.map((t) => translateWith(engine, t, target, cfgs).then((x) => x.text.trim())))
+        return { texts: each, engine }
       } catch (e) {
         errors.push(`${engineLabel(engine)}：${errMsg(e)}`)
         continue

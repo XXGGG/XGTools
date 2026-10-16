@@ -478,7 +478,8 @@ Rules:
 - If the input is Chinese, translate to English
 - If the input is English, translate to Chinese
 - Preserve formatting, line breaks, and punctuation style
-- For technical terms, keep commonly used English terms as-is"#;
+- For technical terms, keep commonly used English terms as-is
+- Markers like ⟦0⟧ ⟦1⟧ ⟦2⟧ mark separate items: copy every marker exactly, keep them in order, and translate only the text after each one"#;
 
 async fn ai_translate(
     text: &str,
