@@ -26,6 +26,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: 'Audio', labelKey: 'nav.audio', icon: 'icon-[lucide--audio-lines]', group: 'tool' },
   { id: 'Fonts', labelKey: 'nav.fonts', icon: 'icon-[lucide--case-sensitive]', group: 'tool' },
   { id: 'Prompt', labelKey: 'nav.prompt', icon: 'icon-[lucide--wand-sparkles]', group: 'tool' },
+  { id: 'Assistant', labelKey: 'nav.assistant', icon: 'icon-[lucide--audio-waveform]', group: 'tool' },
   // 下卡片:后台功能的配置页,和最下面的应用设置挨在一起
   // 命令面板 2026-10-12 并进了设置页（设置 → 命令面板 页签），这里不再单列
   { id: 'Dock', labelKey: 'nav.dock', icon: 'icon-[lucide--layout-grid]', group: 'config' },

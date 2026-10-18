@@ -83,6 +83,7 @@ const VaultView = defineAsyncComponent(() => import('./views/Vault.vue'))
 import SettingsView from './views/Settings.vue'
 import { useUpdater } from './composables/useUpdater'
 import TimerView from './views/Timer.vue'
+const AssistantView = defineAsyncComponent(() => import('./views/Assistant.vue'))
 import DockView from './views/Dock.vue'
 import KeyboardPetView from './views/KeyboardPet.vue'
 import ScreenshotView from './views/Screenshot.vue'
@@ -375,6 +376,7 @@ onMounted(async () => {
             <AudioView v-else-if="currentView === 'Audio'" />
             <FontsView v-else-if="currentView === 'Fonts'" />
             <PromptView v-else-if="currentView === 'Prompt'" />
+            <AssistantView v-else-if="currentView === 'Assistant'" />
           </div>
         </Transition>
     </main>

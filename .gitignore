@@ -55,3 +55,7 @@ installer/
 
 # 我自己的临时试验脚本，不进仓库
 scratch/
+
+# 语音助手：Python 环境和试听样本不进仓库
+voice/.venv/
+voice/samples/

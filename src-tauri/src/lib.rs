@@ -1,4 +1,5 @@
 mod dock_commands;
+mod voice_commands;
 mod folder_icon_commands;
 mod screenshot_commands;
 mod ocr_commands;
@@ -180,6 +181,9 @@ pub fn run() {
         .plugin(tauri_plugin_drag::init())
         .invoke_handler(tauri::generate_handler![
             // 窗口背景特效(云母/亚克力/模糊)
+            // 语音助手：拉起本机语音服务
+            voice_commands::voice_start,
+            voice_commands::voice_stop,
             window_effects::set_window_effect,
             window_effects::set_window_corners,
             // 托盘菜单(自绘窗口,不是系统原生菜单 —— 见 tray.rs 顶部)
@@ -695,6 +699,7 @@ pub fn run() {
             // 那样最小化到托盘就把正在录的那段掐了。只在进程真正退出时收。
             if let tauri::RunEvent::Exit = event {
                 record_commands::shutdown(app);
+                voice_commands::voice_stop();
             }
         });
 }

@@ -9,6 +9,7 @@ export const en: Messages = {
   nav: {
     vault: 'Notes',
     timer: 'Timer',
+    assistant: 'Assistant',
     translate: 'Translate',
     convert: 'Convert',
     audio: 'Audio',
