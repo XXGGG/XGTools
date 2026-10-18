@@ -218,6 +218,8 @@ onMounted(async () => {
 
   await loadSettings()
   currentView.value = resolveStartPage()
+  // 语音助手开了唤醒：开机就把语音服务拉起来，界面不打开也能喊它（不等它，起服务要十几秒）
+  void import('./lib/assistant').then(async (m) => { const c = await m.loadAssistantCfg(); if (c.wake) await m.ensureVoiceService(c) })
   // 记住停在哪一页，给「启动时打开：上次的页面」用（首页不算）
   watch(currentView, (v) => { if (v && v !== 'Home') settings.lastPage = v })
 
