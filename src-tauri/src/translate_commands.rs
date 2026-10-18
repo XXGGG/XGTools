@@ -660,6 +660,8 @@ async fn openai_compatible_request(
     // reasoning_effort:"none" 关掉;只对本机地址加 —— 云端厂商对陌生字段有的直接报错。
     if url.contains("127.0.0.1") || url.contains("localhost") {
         body["reasoning_effort"] = serde_json::json!("none");
+        // 本机小模型温度给 0：翻译、拆标签都要每次一样的结果(qwen3.5 不传时默认是 1，忽好忽坏)
+        body["temperature"] = serde_json::json!(0);
     }
 
     let client = reqwest::Client::new();
