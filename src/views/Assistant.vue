@@ -14,7 +14,7 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 const BASE = 'http://127.0.0.1:18733'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
-type Cfg = { name: string; persona: string; engine: 'gsv' | 'kokoro' | 'edge'; voice: string; speed: number; model: string }
+type Cfg = { name: string; persona: string; engine: 'gsv' | 'kokoro' | 'edge'; voice: string; speed: number; volume: number; model: string }
 
 /** 三个内置音色（Qwen3-TTS 按描述造的参考音，GPT-SoVITS 照着念），默认温柔 */
 const VOICES = [
@@ -29,7 +29,7 @@ const DEFAULT_PERSONA = `你是 {name}，夏戈的私人助手，一个温柔可
 - 问到事实（年龄、日期、谁是谁）就直接给答案；算年龄要按今天的日期算。不知道或不确定就直说。
 - 今天是 {date}。`
 
-const cfg = ref<Cfg>({ name: 'Fairy', persona: DEFAULT_PERSONA, engine: 'gsv', voice: 'gentle', speed: 1.1, model: 'qwen3.5:9b' })
+const cfg = ref<Cfg>({ name: 'Fairy', persona: DEFAULT_PERSONA, engine: 'gsv', voice: 'gentle', speed: 1.1, volume: 1.8, model: 'qwen3.5:9b' })
 const store = new LazyStore('assistant.json')
 
 const msgs = ref<Msg[]>([])
@@ -166,7 +166,23 @@ async function turn(pcm: Float32Array) {
 
 // ── 播放：收到一小段就排到上一段后面，首尾相接；能随时全部掐掉 ──
 let outCtx: AudioContext | null = null
+let outGain: GainNode | null = null
 let nextAt = 0
+
+/** 输出都走一个增益节点，音量设置改它；能调到 3 倍（合成出来的声音本身偏小） */
+function out() {
+  if (!outCtx) {
+    outCtx = new AudioContext()
+    outGain = outCtx.createGain()
+    outGain.connect(outCtx.destination)
+  }
+  outGain!.gain.value = cfg.value.volume
+  return outCtx
+}
+function setVolume() {
+  if (outGain) outGain.gain.value = cfg.value.volume
+  void saveCfg()
+}
 let playing: Set<AudioBufferSourceNode> | null = null
 let decodeChain = Promise.resolve()
 
@@ -174,7 +190,7 @@ function schedule(ab: AudioBuffer) {
   const ctx = outCtx!
   const s = ctx.createBufferSource()
   s.buffer = ab
-  s.connect(ctx.destination)
+  s.connect(outGain!)
   // 第一段留 60ms 余量，免得网络抖一下就断音
   nextAt = Math.max(nextAt, ctx.currentTime + 0.06)
   s.start(nextAt)
@@ -191,16 +207,16 @@ function schedule(ab: AudioBuffer) {
   }
 }
 function playPcm(b64: string, rate: number) {
-  outCtx ??= new AudioContext()
+  const ctx = out()
   const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
   const i16 = new Int16Array(bytes.buffer, 0, bytes.length >> 1)
-  const ab = outCtx.createBuffer(1, i16.length, rate)
+  const ab = ctx.createBuffer(1, i16.length, rate)
   const ch = ab.getChannelData(0)
   for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768
   schedule(ab)
 }
 function enqueue(b64: string) {
-  outCtx ??= new AudioContext()
+  out()
   const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
   decodeChain = decodeChain.then(async () => schedule(await outCtx!.decodeAudioData(bytes.buffer))).catch(() => {})
 }
@@ -270,6 +286,10 @@ onBeforeUnmount(() => {
             @click="cfg.voice = v.id; saveCfg()">{{ v.label }}</button>
         </div>
         <label v-else class="flex items-center gap-2">音色<input v-model="cfg.voice" class="w-48 rounded-md bg-background/60 px-2 py-1" @change="saveCfg"></label>
+        <label class="flex items-center gap-2">音量
+          <input v-model.number="cfg.volume" type="range" min="0.3" max="3" step="0.1" class="w-32" @input="setVolume">
+          <span class="w-10 text-xs text-muted-foreground">{{ Math.round(cfg.volume * 100) }}%</span>
+        </label>
         <label class="flex items-center gap-2">语速<input v-model.number="cfg.speed" type="number" step="0.05" min="0.7" max="1.5" class="w-20 rounded-md bg-background/60 px-2 py-1" @change="saveCfg"></label>
         <label class="flex items-center gap-2">模型<input v-model="cfg.model" class="w-32 rounded-md bg-background/60 px-2 py-1" @change="saveCfg"></label>
       </div>
