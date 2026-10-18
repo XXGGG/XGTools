@@ -14,15 +14,22 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 const BASE = 'http://127.0.0.1:18733'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
-type Cfg = { name: string; persona: string; engine: 'kokoro' | 'edge'; voice: string; speed: number; model: string }
+type Cfg = { name: string; persona: string; engine: 'gsv' | 'kokoro' | 'edge'; voice: string; speed: number; model: string }
 
-const DEFAULT_PERSONA = `你是 {name}，夏戈的私人助手，一个可爱的台湾女生。
-- 用简体中文回答，语气口语、亲切，可以带一点台湾腔（欸、喔、啦、超～），但别每句都加。
+/** 三个内置音色（Qwen3-TTS 按描述造的参考音，GPT-SoVITS 照着念），默认温柔 */
+const VOICES = [
+  { id: 'gentle', label: '温柔' },
+  { id: 'sweet', label: '甜美' },
+  { id: 'lively', label: '活泼' },
+]
+
+const DEFAULT_PERSONA = `你是 {name}，夏戈的私人助手，一个温柔可爱的女生。
+- 用简体中文回答，像平时说话一样自然、亲切，不要播音腔，不要刻意卖萌。
 - 回答要短：一般一到三句话，像朋友聊天。不要列表、不要标题、不要 markdown、不要表情符号。
 - 问到事实（年龄、日期、谁是谁）就直接给答案；算年龄要按今天的日期算。不知道或不确定就直说。
 - 今天是 {date}。`
 
-const cfg = ref<Cfg>({ name: 'Fairy', persona: DEFAULT_PERSONA, engine: 'kokoro', voice: '47', speed: 1.05, model: 'qwen3.5:9b' })
+const cfg = ref<Cfg>({ name: 'Fairy', persona: DEFAULT_PERSONA, engine: 'gsv', voice: 'gentle', speed: 1.1, model: 'qwen3.5:9b' })
 const store = new LazyStore('assistant.json')
 
 const msgs = ref<Msg[]>([])
@@ -137,12 +144,15 @@ async function turn(pcm: Float32Array) {
         } else if (ev.type === 'delta' && reply) {
           reply.content += ev.text
           scroll()
-        } else if (ev.type === 'audio') {
+        } else if (ev.type === 'pcm' || ev.type === 'mp3') {
           if (!firstAudio) {
             firstAudio = performance.now() - t0
             latency.value = `开口用了 ${(firstAudio / 1000).toFixed(1)} 秒`
           }
-          enqueue(ev.data, ev.mime)
+          if (ev.type === 'pcm') playPcm(ev.data, ev.rate)
+          else enqueue(ev.data)
+        } else if (ev.type === 'error') {
+          error.value = ev.text
         }
       }
     }
@@ -150,45 +160,55 @@ async function turn(pcm: Float32Array) {
     if (!me.signal.aborted) error.value = `出错了：${e}`
   } finally {
     if (abort === me) abort = null
-    if (state.value === 'thinking') state.value = playing ? 'speaking' : 'idle'
+    if (state.value === 'thinking') state.value = playing?.size ? 'speaking' : 'idle'
   }
 }
 
-// ── 播放：按顺序一句接一句，能随时掐掉 ──
+// ── 播放：收到一小段就排到上一段后面，首尾相接；能随时全部掐掉 ──
 let outCtx: AudioContext | null = null
-let queue: AudioBuffer[] = []
-let playing: AudioBufferSourceNode | null = null
+let nextAt = 0
+let playing: Set<AudioBufferSourceNode> | null = null
 let decodeChain = Promise.resolve()
 
-function enqueue(b64: string, _mime: string) {
+function schedule(ab: AudioBuffer) {
+  const ctx = outCtx!
+  const s = ctx.createBufferSource()
+  s.buffer = ab
+  s.connect(ctx.destination)
+  // 第一段留 60ms 余量，免得网络抖一下就断音
+  nextAt = Math.max(nextAt, ctx.currentTime + 0.06)
+  s.start(nextAt)
+  nextAt += ab.duration
+  playing ??= new Set()
+  playing.add(s)
+  state.value = 'speaking'
+  s.onended = () => {
+    playing?.delete(s)
+    if (playing && !playing.size) {
+      playing = null
+      if (!abort && state.value === 'speaking') state.value = 'idle'
+    }
+  }
+}
+function playPcm(b64: string, rate: number) {
   outCtx ??= new AudioContext()
   const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
-  decodeChain = decodeChain.then(async () => {
-    const ab = await outCtx!.decodeAudioData(bytes.buffer)
-    queue.push(ab)
-    if (!playing) playNext()
-  }).catch(() => {})
+  const i16 = new Int16Array(bytes.buffer, 0, bytes.length >> 1)
+  const ab = outCtx.createBuffer(1, i16.length, rate)
+  const ch = ab.getChannelData(0)
+  for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768
+  schedule(ab)
 }
-function playNext() {
-  const ab = queue.shift()
-  if (!ab || !outCtx) {
-    playing = null
-    if (state.value === 'speaking' || (state.value === 'thinking' && !abort)) state.value = 'idle'
-    return
-  }
-  state.value = 'speaking'
-  const s = outCtx.createBufferSource()
-  s.buffer = ab
-  s.connect(outCtx.destination)
-  s.onended = () => { if (playing === s) playNext() }
-  playing = s
-  s.start()
+function enqueue(b64: string) {
+  outCtx ??= new AudioContext()
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+  decodeChain = decodeChain.then(async () => schedule(await outCtx!.decodeAudioData(bytes.buffer))).catch(() => {})
 }
 function stopPlayback() {
-  queue = []
   const p = playing
   playing = null
-  try { p?.stop() } catch {}
+  nextAt = 0
+  p?.forEach((s) => { try { s.stop() } catch {} })
 }
 
 function onOrb() {
@@ -203,14 +223,14 @@ function scroll() {
 }
 
 async function saveCfg() {
-  await store.set('config', cfg.value)
+  await store.set('config.v2', cfg.value)
   await store.save()
 }
 function clearChat() { msgs.value = [] }
 
 onMounted(async () => {
   await store.init()
-  const saved = await store.get<Partial<Cfg>>('config')
+  const saved = await store.get<Partial<Cfg>>('config.v2')
   if (saved) cfg.value = { ...cfg.value, ...saved }
   await waitServer()
 })
@@ -239,12 +259,17 @@ onBeforeUnmount(() => {
       </label>
       <div class="flex gap-4 flex-wrap items-center">
         <label class="flex items-center gap-2">声音
-          <select v-model="cfg.engine" class="rounded-md bg-background/60 px-2 py-1" @change="cfg.voice = cfg.engine === 'edge' ? 'zh-TW-HsiaoYuNeural' : '47'; saveCfg()">
-            <option value="kokoro">本机（快）</option>
-            <option value="edge">微软台湾女声（慢 2 秒，要联网）</option>
+          <select v-model="cfg.engine" class="rounded-md bg-background/60 px-2 py-1" @change="cfg.voice = cfg.engine === 'edge' ? 'zh-CN-XiaoxiaoNeural' : cfg.engine === 'kokoro' ? '47' : 'gentle'; saveCfg()">
+            <option value="gsv">内置音色（推荐）</option>
+            <option value="kokoro">本机小模型（最快，不好听）</option>
+            <option value="edge">微软在线（慢 2 秒，要联网）</option>
           </select>
         </label>
-        <label class="flex items-center gap-2">音色<input v-model="cfg.voice" class="w-48 rounded-md bg-background/60 px-2 py-1" @change="saveCfg"></label>
+        <div v-if="cfg.engine === 'gsv'" class="flex items-center gap-1">
+          <button v-for="v in VOICES" :key="v.id" class="rounded-md px-2 py-1" :class="cfg.voice === v.id ? 'bg-primary/25' : 'bg-background/60'"
+            @click="cfg.voice = v.id; saveCfg()">{{ v.label }}</button>
+        </div>
+        <label v-else class="flex items-center gap-2">音色<input v-model="cfg.voice" class="w-48 rounded-md bg-background/60 px-2 py-1" @change="saveCfg"></label>
         <label class="flex items-center gap-2">语速<input v-model.number="cfg.speed" type="number" step="0.05" min="0.7" max="1.5" class="w-20 rounded-md bg-background/60 px-2 py-1" @change="saveCfg"></label>
         <label class="flex items-center gap-2">模型<input v-model="cfg.model" class="w-32 rounded-md bg-background/60 px-2 py-1" @change="saveCfg"></label>
       </div>
