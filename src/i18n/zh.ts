@@ -4,6 +4,7 @@ export const zh = {
     vault: '笔记',
     timer: '计时器',
     todo24: '待办',
+    taskbar: '任务栏',
     assistant: '语音助手',
     translate: '翻译',
     convert: '格式转换',

@@ -1,6 +1,7 @@
 mod dock_commands;
 mod voice_commands;
 mod game_mode;
+mod taskbar_commands;
 mod folder_icon_commands;
 mod screenshot_commands;
 mod ocr_commands;
@@ -184,6 +185,11 @@ pub fn run() {
             // 窗口背景特效(云母/亚克力/模糊)
             // 语音助手：拉起本机语音服务
             game_mode::foreground_info,
+            taskbar_commands::ttb_status,
+            taskbar_commands::ttb_read,
+            taskbar_commands::ttb_write,
+            taskbar_commands::ttb_start,
+            taskbar_commands::ttb_install,
             voice_commands::voice_start,
             voice_commands::voice_stop,
             window_effects::set_window_effect,

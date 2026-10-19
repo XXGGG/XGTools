@@ -33,6 +33,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: 'Dock', labelKey: 'nav.dock', icon: 'icon-[lucide--layout-grid]', group: 'config' },
   { id: 'KeyboardPet', labelKey: 'nav.keyboard', icon: 'icon-[lucide--keyboard]', group: 'config' },
   { id: 'Screenshot', labelKey: 'nav.screenshot', icon: 'icon-[lucide--focus]', group: 'config' },
+  { id: 'Taskbar', labelKey: 'nav.taskbar', icon: 'icon-[lucide--panel-bottom]', group: 'config' },
 ]
 
 /**

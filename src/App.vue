@@ -98,6 +98,7 @@ import PaletteWindow from './palette/PaletteWindow.vue'
 import FontMiniWindow from './components/fonts/FontMiniWindow.vue'
 const TodoNote = defineAsyncComponent(() => import('./components/todo24/TodoNote.vue'))
 const Todo24View = defineAsyncComponent(() => import('./views/Todo24.vue'))
+const TaskbarView = defineAsyncComponent(() => import('./views/Taskbar.vue'))
 import TrayMenu from './views/TrayMenu.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
@@ -393,6 +394,7 @@ onMounted(async () => {
             <PromptView v-else-if="currentView === 'Prompt'" />
             <AssistantView v-else-if="currentView === 'Assistant'" />
             <Todo24View v-else-if="currentView === 'Todo24'" />
+            <TaskbarView v-else-if="currentView === 'Taskbar'" />
           </div>
         </Transition>
     </main>
