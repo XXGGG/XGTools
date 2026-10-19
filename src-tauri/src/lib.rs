@@ -354,7 +354,7 @@ pub fn run() {
 
             // --- Read dock settings ---
             let dock_settings = {
-                let settings_file = app_dir.join("settings.json");
+                let settings_file = app_dir.join(dock_commands::DOCK_SETTINGS_FILE);
                 if settings_file.exists() {
                     std::fs::read_to_string(&settings_file)
                         .ok()
