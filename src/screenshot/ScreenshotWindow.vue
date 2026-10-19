@@ -27,6 +27,60 @@ const containerRef = ref<HTMLDivElement>()
 const showToolbar = ref(false)
 const toolbarX = ref(0)
 const toolbarY = ref(0)
+/**
+ * 画框画线时笔尖快碰到工具栏，工具栏临时让开（这一笔画完再回原位）。
+ * 不让的话画到工具栏底下那块就被它挡住，只能先拖走工具栏再画 —— 2026-10-19 用户提的。
+ */
+const tbDodge = ref<{ x: number; y: number } | null>(null)
+const tbLeft = computed(() => tbDodge.value?.x ?? toolbarX.value)
+const tbTop = computed(() => tbDodge.value?.y ?? toolbarY.value)
+/** 右边那块属性面板（颜色、粗细、线条风格）同样让开：在它原本位置上额外挪一段 */
+const panelDodge = ref<{ dx: number; dy: number } | null>(null)
+
+function dodgePanel(px: number, py: number) {
+  const el = textPanelRef.value
+  if (!el) return
+  const M = 28
+  const r = el.getBoundingClientRect()
+  const near = (x: number, y: number) => px > x - M && px < x + r.width + M && py > y - M && py < y + r.height + M
+  if (!near(r.left, r.top)) return
+  const screenW = imgWidth / scaleFactor
+  const top = workTop + 4
+  const bottom = (workBottom || imgHeight / scaleFactor) - 4
+  const tries = [
+    { x: px - M - r.width - 8, y: r.top },
+    { x: px + M + 8, y: r.top },
+    { x: r.left, y: py - M - r.height - 8 },
+    { x: r.left, y: py + M + 8 },
+  ].map(c => ({ x: Math.max(4, Math.min(c.x, screenW - r.width - 4)), y: Math.max(top, Math.min(c.y, bottom - r.height)) }))
+  const ok = tries.find(c => !near(c.x, c.y))
+  if (!ok) return
+  const cur = panelDodge.value ?? { dx: 0, dy: 0 }
+  panelDodge.value = { dx: cur.dx + ok.x - r.left, dy: cur.dy + ok.y - r.top }
+}
+
+function dodgeToolbar(px: number, py: number) {
+  const el = document.querySelector('.toolbar') as HTMLElement | null
+  if (!el) return
+  const w = el.offsetWidth, h = el.offsetHeight
+  const M = 28 // 笔尖离工具栏还有这么远就开始让
+  const cur = tbDodge.value ?? { x: toolbarX.value, y: toolbarY.value }
+  const near = (x: number, y: number) => px > x - M && px < x + w + M && py > y - M && py < y + h + M
+  if (!near(cur.x, cur.y)) return
+  const screenW = imgWidth / scaleFactor
+  const top = workTop + 4
+  const bottom = (workBottom || imgHeight / scaleFactor) - 4
+  // 先试原位置的上下（翻到笔尖另一侧），再试左右，挑第一个不挡笔尖的
+  const home = { x: toolbarX.value, y: toolbarY.value }
+  const tries = [
+    { x: home.x, y: py - M - h - 8 },
+    { x: home.x, y: py + M + 8 },
+    { x: px - M - w - 8, y: home.y },
+    { x: px + M + 8, y: home.y },
+  ].map(c => ({ x: Math.max(4, Math.min(c.x, screenW - w - 4)), y: Math.max(top, Math.min(c.y, bottom - h)) }))
+  const ok = tries.find(c => !near(c.x, c.y))
+  if (ok) tbDodge.value = ok
+}
 
 // 工具选项面板
 const showOptions = ref(false)
@@ -1547,6 +1601,8 @@ function onMouseMove(e: MouseEvent) {
   // 标注绘制中
   if (annMgr.isDrawing) {
     annMgr.handleMouseMove(e)
+    dodgeToolbar(e.clientX, e.clientY)
+    dodgePanel(e.clientX, e.clientY)
     redraw()
     return
   }
@@ -1589,6 +1645,8 @@ function onMouseUp(e: MouseEvent) {
 
   if (annMgr.isResizing || annMgr.isMovingSelected || annMgr.isDrawing) {
     annMgr.handleMouseUp(e)
+    tbDodge.value = null
+    panelDodge.value = null
     // 画完/缩放后，回填属性到面板
     const sel = annMgr.getSelected()
     if (sel) {
@@ -2328,7 +2386,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
     <div
       v-if="showToolbar && recordMode"
       class="toolbar"
-      :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
+      :style="{ left: tbLeft + 'px', top: tbTop + 'px' }"
       @mousedown.stop
     >
       <span class="toolbar-grip icon-[lucide--grip-vertical]" :title="t('shot.dragToolbar')"
@@ -2356,7 +2414,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
     <div
       v-if="showToolbar && !recordMode"
       class="toolbar"
-      :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
+      :style="{ left: tbLeft + 'px', top: tbTop + 'px' }"
       @mousedown.stop
     >
       <!-- 抓手:按住拖动整条工具栏 -->
@@ -2453,7 +2511,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
       v-if="showToolbar && showFloatingPanel"
       ref="textPanelRef"
       class="tool-panel"
-      :style="{ left: panelBaseX + 'px', top: panelBaseY + 'px', transform: `translate(${panelTransX}px, ${panelTransY}px)` }"
+      :style="{ left: panelBaseX + 'px', top: panelBaseY + 'px', transform: `translate(${panelTransX + (panelDodge?.dx ?? 0)}px, ${panelTransY + (panelDodge?.dy ?? 0)}px)` }"
       @mousedown.stop="onPanelMouseDown"
     >
       <!-- 拖拽手柄 -->
