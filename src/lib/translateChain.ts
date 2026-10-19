@@ -89,13 +89,14 @@ export async function translateWith(
 
 /** 顺着链翻。返回用了谁、前面谁失败了;全失败才抛错,错误里带每个引擎的原因 */
 export async function translateChain(
-  text: string, target: 'zh' | 'en', chain?: string[], aiConfigs?: Record<string, AiConfig>,
+  text: string, target: 'zh' | 'en', chain?: string[], aiConfigs?: Record<string, AiConfig>, signal?: AbortSignal,
 ): Promise<ChainResult> {
   const order = chain ?? (await loadChain())
   const cfgs = aiConfigs ?? (await loadAiConfigs())
   if (!order.length) throw new Error('还没有翻译引擎,去翻译设置里加一个')
   const failed: ChainFailure[] = []
   for (const engine of order) {
+    if (signal?.aborted) throw new Error('已中止')
     try {
       const r = await translateWith(engine, text, target, cfgs)
       return { ...r, engine, failed }
@@ -110,12 +111,14 @@ export async function translateChain(
  * 截图翻译用:一批文本块。AI 引擎合并成一次请求(省请求、上下文连贯),
  * 免费 / 离线引擎逐块并行,每块各自顺着链往下兜底。返回整批用的是哪个引擎。
  */
-export async function translateBlocks(texts: string[], target: 'zh' | 'en'): Promise<{ texts: string[]; engine: string }> {
+export async function translateBlocks(texts: string[], target: 'zh' | 'en', signal?: AbortSignal): Promise<{ texts: string[]; engine: string }> {
   const order = await loadChain()
   const cfgs = await loadAiConfigs()
   if (!order.length) throw new Error('还没有翻译引擎,去翻译设置里加一个')
   const errors: string[] = []
   for (let i = 0; i < order.length; i++) {
+    // 中止了就不再往下试别的引擎（已经发出去的那个请求收不回来，但结果会被丢掉）
+    if (signal?.aborted) throw new Error('已中止')
     const engine = order[i]
     if (engineMeta(engine)?.kind === 'ai') {
       try {
@@ -143,7 +146,7 @@ export async function translateBlocks(texts: string[], target: 'zh' | 'en'): Pro
     }
     // 非 AI:逐块翻,每块从这里往后的链各自兜底;翻不出来的块留原文
     const rest = order.slice(i)
-    const out = await Promise.all(texts.map((t) => translateChain(t, target, rest, cfgs).then((r) => r.text).catch(() => t)))
+    const out = await Promise.all(texts.map((t) => translateChain(t, target, rest, cfgs, signal).then((r) => r.text).catch(() => t)))
     return { texts: out, engine }
   }
   throw new Error(errors.join('\n'))

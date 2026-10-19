@@ -1294,6 +1294,15 @@ async function toggleRecAudio() {
 }
 const translateResults = ref<TranslateBlock[]>([])
 const translateLoading = ref(false)
+/**
+ * 截图翻译的「这一轮」：中止（Esc、取消截图、退出翻译）时作废当前这轮。
+ * 以前中止了后台还在接着翻，翻完把结果贴到下一次截图上，或者白白跑完一串引擎 —— 2026-10-19 用户报的。
+ */
+let translateAbort: AbortController | null = null
+function abortTranslate() {
+  translateAbort?.abort()
+  translateAbort = null
+}
 
 async function runOcr() {
   const bgCanvas = canvasRef.value
@@ -1421,6 +1430,7 @@ function cancelCapture(): Promise<void> {
   translateMode.value = false
   recordMode.value = false
   translateResults.value = []
+  abortTranslate()
   translateLoading.value = false
   cancelTextEditor()
   selMgr?.reset()
@@ -1673,6 +1683,7 @@ function exitTranslateMode() {
     return
   }
   translateResults.value = []
+  abortTranslate()
   translateLoading.value = false
 }
 
@@ -1751,6 +1762,9 @@ async function runScreenshotTranslate() {
   const r = selMgr.rect
   if (r.w < 2 || r.h < 2) return
 
+  abortTranslate()
+  const run = new AbortController()
+  translateAbort = run
   translateLoading.value = true
 
   try {
@@ -1780,6 +1794,7 @@ async function runScreenshotTranslate() {
       headers: { 'x-scale-factor': sf.toFixed(3) },
     })
 
+    if (run.signal.aborted) return
     const blocks = result.text_blocks.filter(b => b.text_score > 0.3 && b.text.trim().length > 0)
     if (blocks.length === 0) {
       // 框里一个字都没有:没什么可翻的,也没什么可留在屏幕上的。
@@ -1795,12 +1810,16 @@ async function runScreenshotTranslate() {
     const targetLang: 'zh' | 'en' = chineseRatio > 0.3 ? 'en' : 'zh'
 
     // 3. 顺着翻译页配好的引擎链翻:AI 引擎合并成一次请求,其余逐块各自兜底
-    const { texts } = await translateBlocks(blocks.map(b => b.text), targetLang)
+    const { texts } = await translateBlocks(blocks.map(b => b.text), targetLang, run.signal)
+    if (run.signal.aborted) return
     translateResults.value = blocks.map((block, i) => ({ block, translated: texts[i] || block.text }))
   } catch (err) {
-    console.error('[ScreenshotTranslate] failed:', err)
+    if (!run.signal.aborted) console.error('[ScreenshotTranslate] failed:', err)
   } finally {
-    translateLoading.value = false
+    if (translateAbort === run) {
+      translateAbort = null
+      translateLoading.value = false
+    }
   }
 }
 
@@ -1976,6 +1995,7 @@ async function _doExecuteScreenshot() {
     ocrLoading.value = false
     ocrMode.value = false
     translateResults.value = []
+    abortTranslate()
     translateLoading.value = false
     cancelTextEditor()
     selMgr?.reset()
