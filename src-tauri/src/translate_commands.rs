@@ -24,6 +24,9 @@ pub struct AiConfig {
     pub api_key: String,
     pub api_url: Option<String>,
     pub model: Option<String>,
+    /// 本机模型要不要开思考（设置 → 大模型 里按功能开关；不传 = 关）
+    #[serde(default)]
+    pub think: Option<bool>,
 }
 
 // ─── Tauri Command ────────────────────────────────────
@@ -659,7 +662,9 @@ async fn openai_compatible_request(
     // 翻译一句先想十秒纯属浪费,还会把想法混进译文。Ollama 的 OpenAI 兼容接口认
     // reasoning_effort:"none" 关掉;只对本机地址加 —— 云端厂商对陌生字段有的直接报错。
     if url.contains("127.0.0.1") || url.contains("localhost") {
-        body["reasoning_effort"] = serde_json::json!("none");
+        if config.think != Some(true) {
+            body["reasoning_effort"] = serde_json::json!("none");
+        }
         // 本机小模型温度给 0：翻译、拆标签都要每次一样的结果(qwen3.5 不传时默认是 1，忽好忽坏)
         body["temperature"] = serde_json::json!(0);
     }

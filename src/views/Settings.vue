@@ -8,6 +8,7 @@ import { Tabs, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { useUpdater } from '@/composables/useUpdater'
 import PaletteSettings from '@/views/Palette.vue'
+import LlmSettings from '@/components/settings/LlmSettings.vue'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SelectSeparator } from 'reka-ui'
@@ -306,6 +307,7 @@ onUnmounted(() => {
           <TabsTrigger value="sidebar" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.nav') }}</TabsTrigger>
           <TabsTrigger value="vault" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.vault') }}</TabsTrigger>
           <TabsTrigger value="palette" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('nav.palette') }}</TabsTrigger>
+          <TabsTrigger value="llm" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.llm') }}</TabsTrigger>
         </TitleBarTabs>
 
         <!-- ================= 常规（含外观 / 关于）================= -->
@@ -575,6 +577,10 @@ onUnmounted(() => {
         <!-- ================= 笔记 ================= -->
         <TabsContent value="palette">
           <PaletteSettings />
+        </TabsContent>
+
+        <TabsContent value="llm">
+          <LlmSettings />
         </TabsContent>
 
         <TabsContent value="vault" class="space-y-6">

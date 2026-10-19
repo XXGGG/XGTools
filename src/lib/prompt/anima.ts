@@ -13,6 +13,7 @@
   这里让模型只出「安全标签 + 人数 + 内容标签」和「英文句子」，质量前缀由程序按底模版本拼，
   免得模型乱加 score_ 或者漏掉。模型还要给一份中文回译，用户一眼能看出有没有被改意思。
 */
+import { thinkFor } from '@/lib/llm'
 import { invoke } from '@tauri-apps/api/core'
 import { engineMeta, loadAiConfigs, loadChain, translateChain } from '@/lib/translateChain'
 import type { PromptTag } from '@/lib/prompt/promptData'
@@ -188,7 +189,7 @@ export async function polishForAnima(description: string, library: PromptTag[], 
   try {
     raw = await invoke<string>('ai_complete', {
       engine,
-      aiConfig: { api_key: config.api_key, api_url: config.api_url || null, model: config.model || null },
+      aiConfig: { api_key: config.api_key, api_url: config.api_url || null, model: config.model || null, think: await thinkFor('prompt') },
       system: ANIMA_SYSTEM_PROMPT,
       user,
     })
