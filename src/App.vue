@@ -97,6 +97,7 @@ import DockWindow from './dock/DockWindow.vue'
 import PaletteWindow from './palette/PaletteWindow.vue'
 import FontMiniWindow from './components/fonts/FontMiniWindow.vue'
 const TodoNote = defineAsyncComponent(() => import('./components/todo24/TodoNote.vue'))
+const FenceWindow = defineAsyncComponent(() => import('./components/dock/FenceWindow.vue'))
 const Todo24View = defineAsyncComponent(() => import('./views/Todo24.vue'))
 const TaskbarView = defineAsyncComponent(() => import('./views/Taskbar.vue'))
 import TrayMenu from './views/TrayMenu.vue'
@@ -158,6 +159,7 @@ const isDockWindow = ref(false)
 const isPaletteWindow = ref(false)
 const isFontMini = ref(false)
 const isTodoNote = ref(false)
+const isFence = ref(false)
 const isTrayMenu = ref(false)
 const isScreenshotWindow = ref(false)
 const isPinWindow = ref(false)
@@ -200,6 +202,7 @@ onMounted(async () => {
   if (win.label === 'palette') { isPaletteWindow.value = true; return }
   if (win.label === 'font_mini') { isFontMini.value = true; return }
   if (win.label === 'todo_note') { isTodoNote.value = true; return }
+  if (win.label.startsWith('fence_')) { isFence.value = true; return }
   if (win.label === 'tray-menu') { isTrayMenu.value = true; return }
   if (win.label === 'screenshot') { isScreenshotWindow.value = true; return }
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
@@ -226,6 +229,8 @@ onMounted(async () => {
   // 语音助手开了唤醒：开机就把语音服务拉起来，界面不打开也能喊它（不等它，起服务要十几秒）
   // 按时间自动切系统深浅色（启动台 → 桌面 里开）
   void import('./lib/autoTheme').then(m => m.startAutoTheme())
+  // 桌面格子摆出来
+  void import('./lib/fences').then(m => m.restoreFences())
   // 上次开着待办便签就再开
   void import('./lib/todo24').then(m => m.restoreTodoNote())
   void import('./lib/assistant').then(async (m) => {
@@ -314,6 +319,7 @@ onMounted(async () => {
   <PaletteWindow v-else-if="isPaletteWindow" />
   <FontMiniWindow v-else-if="isFontMini" />
   <TodoNote v-else-if="isTodoNote" />
+  <FenceWindow v-else-if="isFence" />
   <TrayMenu v-else-if="isTrayMenu" />
   <ScreenshotWindow v-else-if="isScreenshotWindow" />
   <PinWindow v-else-if="isPinWindow" />

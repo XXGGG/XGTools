@@ -3,6 +3,7 @@ mod voice_commands;
 mod game_mode;
 mod taskbar_commands;
 mod system_theme;
+mod desktop_commands;
 mod folder_icon_commands;
 mod screenshot_commands;
 mod ocr_commands;
@@ -186,6 +187,10 @@ pub fn run() {
             // 窗口背景特效(云母/亚克力/模糊)
             // 语音助手：拉起本机语音服务
             game_mode::foreground_info,
+            desktop_commands::desktop_icons_visible,
+            desktop_commands::desktop_icons_set,
+            desktop_commands::shell_open_path,
+            desktop_commands::file_icon,
             system_theme::system_theme_is_dark,
             system_theme::system_theme_set,
             taskbar_commands::ttb_status,
