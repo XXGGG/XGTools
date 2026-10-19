@@ -9,6 +9,7 @@
   老版本那三个键(translate_mode / translate_free_engine / translate_ai_engine)不再写,
   第一次没有链的时候从它们推一条出来。
 */
+import { thinkFor } from '@/lib/llm'
 import { invoke } from '@tauri-apps/api/core'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { localTranslate } from './bergamot'
@@ -74,11 +75,12 @@ export async function translateWith(
   if (!meta) throw new Error(`未知引擎 ${engine}`)
   if (meta.kind === 'local') return { text: await localTranslate(text, target), detected: null }
 
-  let ai_config: { api_key: string; api_url: string | null; model: string | null } | null = null
+  let ai_config: { api_key: string; api_url: string | null; model: string | null; think: boolean } | null = null
   if (meta.kind === 'ai') {
     const c = aiConfigs[engine]
     if (!c?.api_key) throw new Error('没配 API Key')
-    ai_config = { api_key: c.api_key, api_url: c.api_url || null, model: c.model || null }
+    // 本机模型开不开思考看「设置 → 大模型 → 翻译」（默认关）；云端引擎不认这个，后端只对本机地址用它
+    ai_config = { api_key: c.api_key, api_url: c.api_url || null, model: c.model || null, think: await thinkFor('translate') }
   }
   const r = await invoke<RawResult>('translate', {
     request: { text, source_lang: 'auto', target_lang: target, engine, ai_config },

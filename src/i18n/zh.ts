@@ -41,6 +41,7 @@ export const zh = {
     vaultTrashSystem: '系统回收站',
     vaultAccent: '笔记主题色',
     vault: '笔记',
+    llm: '大模型',
     vaultFont: '正文字体',
     vaultFontSize: '正文字号',
     vaultFullWidth: '全局全宽度',

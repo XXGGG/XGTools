@@ -47,6 +47,7 @@ export const en: Messages = {
     vaultTrashSystem: 'System trash',
     vaultAccent: 'Note accent',
     vault: 'Notes',
+    llm: 'AI model',
     vaultFont: 'Body font',
     vaultFontSize: 'Body size',
     vaultFullWidth: 'Full width everywhere',
