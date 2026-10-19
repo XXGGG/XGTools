@@ -543,6 +543,7 @@ export const en: Messages = {
     tabGeneral: 'General',
     tabApps: 'Apps',
     tabIcons: 'Icons',
+    tabDesktop: 'Desktop',
     tabFolder: 'Folder icons',
 
     // Folder icon maker

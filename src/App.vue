@@ -224,6 +224,8 @@ onMounted(async () => {
   await loadSettings()
   currentView.value = resolveStartPage()
   // 语音助手开了唤醒：开机就把语音服务拉起来，界面不打开也能喊它（不等它，起服务要十几秒）
+  // 按时间自动切系统深浅色（启动台 → 桌面 里开）
+  void import('./lib/autoTheme').then(m => m.startAutoTheme())
   // 上次开着待办便签就再开
   void import('./lib/todo24').then(m => m.restoreTodoNote())
   void import('./lib/assistant').then(async (m) => {

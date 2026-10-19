@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsTrigger } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
+import DesktopTab from '@/components/dock/DesktopTab.vue'
 import FolderIconMaker from '@/dock/FolderIconMaker.vue'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
@@ -49,7 +50,7 @@ interface Settings {
 }
 
 // --- State ---
-const currentTab = ref<'general' | 'apps' | 'icons' | 'folder'>('general')
+const currentTab = ref<'general' | 'apps' | 'icons' | 'folder' | 'desktop'>('general')
 const apps = ref<AppEntry[]>([])
 const dockEnabled = ref(false)
 const settingsLoaded = ref(false)
@@ -561,6 +562,7 @@ async function saveIconName(id: string) {
         <TabsTrigger value="apps" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabApps') }}</TabsTrigger>
         <TabsTrigger value="icons" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabIcons') }}</TabsTrigger>
         <TabsTrigger value="folder" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabFolder') }}</TabsTrigger>
+        <TabsTrigger value="desktop" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabDesktop') }}</TabsTrigger>
       </TitleBarTabs>
     </Tabs>
 
@@ -789,6 +791,7 @@ async function saveIconName(id: string) {
 
     <!-- ==================== FOLDER ICON TAB ==================== -->
     <FolderIconMaker v-if="currentTab === 'folder'" />
+    <DesktopTab v-if="currentTab === 'desktop'" />
 
     <!-- ==================== ICONS TAB ==================== -->
     <div v-if="currentTab === 'icons'" class="flex-1 flex flex-col max-w-2xl mx-auto w-full min-h-0">
