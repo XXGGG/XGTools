@@ -990,8 +990,9 @@ async function pinToScreen() {
       width: 1,
       height: 1,
       decorations: false,
-      shadow: true,
-      transparent: false,
+      // 透明、比图片大一圈：阴影和放在图外的关闭按钮都画在那一圈里（见 PinWindow.vue）
+      shadow: false,
+      transparent: true,
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: true,
