@@ -533,6 +533,7 @@ export const zh = {
     tabGeneral: '通用设置',
     tabApps: '应用管理',
     tabIcons: '图标管理',
+    tabDesktop: '桌面',
     tabFolder: '文件夹图标',
 
     // 文件夹图标制作

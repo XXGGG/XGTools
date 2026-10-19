@@ -217,6 +217,8 @@ onMounted(async () => {
 
   await loadSettings()
   currentView.value = resolveStartPage()
+  // 按时间自动切系统深浅色（启动台 → 桌面 里开）
+  void import('./lib/autoTheme').then(m => m.startAutoTheme())
   // 记住停在哪一页，给「启动时打开：上次的页面」用（首页不算）
   watch(currentView, (v) => { if (v && v !== 'Home') settings.lastPage = v })
 
