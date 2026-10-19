@@ -2,11 +2,19 @@
  * 标注管理器：绘制/管理所有标注元素
  * 支持：矩形、椭圆、箭头、直线、画笔、文字、菱形、序号、模糊、自由模糊、高亮、水印、橡皮擦
  */
+import rough from 'roughjs'
 import { DrawTool, STROKE_COLORS, STROKE_WIDTH_PRESETS } from './types'
 import type { Annotation, SelectRect, BorderStyle, LineStyle, ArrowType, EndpointStyle, PenStyle, CornerStyle } from './types'
 
 let nextId = 1
 function genId() { return `ann_${nextId++}` }
+
+/** 手绘线条每次重画要一样，不能一动就抖：按标注 id 算一个固定的随机种子 */
+function seedOf(id: string) {
+  let h = 2166136261
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619)
+  return (h >>> 0) % 2147483646 + 1
+}
 
 /** 缩放控制点位置 */
 enum ResizeHandle {
@@ -51,7 +59,7 @@ export class AnnotationManager {
   /** 边框样式 */
   borderStyle: BorderStyle = 'solid'
   /** 线条风格 */
-  lineStyle: LineStyle = 'sharp'
+  lineStyle: LineStyle = 'sketch'
   /** 边角样式 */
   cornerStyle: CornerStyle = 'sharp'
   /** 圆角半径 */
@@ -85,6 +93,8 @@ export class AnnotationManager {
   private tempPoints: [number, number][] = []
   /** 拖拽起点 */
   private dragStartX = 0
+  /** 这一笔的 id：画的过程中每次重算形状都用同一个，手绘线条的随机种子才不变，不然一拖就抖 */
+  private drawingId = ''
   private dragStartY = 0
   /** 是否正在绘制 */
   isDrawing = false
@@ -254,6 +264,7 @@ export class AnnotationManager {
     // 有工具模式：正常绘制
     this.selectedId = null // 绘制时取消选中
     this.isDrawing = true
+    this.drawingId = genId()
     this.dragStartX = lx
     this.dragStartY = ly
 
@@ -345,8 +356,7 @@ export class AnnotationManager {
     if (ann && this.isValidAnnotation(ann)) {
       this.saveState()
       this.annotations.push(ann)
-      // 画完后自动选中，方便立即修改样式
-      this.selectedId = ann.id
+      // 画完不自动选中：用户不想每画一笔都套个编辑框（2026-10-19），要改样式就再点它一下
     }
 
     this.tempAnnotation = null
@@ -360,7 +370,7 @@ export class AnnotationManager {
     const sx = this.dragStartX
     const sy = this.dragStartY
     const base = {
-      id: genId(),
+      id: this.drawingId || genId(),
       strokeColor: this.strokeColor,
       strokeWidth: this.strokeWidth,
       fillColor: this.fillColor,
@@ -873,6 +883,11 @@ export class AnnotationManager {
       ctx.lineWidth = ann.strokeWidth * sf * 2.5
     }
 
+    if (ann.lineStyle === 'sketch' && this.drawSketch(ctx, ann, sf)) {
+      ctx.restore()
+      return
+    }
+
     switch (ann.tool) {
       case DrawTool.Rect:
         this.drawRect(ctx, ann, sf)
@@ -912,6 +927,60 @@ export class AnnotationManager {
         break
     }
     ctx.restore()
+  }
+
+  /**
+   * 手绘风格（和笔记里的 Excalidraw 同一套 rough.js 画法）：矩形、菱形、椭圆、箭头、直线。
+   * 画了返回 true；别的工具不归它管，返回 false 走原来的画法。
+   */
+  private drawSketch(ctx: CanvasRenderingContext2D, ann: Annotation, sf: number): boolean {
+    const rc = rough.canvas(ctx.canvas)
+    const fill = ann.fillColor !== 'transparent' ? ann.fillColor : undefined
+    const dash = ann.borderStyle === 'dashed' ? [8 * sf, 4 * sf] : ann.borderStyle === 'dotted' ? [2 * sf, 3 * sf] : undefined
+    const opt = {
+      seed: seedOf(ann.id), stroke: ann.strokeColor, strokeWidth: ann.strokeWidth * sf, roughness: 1.4, bowing: 1.2,
+      fill, fillStyle: 'solid' as const, strokeLineDash: dash, preserveVertices: true,
+    }
+    // rough.js 画在同一个 2D 上下文上，前面 save() 里设的透明度、变换照样生效
+    switch (ann.tool) {
+      case DrawTool.Rect: {
+        const a = ann
+        rc.rectangle(a.x * sf, a.y * sf, a.w * sf, a.h * sf, opt)
+        return true
+      }
+      case DrawTool.Diamond: {
+        const a = ann
+        const cx = (a.x + a.w / 2) * sf, cy = (a.y + a.h / 2) * sf, hw = a.w / 2 * sf, hh = a.h / 2 * sf
+        rc.polygon([[cx, cy - hh], [cx + hw, cy], [cx, cy + hh], [cx - hw, cy]], opt)
+        return true
+      }
+      case DrawTool.Ellipse: {
+        const a = ann
+        rc.ellipse(a.cx * sf, a.cy * sf, a.rx * 2 * sf, a.ry * 2 * sf, opt)
+        return true
+      }
+      case DrawTool.Line:
+      case DrawTool.Arrow: {
+        const a = ann
+        const x1 = a.x1 * sf, y1 = a.y1 * sf, x2 = a.x2 * sf, y2 = a.y2 * sf
+        rc.line(x1, y1, x2, y2, opt)
+        const head = (px: number, py: number, ang: number) => {
+          const len = Math.max(12 * sf, ann.strokeWidth * sf * 4)
+          const half = Math.PI / 7
+          rc.linearPath([
+            [px - len * Math.cos(ang - half), py - len * Math.sin(ang - half)],
+            [px, py],
+            [px - len * Math.cos(ang + half), py - len * Math.sin(ang + half)],
+          ], { ...opt, fill: undefined })
+        }
+        const startEp = a.startEndpoint || 'none'
+        const endEp = a.endEndpoint || (ann.tool === DrawTool.Arrow ? 'arrow' : 'none')
+        if (endEp === 'arrow') head(x2, y2, Math.atan2(y2 - y1, x2 - x1))
+        if (startEp === 'arrow') head(x1, y1, Math.atan2(y1 - y2, x1 - x2))
+        return true
+      }
+    }
+    return false
   }
 
   private drawRect(ctx: CanvasRenderingContext2D, a: { x: number; y: number; w: number; h: number; fillColor: string; cornerStyle?: string; borderRadius?: number }, sf: number) {

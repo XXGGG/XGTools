@@ -130,7 +130,8 @@ const textOpacity = ref(1)
 // 通用样式状态
 const opacity = ref(1)
 const borderStyle = ref<BorderStyle>('solid')
-const lineStyle = ref<LineStyle>('sharp')
+// 默认手绘（和笔记里 Excalidraw 一样的手绘线条），2026-10-19 用户要的
+const lineStyle = ref<LineStyle>('sketch')
 const cornerStyle = ref<CornerStyle>('sharp')
 const borderRadius = ref(8)
 const arrowType = ref<ArrowType>('normal')
@@ -453,7 +454,7 @@ function loadAnnotationToPanel(ann: Annotation) {
   currentFillColor.value = ann.fillColor
   opacity.value = ann.opacity ?? 1
   borderStyle.value = ann.borderStyle ?? 'solid'
-  lineStyle.value = ann.lineStyle ?? 'sharp'
+  lineStyle.value = ann.lineStyle ?? 'sketch'
 
   // 按类型回填专属属性
   switch (ann.tool) {
@@ -2288,7 +2289,9 @@ const TOOL_META: ToolMeta[] = [
 const metaOf = (t: DrawTool) => TOOL_META.find((m) => m.tool === t) ?? TOOL_META[0]
 
 const TOOL_GROUPS: { id: string; nameKey: string; tools: DrawTool[] }[] = [
-  { id: 'shape', nameKey: 'groupShape', tools: [DrawTool.Rect, DrawTool.Diamond, DrawTool.Ellipse, DrawTool.Arrow, DrawTool.Line] },
+  { id: 'shape', nameKey: 'groupShape', tools: [DrawTool.Rect, DrawTool.Diamond, DrawTool.Ellipse] },
+  // 箭头最常用，单独一个按钮直接点（2026-10-19 用户要的），直线收在它的二级菜单里
+  { id: 'arrow', nameKey: 'groupArrow', tools: [DrawTool.Arrow, DrawTool.Line] },
   { id: 'draw', nameKey: 'groupDraw', tools: [DrawTool.Pen, DrawTool.Highlight] },
   { id: 'text', nameKey: 'groupText', tools: [DrawTool.Text, DrawTool.SerialNumber] },
   { id: 'mask', nameKey: 'groupMask', tools: [DrawTool.Blur, DrawTool.BlurFreeDraw, DrawTool.Watermark] },
@@ -2641,7 +2644,8 @@ function pickFromGroup(gid: string, tool: DrawTool) {
             @click="lineStyle = s; syncToolState()"
           >
             <svg width="24" height="12" viewBox="0 0 24 12">
-              <path v-if="s === 'sharp'" d="M2,10 L12,2 L22,10" stroke="currentColor" stroke-width="1.5" fill="none" />
+              <path v-if="s === 'sketch'" d="M2,10 L11.5,2.6 L22,10 M2.6,9.2 L12.4,1.8 L21.4,10.6" stroke="currentColor" stroke-width="1.1" fill="none" stroke-linecap="round" />
+              <path v-else-if="s === 'sharp'" d="M2,10 L12,2 L22,10" stroke="currentColor" stroke-width="1.5" fill="none" />
               <path v-else-if="s === 'curve'" d="M2,10 Q12,-2 22,10" stroke="currentColor" stroke-width="1.5" fill="none" />
               <path v-else d="M2,10 L12,2 L22,10" stroke="currentColor" stroke-width="3" fill="none" />
             </svg>

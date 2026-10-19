@@ -879,6 +879,7 @@ export const en: Messages = {
     toolWatermark: 'Watermark',
     toolEraser: 'Eraser (E)',
     groupShape: 'Shapes',
+    groupArrow: 'Arrows',
     groupDraw: 'Draw',
     groupText: 'Text',
     groupMask: 'Redact',
