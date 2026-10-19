@@ -28,6 +28,16 @@ pub fn voice_start() -> Result<(), String> {
     }
     let mut cmd = std::process::Command::new("uv");
     cmd.args(["run", "--quiet", "server.py"]).current_dir(&dir);
+    // 输出写进 %LOCALAPPDATA%\XGToolsoice.log：它在后台没窗口，挂了只能看这个
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let d = PathBuf::from(local).join("XGTools");
+        let _ = std::fs::create_dir_all(&d);
+        if let Ok(f) = std::fs::File::create(d.join("voice.log")) {
+            if let Ok(f2) = f.try_clone() {
+                cmd.stdout(f).stderr(f2);
+            }
+        }
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

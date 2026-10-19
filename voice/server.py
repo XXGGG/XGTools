@@ -119,8 +119,12 @@ def start_gsv():
     py = GSV_DIR / '.venv' / 'Scripts' / 'python.exe'
     if not py.exists() or (_gsv_proc and _gsv_proc.poll() is None):
         return
+    # GPT-SoVITS 启动时会把配置文件改写一遍：拷一份到 %LOCALAPPDATA% 再给它，别让它改仓库里的模板
+    cfg = LOCAL / 'XGTools' / 'gsv_infer.yaml'
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text((HERE / 'gsv_infer.yaml').read_text(encoding='utf-8'), encoding='utf-8')
     _gsv_proc = subprocess.Popen(
-        [str(py), 'api_v2.py', '-c', str(HERE / 'gsv_infer.yaml'), '-p', str(GSV_PORT)], cwd=str(GSV_DIR),
+        [str(py), 'api_v2.py', '-c', str(cfg), '-p', str(GSV_PORT)], cwd=str(GSV_DIR),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
 
@@ -227,6 +231,8 @@ TOOLS = [{'type': 'function', 'function': {
 class Assistant:
     def __init__(self):
         self.state = 'idle'  # idle / listening / thinking / speaking
+        # 游戏模式：全屏玩游戏时整个助手歇着（不听唤醒词、不录音、不回话），界面那边按前台程序开关它
+        self.paused = False
         self.history: list[dict] = []
         self.subs: set[asyncio.Queue] = set()
         self.turn_task: asyncio.Task | None = None
@@ -295,6 +301,8 @@ class Assistant:
             block = await asyncio.to_thread(self.mic_q.get)
             ms = len(block) / 16
             rms = float(np.sqrt(np.mean(block * block)))
+            if self.paused:
+                continue
             # 唤醒词：除了正在录音，其余时候都在听（说话时喊它 = 打断）
             if self.state != 'listening' and self.kws is not None:
                 self.kws_stream.accept_waveform(16000, block)
@@ -443,7 +451,7 @@ async def h_events(req):
     q: asyncio.Queue = asyncio.Queue()
     A.subs.add(q)
     try:
-        await resp.write(f"data: {json.dumps({'type': 'hello', 'state': A.state, 'history': A.history[-20:]}, ensure_ascii=False)}\n\n".encode())
+        await resp.write(f"data: {json.dumps({'type': 'hello', 'state': A.state, 'paused': A.paused, 'history': A.history[-20:]}, ensure_ascii=False)}\n\n".encode())
         while True:
             try:
                 ev = await asyncio.wait_for(q.get(), 15)
@@ -458,7 +466,20 @@ async def h_events(req):
 
 
 async def h_config(req):
-    CFG.update(await req.json())
+    new = await req.json()
+    # 唤醒词模型是中文的：英文 / 数字 / 符号会让 sherpa-onnx 直接把整个进程退掉（2026-10-19 用户设成 Fairy，
+    # 服务一收到设置就消失，查了半天）。不是纯中文就不接收，保留原来的唤醒词
+    word = str(new.get('wakeWord', CFG['wakeWord'])).strip()
+    bad = not re.fullmatch(r'[一-鿿]{2,8}', word)
+    if bad:
+        new['wakeWord'] = CFG['wakeWord']
+    CFG.update(new)
+    if bad:
+        try:
+            A.ensure_kws()
+        except Exception:
+            pass
+        return web.json_response({'ok': False, 'error': f'唤醒词只能是 2 到 8 个汉字，「{word}」用不了，还在用「{CFG["wakeWord"]}」'}, headers=CORS)
     try:
         A.ensure_kws()
     except Exception as e:
@@ -467,6 +488,8 @@ async def h_config(req):
 
 
 async def h_listen(_req):
+    if A.paused:
+        return web.json_response({'ok': False, 'error': '游戏模式中'}, headers=CORS)
     A.start_listening()
     return web.json_response({'ok': True}, headers=CORS)
 
@@ -474,15 +497,53 @@ async def h_listen(_req):
 async def h_ask(req):
     # 打字提问（不用麦克风）：界面以后的输入框、开发自测都走这里
     text = ((await req.json()).get('text') or '').strip()
-    if text:
+    if text and not A.paused:
         A.start_listening()
         A.set_state('thinking')
         A.turn_task = asyncio.create_task(A.turn(None, text))
     return web.json_response({'ok': True}, headers=CORS)
 
 
+async def h_say(req):
+    # 只念不聊：笔记「念给我听」用。念的过程中喊唤醒词 / 点球照样能打断
+    text = ((await req.json()).get('text') or '').strip()
+    if text:
+        A.stop_all()
+
+        async def go():
+            first: list = []
+            try:
+                A.set_state('speaking')
+                # 一段一段念，长文不用等全部合成完
+                parts = [p for p in re.split(r'(?<=[。！？!?\n])', text) if p.strip()]
+                chunk = ''
+                for p in parts:
+                    chunk += p
+                    if len(chunk) >= 60:
+                        await A.say(chunk, time.time(), first)
+                        chunk = ''
+                if chunk:
+                    await A.say(chunk, time.time(), first)
+                while A.player.busy():
+                    await asyncio.sleep(0.05)
+            finally:
+                A.set_state('idle')
+        A.turn_task = asyncio.create_task(go())
+    return web.json_response({'ok': True}, headers=CORS)
+
+
 async def h_stop(_req):
     A.stop_all()
+    return web.json_response({'ok': True}, headers=CORS)
+
+
+async def h_pause(req):
+    on = bool((await req.json()).get('on'))
+    if on and not A.paused:
+        A.stop_all()
+        A.rec = []
+    A.paused = on
+    A.emit(type='paused', on=on)
     return web.json_response({'ok': True}, headers=CORS)
 
 
@@ -499,7 +560,7 @@ async def h_health(_req):
                 gsv = r.status == 200
     except Exception:
         pass
-    return web.json_response({'ok': True, 'gsv': gsv, 'wake': A.kws is not None, 'state': A.state}, headers=CORS)
+    return web.json_response({'ok': True, 'gsv': gsv, 'wake': A.kws is not None, 'state': A.state, 'paused': A.paused}, headers=CORS)
 
 
 async def h_options(_req):
@@ -545,7 +606,9 @@ def main():
     app.router.add_post('/listen', h_listen)
     app.router.add_post('/stop', h_stop)
     app.router.add_post('/ask', h_ask)
+    app.router.add_post('/say', h_say)
     app.router.add_post('/clear', h_clear)
+    app.router.add_post('/pause', h_pause)
     app.router.add_route('OPTIONS', '/{tail:.*}', h_options)
     web.run_app(app, host='127.0.0.1', port=PORT, print=None)
 

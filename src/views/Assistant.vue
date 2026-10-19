@@ -24,10 +24,11 @@ const state = ref<'starting' | 'idle' | 'listening' | 'thinking' | 'speaking'>('
 const level = ref(0)
 const error = ref('')
 const latency = ref('')
+const gamePaused = ref(false)
 const showSettings = ref(false)
 const listEl = ref<HTMLElement | null>(null)
 
-const label = computed(() => ({
+const label = computed(() => gamePaused.value ? '游戏模式：全屏游戏中，先歇着' : ({
   starting: '正在叫醒语音服务…（第一次要等十几秒）',
   idle: cfg.value.wake ? `点一下，或者喊「${cfg.value.wakeWord}」` : '点一下，跟我说话',
   listening: '在听…（说完停一下就好）',
@@ -46,6 +47,7 @@ function connect() {
     switch (ev.type) {
       case 'hello':
         state.value = ev.state
+        gamePaused.value = !!ev.paused
         msgs.value = (ev.history ?? []).map((m: Msg) => ({ role: m.role, content: m.content }))
         scroll()
         break
@@ -72,6 +74,7 @@ function connect() {
         break
       case 'latency': latency.value = `开口用了 ${(ev.ms / 1000).toFixed(1)} 秒`; break
       case 'error': error.value = ev.text; break
+      case 'paused': gamePaused.value = ev.on; break
     }
   }
   es.onerror = () => { state.value = 'starting' }
@@ -126,6 +129,15 @@ onBeforeUnmount(() => es?.close())
         <label class="flex items-center gap-2"><input v-model="cfg.wake" type="checkbox" @change="save">后台听唤醒词</label>
         <label class="flex items-center gap-2">唤醒词<input v-model="cfg.wakeWord" class="w-28 rounded-md bg-background/60 px-2 py-1" @change="save"></label>
         <label class="flex items-center gap-2"><input v-model="cfg.search" type="checkbox" @change="save">允许上网查</label>
+      </div>
+      <div class="flex gap-4 flex-wrap items-center">
+        <label class="flex items-center gap-2" title="全屏玩游戏时，助手不听唤醒词、不回话，不占显卡。浏览器和播放器全屏看视频不算。">
+          <input v-model="cfg.gameMode" type="checkbox" @change="save">游戏模式（全屏游戏时歇着）
+        </label>
+        <label class="flex items-center gap-2 flex-1 min-w-60">这些程序也算游戏
+          <input :value="cfg.gameApps.join(', ')" placeholder="例如 LeagueClient.exe, steam.exe" class="flex-1 rounded-md bg-background/60 px-2 py-1"
+            @change="(e) => { cfg.gameApps = (e.target as HTMLInputElement).value.split(/[,，\s]+/).filter(Boolean); save() }">
+        </label>
       </div>
       <label class="grid gap-1">人设（{name} 换成名字，{now} 换成现在的日期和时间）
         <textarea v-model="cfg.persona" rows="6" class="rounded-md bg-background/60 px-2 py-1 font-mono text-xs" @change="save" />

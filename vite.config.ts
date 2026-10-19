@@ -54,7 +54,8 @@ export default defineConfig(async () => ({
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // voice/ 是语音助手的 Python 服务：它的 .venv、GPT-SoVITS 运行时会改的配置都在里面，一改就整页刷新
+      ignored: ["**/src-tauri/**", "**/voice/**"],
     },
   },
 }));

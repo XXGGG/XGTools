@@ -22,6 +22,10 @@ export type AssistantCfg = {
   wakeWord: string
   /** 允许它上网查 */
   search: boolean
+  /** 游戏模式：全屏游戏 / 指定程序在前台时助手歇着（见 lib/gameMode.ts） */
+  gameMode: boolean
+  /** 这些程序在前台也算游戏（exe 文件名，比如 LeagueClient.exe） */
+  gameApps: string[]
 }
 
 export const DEFAULT_PERSONA = `你是 {name}，夏戈的私人助手，一个温柔可爱的女生。
@@ -32,7 +36,7 @@ export const DEFAULT_PERSONA = `你是 {name}，夏戈的私人助手，一个�
 
 export const ASSISTANT_DEFAULTS: AssistantCfg = {
   name: 'Fairy', persona: DEFAULT_PERSONA, engine: 'gsv', voice: 'gentle', speed: 1.1, volume: 1.8,
-  model: 'qwen3.5:9b', wake: true, wakeWord: '小精灵', search: true,
+  model: 'qwen3.5:9b', wake: true, wakeWord: '小精灵', search: true, gameMode: true, gameApps: [],
 }
 
 const store = new LazyStore('assistant.json')

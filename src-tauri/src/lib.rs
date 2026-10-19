@@ -1,5 +1,6 @@
 mod dock_commands;
 mod voice_commands;
+mod game_mode;
 mod folder_icon_commands;
 mod screenshot_commands;
 mod ocr_commands;
@@ -182,6 +183,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // 窗口背景特效(云母/亚克力/模糊)
             // 语音助手：拉起本机语音服务
+            game_mode::foreground_info,
             voice_commands::voice_start,
             voice_commands::voice_stop,
             window_effects::set_window_effect,
