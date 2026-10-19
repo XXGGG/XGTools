@@ -1302,6 +1302,23 @@ defineExpose({
     return { from, to, empty: sel.empty }
   },
   wrap, color, setBlock, insertBlock, paste, clip, selectedText,
+  /** 当前选区（大模型改写要先记下位置：等它回来时人可能已经点到别处了） */
+  selectionRange: () => {
+    const sel = view.value?.state.selection.main
+    return sel ? { from: sel.from, to: sel.to } : null
+  },
+  /** 光标前面的全部文字（续写拿来当上文） */
+  textBefore: (pos: number) => view.value?.state.sliceDoc(0, pos) ?? '',
+  /** 把一段换成新文字，选中新文字（方便不满意就 Ctrl+Z） */
+  replaceRange: (from: number, to: number, text: string) => {
+    const ed = view.value
+    if (!ed) return
+    const len = ed.state.doc.length
+    from = Math.min(from, len)
+    to = Math.min(to, len)
+    ed.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from, head: from + text.length } })
+    ed.focus()
+  },
   selectAll: () => {
     const ed = view.value
     if (!ed) return

@@ -84,6 +84,7 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { open as openExternal } from '@tauri-apps/plugin-shell'
 import { menuFocusHandoff } from '@/lib/menuFocus'
 import ShortcutsDialog from '@/components/vault/ShortcutsDialog.vue'
+import { continueWriting, readAloud, rewrite, stopReading, type RewriteKind } from '@/lib/noteAi'
 import { INK_COLORS, type InkColor } from '@/components/editor/markdownShortcuts'
 
 const { t } = useI18n()
@@ -945,8 +946,55 @@ const ed = computed(() => editor.value)
  * 等用户点到菜单项时再去读已经晚了。
  */
 const selText = ref('')
+/** 右键那一刻的选区位置：大模型改写回来时按它替换（人可能已经点到别处了） */
+let selRange: { from: number; to: number } | null = null
 function onCtxOpen(open: boolean) {
-  if (open) selText.value = editor.value?.selectedText() ?? ''
+  if (open) {
+    selText.value = editor.value?.selectedText() ?? ''
+    selRange = editor.value?.selectionRange() ?? null
+  }
+}
+
+/* ── 大模型：改写选中的文字、续写、念给你听（见 lib/noteAi.ts） ── */
+const aiBusy = ref('')
+const aiError = ref('')
+async function aiRun(label: string, job: () => Promise<void>) {
+  aiBusy.value = label
+  aiError.value = ''
+  try {
+    await job()
+  }
+  catch (e) {
+    aiError.value = String(e instanceof Error ? e.message : e)
+    window.setTimeout(() => { aiError.value = '' }, 6000)
+  }
+  finally {
+    aiBusy.value = ''
+  }
+}
+function aiRewrite(kind: RewriteKind, label: string) {
+  const text = selText.value
+  const range = selRange
+  if (!text || !range) return
+  void aiRun(label, async () => {
+    const out = await rewrite(kind, text)
+    editor.value?.replaceRange(range.from, range.to, out)
+  })
+}
+function aiContinue() {
+  const range = selRange
+  if (!range) return
+  const before = editor.value?.textBefore(range.to) ?? ''
+  void aiRun('正在续写…', async () => {
+    const out = await continueWriting(before)
+    editor.value?.replaceRange(range.to, range.to, out)
+  })
+}
+const reading = ref(false)
+function aiRead() {
+  const text = selText.value || activeTab.value?.content || ''
+  reading.value = true
+  void aiRun('正在准备朗读…', () => readAloud(text)).finally(() => { window.setTimeout(() => { reading.value = false }, 1500) })
 }
 
 const TABLE_SNIPPET = '|  |  |\n| --- | --- |\n|  |  |'
@@ -2096,7 +2144,11 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
         <ContextMenu v-else-if="activeTab.kind === 'markdown'" v-model:open="ctxOpen"
           @update:open="onCtxOpen">
           <ContextMenuTrigger as-child>
-            <div @keydown="onEditorKey" class="flex-1 min-h-0 overflow-hidden">
+            <div @keydown="onEditorKey" class="relative flex-1 min-h-0 overflow-hidden">
+              <div v-if="aiBusy || aiError" class="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full px-3 py-1 text-xs shadow bg-popover/90 backdrop-blur flex items-center gap-1.5"
+                :class="aiError ? 'text-red-400' : 'text-muted-foreground'">
+                <span v-if="aiBusy" class="icon-[lucide--loader-2] w-3.5 h-3.5 animate-spin" />{{ aiBusy || aiError }}
+              </div>
               <MarkdownEditor ref="editor" v-model="activeTab.content"
                 :scroll-key="activeTab.path"
                 @update:model-value="activeTab && markEdited(activeTab.path)"
@@ -2225,6 +2277,40 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
               新增链接一天用不了几次。摆在外面的话这张菜单会长出一屏,
               而上面那两格格子才是你右键的真正理由。
             -->
+            <!-- 大模型：用「设置 → 大模型」里配的本机模型；念给你听用语音助手的声音 -->
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <span class="icon-[lucide--sparkles] w-4 h-4 mr-2" />AI
+              </ContextMenuSubTrigger>
+              <ContextMenuPortal>
+                <ContextMenuSubContent class="w-auto min-w-40 whitespace-nowrap">
+                  <template v-if="selText">
+                    <ContextMenuItem @select="aiRewrite('polish', '正在润色…')">
+                      <span class="icon-[lucide--wand-sparkles] w-4 h-4 mr-2" />润色
+                    </ContextMenuItem>
+                    <ContextMenuItem @select="aiRewrite('casual', '正在改口语…')">
+                      <span class="icon-[lucide--message-circle] w-4 h-4 mr-2" />改口语一点
+                    </ContextMenuItem>
+                    <ContextMenuItem @select="aiRewrite('shorten', '正在精简…')">
+                      <span class="icon-[lucide--fold-vertical] w-4 h-4 mr-2" />精简
+                    </ContextMenuItem>
+                    <ContextMenuItem @select="aiRewrite('expand', '正在扩写…')">
+                      <span class="icon-[lucide--unfold-vertical] w-4 h-4 mr-2" />写具体一点
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                  </template>
+                  <ContextMenuItem v-else @select="aiContinue">
+                    <span class="icon-[lucide--pen-line] w-4 h-4 mr-2" />从这里续写
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="aiRead">
+                    <span class="icon-[lucide--volume-2] w-4 h-4 mr-2" />{{ selText ? '念选中的' : '念这篇笔记' }}
+                  </ContextMenuItem>
+                  <ContextMenuItem @select="stopReading">
+                    <span class="icon-[lucide--square] w-4 h-4 mr-2" />停止朗读
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuPortal>
+            </ContextMenuSub>
             <ContextMenuSub>
               <ContextMenuSubTrigger>
                 <span class="icon-[lucide--ellipsis] w-4 h-4 mr-2" />{{ t('vault.ctxMore') }}
