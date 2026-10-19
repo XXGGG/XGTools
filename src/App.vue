@@ -95,6 +95,7 @@ import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
 import PaletteWindow from './palette/PaletteWindow.vue'
 import FontMiniWindow from './components/fonts/FontMiniWindow.vue'
+const FenceWindow = defineAsyncComponent(() => import('./components/dock/FenceWindow.vue'))
 import TrayMenu from './views/TrayMenu.vue'
 import ScreenshotWindow from './screenshot/ScreenshotWindow.vue'
 import PinWindow from './screenshot/PinWindow.vue'
@@ -153,6 +154,7 @@ const isKeyVisualizer = ref(false)
 const isDockWindow = ref(false)
 const isPaletteWindow = ref(false)
 const isFontMini = ref(false)
+const isFence = ref(false)
 const isTrayMenu = ref(false)
 const isScreenshotWindow = ref(false)
 const isPinWindow = ref(false)
@@ -194,6 +196,7 @@ onMounted(async () => {
   if (win.label === 'dock') { isDockWindow.value = true; return }
   if (win.label === 'palette') { isPaletteWindow.value = true; return }
   if (win.label === 'font_mini') { isFontMini.value = true; return }
+  if (win.label.startsWith('fence_')) { isFence.value = true; return }
   if (win.label === 'tray-menu') { isTrayMenu.value = true; return }
   if (win.label === 'screenshot') { isScreenshotWindow.value = true; return }
   if (win.label.startsWith('pin_')) { isPinWindow.value = true; return }
@@ -219,6 +222,8 @@ onMounted(async () => {
   currentView.value = resolveStartPage()
   // 按时间自动切系统深浅色（启动台 → 桌面 里开）
   void import('./lib/autoTheme').then(m => m.startAutoTheme())
+  // 桌面格子摆出来
+  void import('./lib/fences').then(m => m.restoreFences())
   // 记住停在哪一页，给「启动时打开：上次的页面」用（首页不算）
   watch(currentView, (v) => { if (v && v !== 'Home') settings.lastPage = v })
 
@@ -297,6 +302,7 @@ onMounted(async () => {
   <DockWindow v-else-if="isDockWindow" />
   <PaletteWindow v-else-if="isPaletteWindow" />
   <FontMiniWindow v-else-if="isFontMini" />
+  <FenceWindow v-else-if="isFence" />
   <TrayMenu v-else-if="isTrayMenu" />
   <ScreenshotWindow v-else-if="isScreenshotWindow" />
   <PinWindow v-else-if="isPinWindow" />
