@@ -357,13 +357,20 @@ impl Default for Settings {
     }
 }
 
+/// 启动台自己的设置文件。
+///
+/// 以前写的是 settings.json —— 和主程序 LazyStore('settings.json') 是同一个文件。
+/// 两边各自整份覆盖：主程序一保存就把启动台的字段冲掉，启动台一保存又把主程序的设置冲掉，
+/// 表现是「开了启动台，切回这页又是关的」（2026-10-19 用户报的）。现在各用各的文件。
+pub const DOCK_SETTINGS_FILE: &str = "dock_settings.json";
+
 #[tauri::command]
 pub fn get_settings(app: tauri::AppHandle) -> Result<Settings, String> {
     let file = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("settings.json");
+        .join(DOCK_SETTINGS_FILE);
     if !file.exists() {
         return Ok(Settings::default());
     }
@@ -378,7 +385,7 @@ pub fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<(), St
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("settings.json");
+        .join(DOCK_SETTINGS_FILE);
     let content = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(&file, content).map_err(|e| e.to_string())?;
     Ok(())

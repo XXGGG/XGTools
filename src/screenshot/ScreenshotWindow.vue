@@ -27,6 +27,60 @@ const containerRef = ref<HTMLDivElement>()
 const showToolbar = ref(false)
 const toolbarX = ref(0)
 const toolbarY = ref(0)
+/**
+ * 画框画线时笔尖快碰到工具栏，工具栏临时让开（这一笔画完再回原位）。
+ * 不让的话画到工具栏底下那块就被它挡住，只能先拖走工具栏再画 —— 2026-10-19 用户提的。
+ */
+const tbDodge = ref<{ x: number; y: number } | null>(null)
+const tbLeft = computed(() => tbDodge.value?.x ?? toolbarX.value)
+const tbTop = computed(() => tbDodge.value?.y ?? toolbarY.value)
+/** 右边那块属性面板（颜色、粗细、线条风格）同样让开：在它原本位置上额外挪一段 */
+const panelDodge = ref<{ dx: number; dy: number } | null>(null)
+
+function dodgePanel(px: number, py: number) {
+  const el = textPanelRef.value
+  if (!el) return
+  const M = 28
+  const r = el.getBoundingClientRect()
+  const near = (x: number, y: number) => px > x - M && px < x + r.width + M && py > y - M && py < y + r.height + M
+  if (!near(r.left, r.top)) return
+  const screenW = imgWidth / scaleFactor
+  const top = workTop + 4
+  const bottom = (workBottom || imgHeight / scaleFactor) - 4
+  const tries = [
+    { x: px - M - r.width - 8, y: r.top },
+    { x: px + M + 8, y: r.top },
+    { x: r.left, y: py - M - r.height - 8 },
+    { x: r.left, y: py + M + 8 },
+  ].map(c => ({ x: Math.max(4, Math.min(c.x, screenW - r.width - 4)), y: Math.max(top, Math.min(c.y, bottom - r.height)) }))
+  const ok = tries.find(c => !near(c.x, c.y))
+  if (!ok) return
+  const cur = panelDodge.value ?? { dx: 0, dy: 0 }
+  panelDodge.value = { dx: cur.dx + ok.x - r.left, dy: cur.dy + ok.y - r.top }
+}
+
+function dodgeToolbar(px: number, py: number) {
+  const el = document.querySelector('.toolbar') as HTMLElement | null
+  if (!el) return
+  const w = el.offsetWidth, h = el.offsetHeight
+  const M = 28 // 笔尖离工具栏还有这么远就开始让
+  const cur = tbDodge.value ?? { x: toolbarX.value, y: toolbarY.value }
+  const near = (x: number, y: number) => px > x - M && px < x + w + M && py > y - M && py < y + h + M
+  if (!near(cur.x, cur.y)) return
+  const screenW = imgWidth / scaleFactor
+  const top = workTop + 4
+  const bottom = (workBottom || imgHeight / scaleFactor) - 4
+  // 先试原位置的上下（翻到笔尖另一侧），再试左右，挑第一个不挡笔尖的
+  const home = { x: toolbarX.value, y: toolbarY.value }
+  const tries = [
+    { x: home.x, y: py - M - h - 8 },
+    { x: home.x, y: py + M + 8 },
+    { x: px - M - w - 8, y: home.y },
+    { x: px + M + 8, y: home.y },
+  ].map(c => ({ x: Math.max(4, Math.min(c.x, screenW - w - 4)), y: Math.max(top, Math.min(c.y, bottom - h)) }))
+  const ok = tries.find(c => !near(c.x, c.y))
+  if (ok) tbDodge.value = ok
+}
 
 // 工具选项面板
 const showOptions = ref(false)
@@ -76,7 +130,8 @@ const textOpacity = ref(1)
 // 通用样式状态
 const opacity = ref(1)
 const borderStyle = ref<BorderStyle>('solid')
-const lineStyle = ref<LineStyle>('sharp')
+// 默认手绘（和笔记里 Excalidraw 一样的手绘线条），2026-10-19 用户要的
+const lineStyle = ref<LineStyle>('sketch')
 const cornerStyle = ref<CornerStyle>('sharp')
 const borderRadius = ref(8)
 const arrowType = ref<ArrowType>('normal')
@@ -399,7 +454,7 @@ function loadAnnotationToPanel(ann: Annotation) {
   currentFillColor.value = ann.fillColor
   opacity.value = ann.opacity ?? 1
   borderStyle.value = ann.borderStyle ?? 'solid'
-  lineStyle.value = ann.lineStyle ?? 'sharp'
+  lineStyle.value = ann.lineStyle ?? 'sketch'
 
   // 按类型回填专属属性
   switch (ann.tool) {
@@ -990,8 +1045,9 @@ async function pinToScreen() {
       width: 1,
       height: 1,
       decorations: false,
-      shadow: true,
-      transparent: false,
+      // 透明、比图片大一圈：阴影和放在图外的关闭按钮都画在那一圈里（见 PinWindow.vue）
+      shadow: false,
+      transparent: true,
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: true,
@@ -1293,6 +1349,15 @@ async function toggleRecAudio() {
 }
 const translateResults = ref<TranslateBlock[]>([])
 const translateLoading = ref(false)
+/**
+ * 截图翻译的「这一轮」：中止（Esc、取消截图、退出翻译）时作废当前这轮。
+ * 以前中止了后台还在接着翻，翻完把结果贴到下一次截图上，或者白白跑完一串引擎 —— 2026-10-19 用户报的。
+ */
+let translateAbort: AbortController | null = null
+function abortTranslate() {
+  translateAbort?.abort()
+  translateAbort = null
+}
 
 async function runOcr() {
   const bgCanvas = canvasRef.value
@@ -1420,6 +1485,7 @@ function cancelCapture(): Promise<void> {
   translateMode.value = false
   recordMode.value = false
   translateResults.value = []
+  abortTranslate()
   translateLoading.value = false
   cancelTextEditor()
   selMgr?.reset()
@@ -1536,6 +1602,8 @@ function onMouseMove(e: MouseEvent) {
   // 标注绘制中
   if (annMgr.isDrawing) {
     annMgr.handleMouseMove(e)
+    dodgeToolbar(e.clientX, e.clientY)
+    dodgePanel(e.clientX, e.clientY)
     redraw()
     return
   }
@@ -1578,6 +1646,8 @@ function onMouseUp(e: MouseEvent) {
 
   if (annMgr.isResizing || annMgr.isMovingSelected || annMgr.isDrawing) {
     annMgr.handleMouseUp(e)
+    tbDodge.value = null
+    panelDodge.value = null
     // 画完/缩放后，回填属性到面板
     const sel = annMgr.getSelected()
     if (sel) {
@@ -1672,6 +1742,7 @@ function exitTranslateMode() {
     return
   }
   translateResults.value = []
+  abortTranslate()
   translateLoading.value = false
 }
 
@@ -1750,6 +1821,9 @@ async function runScreenshotTranslate() {
   const r = selMgr.rect
   if (r.w < 2 || r.h < 2) return
 
+  abortTranslate()
+  const run = new AbortController()
+  translateAbort = run
   translateLoading.value = true
 
   try {
@@ -1779,6 +1853,7 @@ async function runScreenshotTranslate() {
       headers: { 'x-scale-factor': sf.toFixed(3) },
     })
 
+    if (run.signal.aborted) return
     const blocks = result.text_blocks.filter(b => b.text_score > 0.3 && b.text.trim().length > 0)
     if (blocks.length === 0) {
       // 框里一个字都没有:没什么可翻的,也没什么可留在屏幕上的。
@@ -1794,12 +1869,16 @@ async function runScreenshotTranslate() {
     const targetLang: 'zh' | 'en' = chineseRatio > 0.3 ? 'en' : 'zh'
 
     // 3. 顺着翻译页配好的引擎链翻:AI 引擎合并成一次请求,其余逐块各自兜底
-    const { texts } = await translateBlocks(blocks.map(b => b.text), targetLang)
+    const { texts } = await translateBlocks(blocks.map(b => b.text), targetLang, run.signal)
+    if (run.signal.aborted) return
     translateResults.value = blocks.map((block, i) => ({ block, translated: texts[i] || block.text }))
   } catch (err) {
-    console.error('[ScreenshotTranslate] failed:', err)
+    if (!run.signal.aborted) console.error('[ScreenshotTranslate] failed:', err)
   } finally {
-    translateLoading.value = false
+    if (translateAbort === run) {
+      translateAbort = null
+      translateLoading.value = false
+    }
   }
 }
 
@@ -1975,6 +2054,7 @@ async function _doExecuteScreenshot() {
     ocrLoading.value = false
     ocrMode.value = false
     translateResults.value = []
+    abortTranslate()
     translateLoading.value = false
     cancelTextEditor()
     selMgr?.reset()
@@ -2209,7 +2289,9 @@ const TOOL_META: ToolMeta[] = [
 const metaOf = (t: DrawTool) => TOOL_META.find((m) => m.tool === t) ?? TOOL_META[0]
 
 const TOOL_GROUPS: { id: string; nameKey: string; tools: DrawTool[] }[] = [
-  { id: 'shape', nameKey: 'groupShape', tools: [DrawTool.Rect, DrawTool.Diamond, DrawTool.Ellipse, DrawTool.Arrow, DrawTool.Line] },
+  { id: 'shape', nameKey: 'groupShape', tools: [DrawTool.Rect, DrawTool.Diamond, DrawTool.Ellipse] },
+  // 箭头最常用，单独一个按钮直接点（2026-10-19 用户要的），直线收在它的二级菜单里
+  { id: 'arrow', nameKey: 'groupArrow', tools: [DrawTool.Arrow, DrawTool.Line] },
   { id: 'draw', nameKey: 'groupDraw', tools: [DrawTool.Pen, DrawTool.Highlight] },
   { id: 'text', nameKey: 'groupText', tools: [DrawTool.Text, DrawTool.SerialNumber] },
   { id: 'mask', nameKey: 'groupMask', tools: [DrawTool.Blur, DrawTool.BlurFreeDraw, DrawTool.Watermark] },
@@ -2307,7 +2389,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
     <div
       v-if="showToolbar && recordMode"
       class="toolbar"
-      :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
+      :style="{ left: tbLeft + 'px', top: tbTop + 'px' }"
       @mousedown.stop
     >
       <span class="toolbar-grip icon-[lucide--grip-vertical]" :title="t('shot.dragToolbar')"
@@ -2335,7 +2417,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
     <div
       v-if="showToolbar && !recordMode"
       class="toolbar"
-      :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
+      :style="{ left: tbLeft + 'px', top: tbTop + 'px' }"
       @mousedown.stop
     >
       <!-- 抓手:按住拖动整条工具栏 -->
@@ -2432,7 +2514,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
       v-if="showToolbar && showFloatingPanel"
       ref="textPanelRef"
       class="tool-panel"
-      :style="{ left: panelBaseX + 'px', top: panelBaseY + 'px', transform: `translate(${panelTransX}px, ${panelTransY}px)` }"
+      :style="{ left: panelBaseX + 'px', top: panelBaseY + 'px', transform: `translate(${panelTransX + (panelDodge?.dx ?? 0)}px, ${panelTransY + (panelDodge?.dy ?? 0)}px)` }"
       @mousedown.stop="onPanelMouseDown"
     >
       <!-- 拖拽手柄 -->
@@ -2562,7 +2644,8 @@ function pickFromGroup(gid: string, tool: DrawTool) {
             @click="lineStyle = s; syncToolState()"
           >
             <svg width="24" height="12" viewBox="0 0 24 12">
-              <path v-if="s === 'sharp'" d="M2,10 L12,2 L22,10" stroke="currentColor" stroke-width="1.5" fill="none" />
+              <path v-if="s === 'sketch'" d="M2,10 L11.5,2.6 L22,10 M2.6,9.2 L12.4,1.8 L21.4,10.6" stroke="currentColor" stroke-width="1.1" fill="none" stroke-linecap="round" />
+              <path v-else-if="s === 'sharp'" d="M2,10 L12,2 L22,10" stroke="currentColor" stroke-width="1.5" fill="none" />
               <path v-else-if="s === 'curve'" d="M2,10 Q12,-2 22,10" stroke="currentColor" stroke-width="1.5" fill="none" />
               <path v-else d="M2,10 L12,2 L22,10" stroke="currentColor" stroke-width="3" fill="none" />
             </svg>

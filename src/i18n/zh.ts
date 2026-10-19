@@ -882,6 +882,7 @@ export const zh = {
     toolWatermark: '水印',
     toolEraser: '橡皮擦 (E)',
     groupShape: '形状',
+    groupArrow: '箭头',
     groupDraw: '画笔',
     groupText: '文字',
     groupMask: '打码',

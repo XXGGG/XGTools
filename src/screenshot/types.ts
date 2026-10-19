@@ -57,7 +57,8 @@ export enum DrawTool {
 export type BorderStyle = 'solid' | 'dashed' | 'dotted'
 
 /** 线条风格 */
-export type LineStyle = 'sharp' | 'curve' | 'thick'
+/** sketch = 手绘（rough.js，和笔记里的 Excalidraw 同一种画法） */
+export type LineStyle = 'sketch' | 'sharp' | 'curve' | 'thick'
 
 /** 箭头类型 */
 export type ArrowType = 'thin' | 'normal' | 'block'
@@ -320,7 +321,7 @@ export const TEXT_ALIGNS = ['left', 'center', 'right'] as const
 export const BORDER_STYLES: BorderStyle[] = ['solid', 'dashed', 'dotted']
 
 /** 线条风格预设 */
-export const LINE_STYLES: LineStyle[] = ['sharp', 'curve', 'thick']
+export const LINE_STYLES: LineStyle[] = ['sketch', 'sharp', 'curve', 'thick']
 
 /** 箭头类型预设 */
 export const ARROW_TYPES: ArrowType[] = ['thin', 'normal', 'block']
