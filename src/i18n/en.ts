@@ -10,7 +10,6 @@ export const en: Messages = {
     vault: 'Notes',
     timer: 'Timer',
     todo24: 'To-do',
-    taskbar: 'Taskbar',
     assistant: 'Assistant',
     translate: 'Translate',
     convert: 'Convert',

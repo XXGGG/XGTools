@@ -1,7 +1,6 @@
 mod dock_commands;
 mod voice_commands;
 mod game_mode;
-mod taskbar_commands;
 mod system_theme;
 mod desktop_commands;
 mod folder_icon_commands;
@@ -193,11 +192,6 @@ pub fn run() {
             desktop_commands::file_icon,
             system_theme::system_theme_is_dark,
             system_theme::system_theme_set,
-            taskbar_commands::ttb_status,
-            taskbar_commands::ttb_read,
-            taskbar_commands::ttb_write,
-            taskbar_commands::ttb_start,
-            taskbar_commands::ttb_install,
             voice_commands::voice_start,
             voice_commands::voice_stop,
             window_effects::set_window_effect,
