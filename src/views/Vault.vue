@@ -1194,6 +1194,8 @@ async function openWiki(target: string) {
 // ── 搜索(按需展开) ──────────────────────────────────
 
 const searchOpen = ref(false)
+/** 目录栏右上角「⋮ 更多」菜单开着没有 */
+const treeMoreOpen = ref(false)
 const searchInput = useTemplateRef<HTMLInputElement>('searchInput')
 
 async function openSearch() {
@@ -1522,61 +1524,54 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
       <!-- ═══════ 文件树 ═══════ -->
       <div v-if="treeOpen && !zenMode" class="shrink-0 flex flex-col pl-1" :style="{ width: settings.vaultTreeWidth + 'px' }">
 
-        <!-- 2026-10-12 去掉底板：这一行做成「10 + 顶栏高」，中线和右上角三颗控制点对齐；按钮只在悬停时显出圆角底 -->
-        <div class="h-[calc(var(--bar-h)+10px)] shrink-0 flex items-center gap-0.5 px-1">
-          <!--
-            收起目录栏放最左:收起后那张「展开」方卡片也在最左边,收和开在同一个位置,手不用找。
-            后面一道细线隔开 —— 它是「这一栏要不要占地方」,和右边那几个「对这个库做什么」不是一类。
-          -->
-          <button @click="treeOpen = false" :title="t('vault.hideTree')" class="tool-btn">
-            <span class="icon-[lucide--panel-left-close] w-4 h-4" />
-          </button>
-          <span class="w-px h-5 mx-1 shrink-0 bg-border flat:bg-transparent" />
-          <!-- 工作区这一组:它决定了下面所有东西是什么,和「新建」不是一类操作 -->
-          <button @click="pickVault" :title="t('vault.changeFolder')" class="tool-btn">
-            <span class="icon-[lucide--folder-open] w-4 h-4" />
-          </button>
-          <button @click="confirmClear = true" :title="t('vault.removeVault')" class="tool-btn">
-            <span class="icon-[lucide--folder-x] w-4 h-4" />
-          </button>
-          <!-- 回收站也是「这个库整体」的事,跟工作区那两个放一组,不和新建混在一起 -->
-          <button @click="openTrash" :title="t('vault.trash')" class="tool-btn">
-            <span class="icon-[lucide--trash-2] w-4 h-4" />
-          </button>
-        </div>
-
       <aside class="flex-1 min-h-0 flex flex-col overflow-hidden">
         <!--
-          这一行平时是「搜索图标 + 四个常用操作」,点搜索才把输入框铺开盖住那四个。
-
-          搜索框原来常驻一整行,可它绝大多数时候是空的 —— 一个空输入框霸占
-          目录栏最显眼的位置,而真正天天点的新建/排序反而被挤到上面那张卡里。
-          现在换过来:常用的常驻,搜索按需展开。
+          目录栏顶上只留一行（2026-10-20 用户嫌两行太乱）：左边搜索，右边「⋮ 更多」。
+          收起/展开目录栏的按钮放在标签条最前面。
+          新建、排序、展开折叠、换文件夹、移除库、回收站都收进「更多」菜单。
+          这一行高「10 + 顶栏高」，中线和右上角三颗控制点对齐。
         -->
-        <div class="relative px-1 h-10 shrink-0">
-          <!-- 搜索框铺开时把这排按钮藏起来（以前靠搜索框的实底盖住，现在没有底板了） -->
+        <div class="relative px-1 h-[calc(var(--bar-h)+10px)] shrink-0">
+          <!-- 搜索框铺开时把这排按钮藏起来 -->
           <div class="flex items-center gap-0.5 h-full" :class="searchOpen ? 'invisible' : ''">
-            <button @click="openSearch" :title="t('vault.search')" class="tool-btn">
+            <button @click="openSearch" :title="t('vault.search')" class="bar-btn">
               <span class="icon-[lucide--search] w-4 h-4" />
             </button>
             <div class="flex-1" />
-            <button @click="newNote" class="tool-btn"
-              :title="targetDir ? t('vault.newNoteIn', { dir: targetDir }) : t('vault.newNoteAtRoot')">
-              <span class="icon-[lucide--file-plus] w-4 h-4" />
-            </button>
-            <button @click="newFolder" class="tool-btn"
-              :title="targetDir ? t('vault.newFolderIn', { dir: targetDir }) : t('vault.newFolderAtRoot')">
-              <span class="icon-[lucide--folder-plus] w-4 h-4" />
-            </button>
-            <button @click="setSort(vault.sortKey === 'name' ? 'modified' : 'name')"
-              :title="vault.sortKey === 'name' ? t('vault.sortByName') : t('vault.sortByTime')" class="tool-btn">
-              <span class="icon-[lucide--arrow-down-up] w-4 h-4" />
-            </button>
-            <!-- 展开和折叠合成一个开关:两个按钮长得像又互斥,分开只会让人犹豫点哪个 -->
-            <button @click="toggleAll" :title="anyExpanded ? t('vault.collapseAll') : t('vault.expandAll')" class="tool-btn">
-              <span class="w-4 h-4"
-                :class="anyExpanded ? 'icon-[lucide--chevrons-down-up]' : 'icon-[lucide--chevrons-up-down]'" />
-            </button>
+            <Popover v-model:open="treeMoreOpen">
+              <PopoverTrigger as-child>
+                <button :title="t('vault.more')" class="bar-btn" :class="{ 'bg-muted': treeMoreOpen }">
+                  <span class="icon-[lucide--ellipsis-vertical] w-4 h-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" :side-offset="4" class="w-52 p-1">
+                <button class="menu-row" @click="treeMoreOpen = false; newNote()">
+                  <span class="icon-[lucide--file-plus] w-4 h-4" />{{ t('vault.newNote') }}
+                </button>
+                <button class="menu-row" @click="treeMoreOpen = false; newFolder()">
+                  <span class="icon-[lucide--folder-plus] w-4 h-4" />{{ t('vault.newFolder') }}
+                </button>
+                <div class="my-1 h-px bg-border" />
+                <button class="menu-row" @click="setSort(vault.sortKey === 'name' ? 'modified' : 'name')">
+                  <span class="icon-[lucide--arrow-down-up] w-4 h-4" />{{ t('vault.sortMode') }}
+                  <span class="ml-auto text-xs text-muted-foreground">{{ vault.sortKey === 'name' ? t('vault.sortName') : t('vault.sortTime') }}</span>
+                </button>
+                <button class="menu-row" @click="treeMoreOpen = false; toggleAll()">
+                  <span class="w-4 h-4" :class="anyExpanded ? 'icon-[lucide--chevrons-down-up]' : 'icon-[lucide--chevrons-up-down]'" />
+                  {{ anyExpanded ? t('vault.collapseAll') : t('vault.expandAll') }}
+                </button>
+                <div class="my-1 h-px bg-border" />
+                <button class="menu-row" @click="treeMoreOpen = false; pickVault()">
+                  <span class="icon-[lucide--folder-open] w-4 h-4" />{{ t('vault.changeFolder') }}
+                </button>
+                <button class="menu-row" @click="treeMoreOpen = false; openTrash()">
+                  <span class="icon-[lucide--trash-2] w-4 h-4" />{{ t('vault.trash') }}
+                </button>
+                <button class="menu-row text-red-400" @click="treeMoreOpen = false; confirmClear = true">
+                  <span class="icon-[lucide--folder-x] w-4 h-4" />{{ t('vault.removeVault') }}
+                </button>
+              </PopoverContent>
+            </Popover>
           </div>
 
           <!-- 展开态整个盖上去,不是把按钮挤走 —— 挤走会让这一行的宽度跳一下 -->
@@ -1585,7 +1580,7 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
             以前输入框用的是半透明底,结果按钮的图标从搜索框里透出来,
             像是框里印了几个鬼影。圆角外面那点缝隙也要盖住,所以底垫在外层。
           -->
-          <div v-if="searchOpen" class="absolute inset-x-1 top-0.5 h-9 rounded-lg">
+          <div v-if="searchOpen" class="absolute inset-x-1 top-1/2 -translate-y-1/2 h-9 rounded-lg">
             <!-- z-10:输入框现在是实底的,不抬一层这个放大镜会被它盖住 -->
             <span class="icon-[lucide--search] w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 z-10
                          text-muted-foreground pointer-events-none" />
@@ -1795,16 +1790,11 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
         <div v-if="!zenMode" class="h-[calc(var(--bar-h)+10px)] shrink-0 flex items-center gap-1 mr-[calc(var(--ctrl-zone)-10px)]">
 
           <!--
-            目录栏收起来之后,展开按钮变成标签条前面一张 58×58 的方卡片。
-
-            和标签卡同高、正方形,看着就是「目录栏缩成了一个格子」——
-            展开的入口留在目录栏原来的位置,比原先那颗浮在左下角的按钮好找。
+            收起/展开目录栏：常驻在标签条最前面，高度和标签一样（2026-10-20 用户要求从目录栏挪过来）
           -->
-          <button v-if="!treeOpen" @click="treeOpen = true" :title="t('vault.showTree')"
-            class="size-[var(--bar-h)] shrink-0 rounded-[10px] hover:bg-muted/60
-                   flex items-center justify-center text-muted-foreground
-                   transition-colors hover:text-foreground">
-            <span class="icon-[lucide--panel-left-open] w-[18px] h-[18px]" />
+          <button @click="treeOpen = !treeOpen" :title="treeOpen ? t('vault.hideTree') : t('vault.showTree')"
+            class="bar-btn ml-1">
+            <span class="w-4 h-4" :class="treeOpen ? 'icon-[lucide--panel-left-close]' : 'icon-[lucide--panel-left-open]'" />
           </button>
 
           <!-- 标签卡:和工具卡同高(58),同一条基线 -->
@@ -2769,6 +2759,19 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
 }
 .menu-row:hover { background: color-mix(in srgb, var(--foreground) 8%, transparent); }
 
+/* 和标签同高(h-8)的小方按钮：目录栏顶上那排、标签条前面的收起按钮 */
+.bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  color: var(--muted-foreground);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.bar-btn:hover { background: color-mix(in oklab, var(--muted) 60%, transparent); color: var(--foreground); }
 .tool-btn {
   display: inline-flex;
   align-items: center;

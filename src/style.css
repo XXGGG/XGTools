@@ -493,3 +493,6 @@ button:not(:disabled),
   --xg-ink-brown: #d3a06a;
   --xg-ink-gray: #9ca3af;
 }
+
+/* 笔记页 .bar-btn 在扁平风格下跟标签一样矮（写在这里：scoped 里的 :global(X) .foo 会被吃掉后半截） */
+[data-ui="flat"] .bar-btn.bar-btn { width: var(--flat-tab-h); height: var(--flat-tab-h); border-radius: 0.375rem; }
