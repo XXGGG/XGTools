@@ -21,7 +21,6 @@ export const MENU_ITEMS: MenuItem[] = [
   // 上卡片:平时会打开来用的工具
   { id: 'Vault', labelKey: 'nav.vault', icon: 'icon-xg-obsidian', group: 'tool' },
   { id: 'Timer', labelKey: 'nav.timer', icon: 'icon-[lucide--timer]', group: 'tool' },
-  { id: 'Todo24', labelKey: 'nav.todo24', icon: 'icon-[lucide--list-checks]', group: 'tool' },
   { id: 'Translate', labelKey: 'nav.translate', icon: 'icon-[lucide--languages]', group: 'tool' },
   { id: 'Convert', labelKey: 'nav.convert', icon: 'icon-[lucide--arrow-right-left]', group: 'tool' },
   { id: 'Audio', labelKey: 'nav.audio', icon: 'icon-[lucide--audio-lines]', group: 'tool' },
