@@ -14,7 +14,7 @@ export const en: Messages = {
     audio: 'Audio',
     fonts: 'Fonts',
     prompt: 'Prompt',
-    dock: 'Launcher',
+    dock: 'Utilities',
     palette: 'Command palette',
     keyboard: 'Keyboard',
     screenshot: 'Screenshot',
@@ -537,6 +537,7 @@ export const en: Messages = {
   dock: {
     emptyTitle: 'No apps in the launcher yet',
     emptyHint: 'Add them under Launcher → Apps, or scan your Start menu',
+    tabLauncher: 'Launcher',
     tabGeneral: 'General',
     tabApps: 'Apps',
     tabIcons: 'Icons',

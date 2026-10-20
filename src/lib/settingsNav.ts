@@ -10,9 +10,7 @@ export const settingsTab = ref('general')
 
 const TAB_OF_VIEW: Record<string, string> = {
   Vault: 'vault',
-  Palette: 'palette',
   Translate: 'translate',
-  Assistant: 'assistant',
 }
 
 export const settingsTabFor = (view: string) => TAB_OF_VIEW[view] ?? 'general'

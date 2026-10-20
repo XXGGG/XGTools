@@ -7,8 +7,9 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { Tabs, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { useUpdater } from '@/composables/useUpdater'
-import PaletteSettings from '@/views/Palette.vue'
 import LlmSettings from '@/components/settings/LlmSettings.vue'
+import TranslateSettings from '@/components/settings/TranslateSettings.vue'
+import { settingsTab } from '@/lib/settingsNav'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SelectSeparator } from 'reka-ui'
@@ -31,6 +32,14 @@ import {
 } from '@/lib/shortcuts'
 
 const { t, setLocale } = useI18n()
+
+/** 「常规」里左边侧栏的三页 */
+const GENERAL_PAGES = [
+  { id: 'general', label: 'settings.general', icon: 'icon-[lucide--sliders-horizontal]' },
+  { id: 'keys', label: 'settings.keys', icon: 'icon-[lucide--keyboard]' },
+  { id: 'sidebar', label: 'settings.nav', icon: 'icon-[lucide--panel-left]' },
+] as const
+const generalPage = ref<'general' | 'keys' | 'sidebar'>('general')
 
 const version = ref('')
 const updater = useUpdater()
@@ -300,18 +309,30 @@ onUnmounted(() => {
 <template>
   <ScrollArea class="h-full">
     <div class="max-w-3xl mx-auto px-8 py-8">
-      <Tabs default-value="general">
+      <Tabs v-model="settingsTab">
         <TitleBarTabs>
           <TabsTrigger value="general" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.general') }}</TabsTrigger>
-          <TabsTrigger value="keys" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.keys') }}</TabsTrigger>
-          <TabsTrigger value="sidebar" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.nav') }}</TabsTrigger>
           <TabsTrigger value="vault" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.vault') }}</TabsTrigger>
-          <TabsTrigger value="palette" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('nav.palette') }}</TabsTrigger>
+          <TabsTrigger value="translate" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('nav.translate') }}</TabsTrigger>
           <TabsTrigger value="llm" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.llm') }}</TabsTrigger>
         </TitleBarTabs>
 
-        <!-- ================= 常规（含外观 / 关于）================= -->
-        <TabsContent value="general" class="space-y-6">
+        <!--
+          ================= 常规 =================
+          常规 / 快捷键 / 导航 三页放在左边侧栏里切，顶部只留四个大类（命令面板挪去了「多功能」页）
+        -->
+        <TabsContent value="general">
+        <div class="flex gap-6">
+        <nav class="w-28 shrink-0 space-y-1">
+          <button v-for="pg in GENERAL_PAGES" :key="pg.id"
+            class="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors"
+            :class="generalPage === pg.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'"
+            @click="generalPage = pg.id">
+            <span :class="pg.icon" class="w-4 h-4 shrink-0" />{{ t(pg.label) }}
+          </button>
+        </nav>
+        <div class="flex-1 min-w-0">
+        <div v-if="generalPage === 'general'" class="space-y-6">
           <div class="rounded-xl border divide-y">
             <div class="flex items-center gap-4 px-4 py-3.5">
               <span class="icon-[lucide--power] w-5 h-5 shrink-0 text-muted-foreground" />
@@ -420,10 +441,10 @@ onUnmounted(() => {
             </button>
           </div>
           </section>
-        </TabsContent>
+        </div>
 
-        <!-- ================= 导航 ================= -->
-        <TabsContent value="keys" class="space-y-5">
+        <!-- ================= 快捷键 ================= -->
+        <div v-if="generalPage === 'keys'" class="space-y-5">
           <div class="rounded-xl border divide-y">
             <div v-for="r in hkRows" :key="r.key" class="flex items-center gap-4 px-4 py-3.5">
               <span :class="[HK_META[r.key].icon, 'w-5 h-5 shrink-0 text-muted-foreground']" />
@@ -485,9 +506,10 @@ onUnmounted(() => {
             </div>
           </div>
           <p v-if="hkMsg" class="text-xs" :class="hkMsg.ok ? 'text-emerald-500' : 'text-red-500'">{{ hkMsg.text }}</p>
-        </TabsContent>
+        </div>
 
-        <TabsContent value="sidebar" class="space-y-5">
+        <!-- ================= 导航 ================= -->
+        <div v-if="generalPage === 'sidebar'" class="space-y-5">
           <!--
             候选只列**没被隐藏的**页:选一个自己关掉的页当启动页,
             结果只能是启动时被退回别的地方 —— 那就不该让人选得到。
@@ -572,11 +594,13 @@ onUnmounted(() => {
             </VueDraggable>
           </section>
 
+        </div>
+        </div>
+        </div>
         </TabsContent>
 
-        <!-- ================= 笔记 ================= -->
-        <TabsContent value="palette">
-          <PaletteSettings />
+        <TabsContent value="translate">
+          <TranslateSettings />
         </TabsContent>
 
         <TabsContent value="llm">

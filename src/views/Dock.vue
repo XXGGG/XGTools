@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsTrigger } from '@/components/ui/tabs'
 import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import DesktopTab from '@/components/dock/DesktopTab.vue'
+import PaletteSettings from '@/views/Palette.vue'
 import FolderIconMaker from '@/dock/FolderIconMaker.vue'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
@@ -50,7 +51,18 @@ interface Settings {
 }
 
 // --- State ---
-const currentTab = ref<'general' | 'apps' | 'icons' | 'folder' | 'desktop'>('general')
+const currentTab = ref<'general' | 'apps' | 'icons' | 'folder' | 'desktop' | 'palette'>('general')
+/**
+ * 顶部只有四类：启动台 / 文件夹图标 / 桌面 / 命令面板。
+ * 启动台自己的三页（通用设置、应用管理、图标管理）放在左边的侧栏里切，顶部选「启动台」时回到上次看的那一页。
+ */
+const LAUNCHER_PAGES = ['general', 'apps', 'icons'] as const
+const lastLauncher = ref<'general' | 'apps' | 'icons'>('general')
+const topTab = computed({
+  get: () => ((LAUNCHER_PAGES as readonly string[]).includes(currentTab.value) ? 'launcher' : currentTab.value),
+  set: (v: string) => { currentTab.value = (v === 'launcher' ? lastLauncher.value : v) as typeof currentTab.value },
+})
+watch(currentTab, (v) => { if ((LAUNCHER_PAGES as readonly string[]).includes(v)) lastLauncher.value = v as typeof lastLauncher.value })
 const apps = ref<AppEntry[]>([])
 const dockEnabled = ref(false)
 const settingsLoaded = ref(false)
@@ -556,15 +568,26 @@ async function saveIconName(id: string) {
       reka-ui 的 Tabs 靠 provide/inject 传上下文,走的是组件树不是 DOM 树,
       所以隔着 Teleport 照样工作,而内容块不必也塞进来。
     -->
-    <Tabs v-model="currentTab">
+    <Tabs v-model="topTab">
       <TitleBarTabs>
-        <TabsTrigger value="general" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabGeneral') }}</TabsTrigger>
-        <TabsTrigger value="apps" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabApps') }}</TabsTrigger>
-        <TabsTrigger value="icons" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabIcons') }}</TabsTrigger>
+        <TabsTrigger value="launcher" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabLauncher') }}</TabsTrigger>
         <TabsTrigger value="folder" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabFolder') }}</TabsTrigger>
         <TabsTrigger value="desktop" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('dock.tabDesktop') }}</TabsTrigger>
+        <TabsTrigger value="palette" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('nav.palette') }}</TabsTrigger>
       </TitleBarTabs>
     </Tabs>
+
+    <div class="flex-1 min-h-0 flex gap-6 max-w-4xl mx-auto w-full">
+    <!-- 启动台的三页：左边侧栏切 -->
+    <nav v-if="topTab === 'launcher'" class="w-32 shrink-0 space-y-1">
+      <button v-for="pg in ([['general', 'dock.tabGeneral', 'icon-[lucide--sliders-horizontal]'], ['apps', 'dock.tabApps', 'icon-[lucide--layout-grid]'], ['icons', 'dock.tabIcons', 'icon-[lucide--image]']] as const)" :key="pg[0]"
+        class="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors"
+        :class="currentTab === pg[0] ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'"
+        @click="currentTab = pg[0]">
+        <span :class="pg[2]" class="w-4 h-4 shrink-0" />{{ t(pg[1]) }}
+      </button>
+    </nav>
+    <div class="flex-1 min-w-0 min-h-0 flex flex-col">
 
     <!-- ==================== GENERAL TAB ==================== -->
     <div v-if="currentTab === 'general'" class="flex-1 overflow-y-auto space-y-3 max-w-2xl mx-auto w-full">
@@ -792,6 +815,7 @@ async function saveIconName(id: string) {
     <!-- ==================== FOLDER ICON TAB ==================== -->
     <FolderIconMaker v-if="currentTab === 'folder'" />
     <DesktopTab v-if="currentTab === 'desktop'" />
+    <div v-if="currentTab === 'palette'" class="flex-1 overflow-y-auto max-w-2xl mx-auto w-full"><PaletteSettings /></div>
 
     <!-- ==================== ICONS TAB ==================== -->
     <div v-if="currentTab === 'icons'" class="flex-1 flex flex-col max-w-2xl mx-auto w-full min-h-0">
@@ -877,6 +901,9 @@ async function saveIconName(id: string) {
           </div>
         </div>
       </div>
+    </div>
+
+    </div>
     </div>
 
     <!-- ==================== EDIT APP DIALOG ==================== -->

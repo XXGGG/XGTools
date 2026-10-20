@@ -8,7 +8,7 @@ export const zh = {
     audio: '音频试听',
     fonts: '字体库',
     prompt: '提示词',
-    dock: '启动台',
+    dock: '多功能',
     palette: '命令面板',
     keyboard: '键盘桌宠',
     screenshot: '截图',
@@ -531,6 +531,7 @@ export const zh = {
   dock: {
     emptyTitle: '启动台里还没有应用',
     emptyHint: '到「启动台 → 应用管理」里添加，或从开始菜单扫一批进来',
+    tabLauncher: '启动台',
     tabGeneral: '通用设置',
     tabApps: '应用管理',
     tabIcons: '图标管理',
