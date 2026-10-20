@@ -5,6 +5,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { Switch } from '@/components/ui/switch'
+import TimePicker from '@/components/TimePicker.vue'
 import { AUTO_THEME_DEFAULTS, loadAutoTheme, saveAutoTheme, type AutoTheme } from '@/lib/autoTheme'
 import { addFence, fencesShown, loadFences, removeFence, setFencesShown, updateFence, type Fence } from '@/lib/fences'
 import { listen } from '@tauri-apps/api/event'
@@ -85,11 +86,11 @@ onBeforeUnmount(() => off?.())
       <div class="flex items-center gap-6 pl-12 text-sm" :class="{ 'opacity-40 pointer-events-none': !theme.enabled }">
         <label class="flex items-center gap-2">
           <span class="icon-[lucide--sun] w-4 h-4 text-amber-400" />浅色从
-          <input v-model="theme.lightAt" type="time" class="rounded-md bg-background/60 border px-1.5 py-0.5" @change="save">
+          <TimePicker v-model="theme.lightAt" @change="save" />
         </label>
         <label class="flex items-center gap-2">
           <span class="icon-[lucide--moon] w-4 h-4 text-indigo-300" />深色从
-          <input v-model="theme.darkAt" type="time" class="rounded-md bg-background/60 border px-1.5 py-0.5" @change="save">
+          <TimePicker v-model="theme.darkAt" @change="save" />
         </label>
       </div>
     </div>

@@ -17,6 +17,7 @@ import { useI18n } from '@/i18n'
   在截图页动一下开关，命令面板的键就没了，而且没有任何报错。
 */
 import { syncAllShortcuts } from '@/lib/shortcuts'
+import ColorPicker from '@/components/ColorPicker.vue'
 
 const { t } = useI18n()
 
@@ -350,12 +351,11 @@ const bgColorPresets = [
                     ? { background: 'repeating-conic-gradient(#d0d0d0 0% 25%, transparent 0% 50%) 50%/10px 10px' }
                     : { backgroundColor: preset.value }"
                 />
-                <label class="relative cursor-pointer ml-1">
-                  <div class="w-7 h-7 rounded-lg border-2 border-dashed border-border hover:border-muted-foreground flex items-center justify-center text-muted-foreground transition-colors">
+                <ColorPicker :model-value="bgColor === 'transparent' ? '#f0f0f0' : bgColor" @update:model-value="bgColor = $event">
+                  <button class="ml-1 w-7 h-7 rounded-lg border-2 border-dashed border-border hover:border-muted-foreground flex items-center justify-center text-muted-foreground transition-colors">
                     <span class="icon-[lucide--plus] w-3.5 h-3.5" />
-                  </div>
-                  <input type="color" :value="bgColor === 'transparent' ? '#f0f0f0' : bgColor" @input="bgColor = ($event.target as HTMLInputElement).value" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                </label>
+                  </button>
+                </ColorPicker>
               </div>
             </div>
 
