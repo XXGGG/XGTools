@@ -103,6 +103,7 @@ import PinWindow from './screenshot/PinWindow.vue'
 import RecorderFrame from './screenshot/RecorderFrame.vue'
 import RecorderBar from './screenshot/RecorderBar.vue'
 import LongShotBar from './screenshot/LongShotBar.vue'
+import { settingsTab, settingsTabFor } from './lib/settingsNav'
 
 const { t } = useI18n()
 /*
@@ -503,7 +504,7 @@ onMounted(async () => {
             <span :class="item.icon" class="w-6 h-6 flat:w-[var(--flat-nav-icon)] flat:h-[var(--flat-nav-icon)]" />
           </button>
           <div v-if="configs.length" class="w-7 h-px bg-border flat:hidden" />
-          <button @click="currentView = 'Settings'" :title="t('nav.settings')" :class="[
+          <button @click="if (currentView !== 'Settings') settingsTab = settingsTabFor(currentView); currentView = 'Settings'" :title="t('nav.settings')" :class="[
             'size-11 shrink-0 rounded-xl flex items-center justify-center transition-colors flat:size-[var(--flat-nav-btn)] flat:rounded-lg',
             currentView === 'Settings' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           ]">
