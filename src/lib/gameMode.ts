@@ -13,11 +13,13 @@ const NOT_GAMES = new Set([
   'msedge.exe', 'chrome.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'arc.exe', 'vivaldi.exe',
   'potplayermini64.exe', 'potplayermini.exe', 'vlc.exe', 'mpv.exe', 'mpc-hc64.exe', 'mpc-be64.exe',
   'qqmusic.exe', 'cloudmusic.exe', 'bilibili.exe', 'neteasecloudmusic.exe', 'iqiyi.exe', 'qqlive.exe',
-  'powerpnt.exe', 'wps.exe', 'zoom.exe', 'teams.exe', 'explorer.exe', 'xgtools.exe',
+  'powerpnt.exe', 'wps.exe', 'zoom.exe', 'teams.exe', 'explorer.exe', 'xgtools.exe', 'xgcut-app.exe', 'claude.exe', 'code.exe',
 ])
 
 let timer = 0
 let paused = false
+/** 连着几次判成「在玩游戏」了：切窗口时一闪而过的全屏不算，连续 3 次（6 秒）才歇 */
+let streak = 0
 
 export function startGameMode() {
   if (timer) return
@@ -35,6 +37,8 @@ async function tick() {
       game = listed.includes(fg.exe) || (fg.fullscreen && !!fg.exe && !NOT_GAMES.has(fg.exe))
     }
   }
+  streak = game ? streak + 1 : 0
+  if (game && streak < 3) return
   if (game === paused) return
   const r = await fetch(`${VOICE_BASE}/pause`, { method: 'POST', body: JSON.stringify({ on: game }) }).catch(() => null)
   if (r?.ok) paused = game

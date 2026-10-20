@@ -1,0 +1,387 @@
+<!doctype html>
+<!--
+  Fairy 粒子球（XGTools 语音助手的样子）。从零手写，可随 XGTools 开源。
+
+  做法（参考了 fxhash 作品 Entangled 那种「丝带缠绕」的观感，代码与参数都是这里自己写的）：
+  1. 目标位置：每个粒子在球面上有一个「该去的地方」。粒子按序号分成若干条「丝带」，
+     同一条丝带上相邻序号的粒子取的是同一条噪声轨迹上相邻时刻的点 —— 于是它们连成一条在球面上游走的长带；
+     再给一部分粒子的噪声第三维加一点抖动，带子就散成薄纱。
+  2. 跟随：粒子不直接跳到目标，而是被弹簧拉过去（加速度 ∝ 距离）、带阻尼，速度大时再叠一点噪声乱流 ——
+     这就是「飘」的来源：目标在动，粒子拖着尾巴追。
+  3. 细丝：同一条丝带上隔几个序号的两个粒子之间连一根极淡的线，薄纱就有了网状的纤维感。
+  4. 另有：一层外飘的粒子（半径被噪声往外推）、一层静静绕着球面流的轮廓粒子、一颗同样结构的小内核。
+
+  控制：URL 参数 / postMessage({fairy:{...}}) 实时改，全部平滑过渡：
+    speed 流动快慢、spin 自转快慢（外壳和内核各绕一根随机轴、方向相反）、bright 亮度、size 球的半径、
+    pulse 胀缩 + 变亮（它说话时跟着声音）、swell 胀缩幅度、glow 只变亮（听你说话时跟着你的声音）、
+    shell / core 外壳和内核的颜色（#rrggbb）。
+  背景透明，球的半径按画布短边算，外飘的部分也留在画布里，不会被裁掉。
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Fairy</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:transparent}
+  canvas{display:block}
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from "three";
+import { GPUComputationRenderer } from "./vendor/GPUComputationRenderer.js";
+
+// ---------- 可调的量（目标值 T，显示值 S 逐帧追过去） ----------
+const Q = new URLSearchParams(location.search);
+const num = (k, d) => (Q.has(k) && !isNaN(parseFloat(Q.get(k)))) ? parseFloat(Q.get(k)) : d;
+const T = { speed: num("speed", 1), bright: num("bright", 1), size: num("size", 0.42), pulse: 0, glow: 0, spin: num("spin", 0.15), swell: num("swell", 1) };
+const S = { ...T };
+if (Q.get("bg")) document.documentElement.style.background = document.body.style.background = Q.get("bg");  // 单独打开调试时垫个底色
+addEventListener("message", (e) => {
+  const m = e.data && e.data.fairy;
+  if (!m || typeof m !== "object") return;
+  for (const k in m) if (k in T && typeof m[k] === "number") T[k] = m[k];
+  if (typeof m.shell === "string") shellTarget.set(m.shell);
+  if (typeof m.core === "string") coreTarget.set(m.core);
+});
+
+const SIDE = 512;                       // 512² ≈ 26 万个粒子
+const STRAND = 8192;                    // 一条丝带多少个粒子 → 32 条
+const shellColor = new THREE.Color(Q.get("shell") || "#e6ecf8");
+const coreColor = new THREE.Color(Q.get("core") || "#fbfdff");
+// 换颜色也是慢慢过渡过去
+const shellTarget = shellColor.clone(), coreTarget = coreColor.clone();
+
+// ---------- 渲染器 ----------
+const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: Q.get("shot") === "1" });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -10, 10);
+let W = 1, H = 1;
+// 浮点画布 + 映射到屏幕的那一步（见 ADD 上面的说明）
+const accum = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+const toneScene = new THREE.Scene();
+const toneCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const toneMat = new THREE.ShaderMaterial({
+  uniforms: { tSrc: { value: accum.texture } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tSrc; varying vec2 vUv;
+    void main(){
+      vec4 acc = texture2D(tSrc, vUv);
+      float m = max(max(acc.r, acc.g), acc.b);
+      if (m < 1e-5) { gl_FragColor = vec4(0.0); return; }
+      vec3 hue = acc.rgb / m;                 // 颜色（色相 + 饱和度）原样保留
+      float a = 1.0 - exp(-m * 0.85);          // 叠得越多越不透明，但不会冲白
+      gl_FragColor = vec4(hue, a);
+    }`,
+  transparent: true, depthTest: false, depthWrite: false,
+});
+toneScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), toneMat));
+
+function fit() {
+  W = innerWidth; H = innerHeight;
+  renderer.setSize(W, H);
+  const dpr = renderer.getPixelRatio();
+  accum.setSize(Math.max(1, Math.round(W * dpr)), Math.max(1, Math.round(H * dpr)));
+  const a = W / H;
+  // 正交相机：短边方向是 [-1, 1]，球的半径 = size（默认 0.3，外飘的部分大约到 0.42，留在画面里）
+  if (a >= 1) camera.left = -a, camera.right = a, camera.top = 1, camera.bottom = -1;
+  else camera.left = -1, camera.right = 1, camera.top = 1 / a, camera.bottom = -1 / a;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", fit); fit();
+
+// ---------- 噪声（Ashima 的 3D simplex，MIT） ----------
+const NOISE = `
+vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x,289.0);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1.0/6.0,1.0/3.0);const vec4 D=vec4(0.0,0.5,1.0,2.0);
+  vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.0-g;vec3 i1=min(g.xyz,l.zxy);vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx;vec3 x2=x0-i2+C.yyy;vec3 x3=x0-D.yyy;i=mod(i,289.0);
+  vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
+  float n_=1.0/7.0;vec3 ns=n_*D.wyz-D.xzx;vec4 j=p-49.0*floor(p*ns.z*ns.z);
+  vec4 x_=floor(j*ns.z);vec4 y_=floor(j-7.0*x_);vec4 x=x_*ns.x+ns.yyyy;vec4 y=y_*ns.x+ns.yyyy;vec4 h=1.0-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy);vec4 b1=vec4(x.zw,y.zw);vec4 s0=floor(b0)*2.0+1.0;vec4 s1=floor(b1)*2.0+1.0;vec4 sh=-step(h,vec4(0.0));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x);vec3 p1=vec3(a0.zw,h.y);vec3 p2=vec3(a1.xy,h.z);vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);m=m*m;
+  return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));}
+float hash1(float n){return fract(sin(n*12.9898)*43758.5453);}
+float hash2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+`;
+
+// ---------- GPU 模拟：目标 / 速度 / 位置 ----------
+const gpu = new GPUComputationRenderer(SIDE, SIDE, renderer);
+const COMMON = `
+uniform float uTime;
+uniform float uSize;
+uniform float uPulse;
+const float N = ${SIDE * SIDE}.0;
+const float STRAND = ${STRAND}.0;
+const float PI = 3.14159265;
+${NOISE}
+// 粒子 i 是哪一种：0 丝带 1 外飘 2 轮廓 3 内核 4 穿梭（在内核和外壳之间来回穿的丝带）
+float kindOf(float i){
+  float r = i / N;
+  if (sin(r * PI * 6.0) > 0.89) return 3.0;          // 约 15% 给内核：太多会挤成一团实心的亮球
+  float h = hash1(i * 0.731 + 4.1);
+  if (h < 0.16) return 1.0;
+  if (h < 0.25) return 2.0;
+  if (h < 0.52) return 4.0;
+  return 0.0;
+}
+// 球面坐标（经度 yaw、纬度 pitch）→ 单位向量
+vec3 sph(float yaw, float pitch){ float c = cos(pitch); return vec3(c * cos(yaw), sin(pitch), c * sin(yaw)); }
+`;
+
+const targetShader = `
+${COMMON}
+void main(){
+  vec2 uv = gl_FragCoord.xy / resolution.xy;
+  float i = floor(gl_FragCoord.y) * resolution.x + floor(gl_FragCoord.x);
+  float kind = kindOf(i);
+  float core = kind == 3.0 ? 1.0 : 0.0;
+  float strand = floor(i / STRAND);
+  float k = i - strand * STRAND;
+  float seed = hash1(strand * 3.17 + core * 51.0);
+  float R = uSize * (1.0 + uPulse * 0.08) * (core > 0.5 ? 0.38 : 1.0);
+  vec3 d;
+  if (kind == 2.0) {
+    // 轮廓：均匀撒在球面上的散点，各自慢慢漂
+    float yaw = hash2(uv * 300.0) * PI * 2.0 + uTime * (hash2(uv) - 0.5) * 0.08;
+    float pitch = asin(hash2(uv * 400.0) * 2.0 - 1.0) + uTime * (hash2(uv + 7.3) - 0.5) * 0.05;
+    d = sph(yaw, pitch);
+  } else {
+    // 丝带：一条丝带上相邻的粒子 = 同一条噪声轨迹上相邻时刻的点。
+    // 方向直接取三维噪声向量再归一化（不用经纬度，免得在两极挤成亮点）
+    float along = k * 0.0026 * (0.55 + seed);
+    float ta = (uTime * (0.6 + seed * 0.5) + along) * 0.05;
+    float spread = hash2(uv * 91.7) < 0.5 ? 0.0 : hash2(uv * 23.9) * 1.1;  // 一半粒子往旁边散开 → 带子变成薄纱
+    float lane = strand * 0.53 + core * 17.0 + spread;
+    vec3 nv = vec3(snoise(vec3(ta, 3.7, lane)), snoise(vec3(ta, 11.3, lane)), snoise(vec3(ta, 19.1, lane)));
+    d = normalize(nv + vec3(1e-4));
+    // 轻轻再揉一下，轨迹带点弯而不是规规矩矩的大圆弧
+    d = normalize(d + 0.16 * vec3(snoise(d * 1.1 + 21.0 + core), snoise(d * 1.1 + 33.0 + core), snoise(d * 1.1 + 45.0 + core)));
+  }
+  // 表面起伏：低频噪声把球面揉得不那么圆
+  float bump = smoothstep(0.0, 1.0, clamp(1.0 - pow(1.0 - snoise(d * 1.4 + core * 40.0), 2.0), 0.0, 1.0));
+  float r = kind == 2.0 ? R : R * (1.0 + bump * (core > 0.5 ? 0.12 : 0.07));   // 轮廓不起伏 → 一圈干净的亮边
+  if (kind == 4.0) {
+    // 沿着丝带一会儿钻进内核、一会儿浮到外壳，整条带子像在两层之间穿针引线；摆动也跟着时间流
+    float along = k * 0.0026;
+    float w = 0.5 + 0.5 * sin(along * 2.2 + uTime * (0.35 + seed * 0.4) + seed * 6.28);
+    w = smoothstep(0.0, 1.0, w);
+    r = mix(R * 0.4, R * 1.02, w);
+  }
+  if (kind == 1.0) {
+    // 外飘：往外推一段，推多少随位置和时间起伏（四次方 → 大部分贴着球，少数飞得远）
+    float a = pow(0.5 + 0.5 * snoise(d * 1.6 + vec3(0.0, 0.0, uTime * 0.1)), 3.0);
+    r += R * (0.04 + a * 0.6);
+  }
+  vec3 p = d * r;
+  gl_FragColor = vec4(p, kind);
+}`;
+
+const velShader = `
+${COMMON}
+void main(){
+  vec2 uv = gl_FragCoord.xy / resolution.xy;
+  vec3 pos = texture2D(texturePos, uv).xyz;
+  vec4 vel = texture2D(textureVel, uv);
+  vec3 tgt = texture2D(textureTarget, uv).xyz;
+  // 弹簧拉向目标 + 速度越快越乱的一点湍流 → 拖着尾巴、飘
+  vec3 acc = (tgt - pos) * 0.012;
+  float sp = length(vel.xyz) / max(uSize, 0.01);
+  vec3 q = pos / max(uSize, 0.01);
+  vec3 n = vec3(snoise(q * 1.3 + vec3(uTime * 0.1, 0.0, 0.0)), snoise(q * 1.6 + vec3(0.0, uTime * 0.1, 7.0)), snoise(q * 1.1 + vec3(3.0, 0.0, uTime * 0.1)));
+  acc += n * uSize * 0.007 * pow(clamp(sp * 14.0, 0.0, 1.0), 2.0);
+  vec3 v = (vel.xyz + acc) * 0.9;
+  gl_FragColor = vec4(v, 1.0);
+}`;
+
+const posShader = `
+${COMMON}
+uniform float uFrame;
+void main(){
+  vec2 uv = gl_FragCoord.xy / resolution.xy;
+  vec4 tgt = texture2D(textureTarget, uv);
+  vec3 pos = texture2D(texturePos, uv).xyz;
+  vec3 vel = texture2D(textureVel, uv).xyz;
+  // 第一帧：从球心一团炸开，弹簧把它们拉回各自的位置 —— 开场就有一下「绽开」
+  if (uFrame < 1.0) pos = tgt.xyz * 0.05;
+  else pos += vel;
+  gl_FragColor = vec4(pos, tgt.w);
+}`;
+
+const zero = gpu.createTexture();
+const vTarget = gpu.addVariable("textureTarget", targetShader, zero);
+const vVel = gpu.addVariable("textureVel", velShader, gpu.createTexture());
+const vPos = gpu.addVariable("texturePos", posShader, gpu.createTexture());
+gpu.setVariableDependencies(vTarget, []);
+gpu.setVariableDependencies(vVel, [vVel, vPos, vTarget]);
+gpu.setVariableDependencies(vPos, [vPos, vVel, vTarget]);
+for (const v of [vTarget, vVel, vPos]) {
+  v.material.uniforms.uTime = { value: 0 };
+  v.material.uniforms.uSize = { value: S.size };
+  v.material.uniforms.uPulse = { value: 0 };
+}
+vPos.material.uniforms.uFrame = { value: 0 };
+const err = gpu.init();
+if (err) console.error(err);
+
+// ---------- 点 ----------
+const idx = new Float32Array(SIDE * SIDE);
+for (let i = 0; i < idx.length; i++) idx[i] = i;
+const pointGeo = new THREE.BufferGeometry();
+pointGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(SIDE * SIDE * 3), 3));
+pointGeo.setAttribute("aIdx", new THREE.BufferAttribute(idx, 1));
+const shared = {
+  uPos: { value: null }, uBright: { value: 1 }, uPx: { value: 1 }, uSize: { value: S.size },
+  uShell: { value: shellColor }, uCore: { value: coreColor }, uFade: { value: 0 }, uOnly: { value: num("only", -1) },
+  uRotShell: { value: new THREE.Matrix3() }, uRotCore: { value: new THREE.Matrix3() },
+};
+// 自转：外壳和内核各绕一根随机的轴，方向相反；每次打开轴和正反都重新随机
+const randAxis = () => new THREE.Vector3(Math.random() - 0.5, 1.6 + Math.random(), Math.random() - 0.5).normalize();
+const axisShell = randAxis(), axisCore = randAxis();
+const dirShell = Math.random() < 0.5 ? 1 : -1;
+let angShell = Math.random() * 6.28, angCore = Math.random() * 6.28;
+const _m4 = new THREE.Matrix4();
+const ADD = {
+  transparent: true, depthTest: false, depthWrite: false,
+  blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+  blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor,
+};
+const pointMat = new THREE.ShaderMaterial({
+  ...ADD,
+  uniforms: shared,
+  vertexShader: `
+    uniform sampler2D uPos; uniform float uPx; uniform float uSize;
+    uniform mat3 uRotShell; uniform mat3 uRotCore;
+    attribute float aIdx; varying float vA; varying float vKind; varying float vMix;
+    float hash2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+    void main(){
+      vec2 uv = (vec2(mod(aIdx, ${SIDE}.0), floor(aIdx / ${SIDE}.0)) + 0.5) / ${SIDE}.0;
+      vec4 p = texture2D(uPos, uv);
+      vKind = p.w;
+      vMix = p.w == 3.0 ? 0.0 : p.w == 4.0 ? clamp((length(p.xyz) - uSize * 0.4) / (uSize * 0.6), 0.0, 1.0) : 1.0;
+      vec3 q = (p.w == 3.0 ? uRotCore : uRotShell) * p.xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(q, 1.0);
+      float h = hash2(vec2(aIdx, aIdx * 0.37));
+      float s = 0.8 + pow(h, 4.0) * 2.2;
+      float a = 0.32;
+      float g = hash2(vec2(aIdx * 1.7 + 3.1, aIdx));
+      if (g > 0.997) { s *= 1.6; a = 0.55; if (g > 0.9993) s *= 1.9; }   // 极少数亮星
+      vA = a;
+      gl_PointSize = max(0.8, s * uPx * (uSize / 0.42));
+    }`,
+  fragmentShader: `
+    uniform float uBright; uniform float uFade; uniform vec3 uShell; uniform vec3 uCore; uniform float uOnly;
+    varying float vA; varying float vKind; varying float vMix;
+    void main(){
+      if (uOnly >= 0.0 && vKind != uOnly) discard;   // 调试：只看某一类
+      vec2 c = gl_PointCoord - 0.5; float d = dot(c, c);
+      if (d > 0.25) discard;
+      float soft = 1.0 - d * 4.0;
+      vec3 col = mix(uCore, uShell, vMix);
+      float a = vA * (vKind == 3.0 ? 0.16 : 1.0) * soft * uBright * uFade * (vKind == 2.0 ? 1.4 : 1.0);
+      gl_FragColor = vec4(col * a, a);   // 预乘后累加进浮点画布
+    }`,
+});
+scene.add(new THREE.Points(pointGeo, pointMat));
+
+// ---------- 细丝：同一条丝带上隔几个序号的两点连一根极淡的线 ----------
+const LINES = SIDE * SIDE / 2;
+const lineIdx = new Float32Array(LINES * 2);
+for (let j = 0; j < LINES; j++) {
+  const a = j * 2;                     // 只连偶数号，省一半
+  lineIdx[j * 2] = a; lineIdx[j * 2 + 1] = Math.min(a + 6, SIDE * SIDE - 1);
+}
+// 每根线的两头：0 = 起点、1 = 终点（顶点着色器要知道另一头是谁）
+const lineEnd = new Float32Array(LINES * 2);
+for (let j = 0; j < LINES; j++) lineEnd[j * 2 + 1] = 1;
+const lineGeo = new THREE.BufferGeometry();
+lineGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(LINES * 2 * 3), 3));
+lineGeo.setAttribute("aIdx", new THREE.BufferAttribute(lineIdx, 1));
+lineGeo.setAttribute("aEnd", new THREE.BufferAttribute(lineEnd, 1));
+const lineMat = new THREE.ShaderMaterial({
+  ...ADD,
+  uniforms: shared,
+  vertexShader: `
+    uniform sampler2D uPos; uniform float uSize;
+    uniform mat3 uRotShell; uniform mat3 uRotCore;
+    attribute float aIdx; attribute float aEnd; varying float vA; varying float vKind;
+    vec4 at(float i){ vec2 uv = (vec2(mod(i, ${SIDE}.0), floor(i / ${SIDE}.0)) + 0.5) / ${SIDE}.0; return texture2D(uPos, uv); }
+    void main(){
+      vec4 p = at(aIdx);
+      vec4 o = at(aEnd > 0.5 ? aIdx - 6.0 : aIdx + 6.0);
+      float len = distance(p.xyz, o.xyz);
+      // 两头不是同一类、或者离得太远（跨到球另一边了）就不画
+      float ok = (p.w == o.w && p.w != 2.0 && len < uSize * 0.35) ? 1.0 : 0.0;
+      vA = ok * 0.14 * (1.0 - len / (uSize * 0.35));
+      vKind = p.w;
+      vec3 q = (p.w == 3.0 ? uRotCore : uRotShell) * p.xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(q, 1.0);
+    }`,
+  fragmentShader: `
+    uniform float uBright; uniform float uFade; uniform vec3 uShell; uniform vec3 uCore;
+    varying float vA; varying float vKind;
+    void main(){
+      float a = vA * uBright * uFade;
+      vec3 col = vKind == 3.0 ? uCore : uShell;
+      gl_FragColor = vec4(col * a, a);   // 预乘后累加进浮点画布
+    }`,
+});
+scene.add(new THREE.LineSegments(lineGeo, lineMat));
+
+// ---------- 主循环 ----------
+let time = 0, frame = 0, last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const k = 1 - Math.pow(0.02, dt);          // 约 1 秒追到目标
+  // 音量类的（pulse / glow）要跟得紧，其余约 1 秒平滑过去
+  for (const key in T) S[key] += (T[key] - S[key]) * (key === "pulse" || key === "glow" ? 1 - Math.pow(0.0005, dt) : k);
+  shellColor.lerp(shellTarget, k);
+  coreColor.lerp(coreTarget, k);
+  angShell += dt * S.spin * dirShell;
+  angCore -= dt * S.spin * dirShell * 1.35;
+  shared.uRotShell.value.setFromMatrix4(_m4.makeRotationAxis(axisShell, angShell));
+  shared.uRotCore.value.setFromMatrix4(_m4.makeRotationAxis(axisCore, angCore));
+  time += dt * S.speed;
+  for (const v of [vTarget, vVel, vPos]) {
+    v.material.uniforms.uTime.value = time;
+    v.material.uniforms.uSize.value = S.size;
+    v.material.uniforms.uPulse.value = S.pulse * S.swell;
+  }
+  vPos.material.uniforms.uFrame.value = frame;
+  gpu.compute();
+  shared.uPos.value = gpu.getCurrentRenderTarget(vPos).texture;
+  shared.uBright.value = S.bright * (1 + S.pulse * 0.6 * Math.min(1.5, S.swell) + S.glow * 0.9);
+  shared.uSize.value = S.size;
+  shared.uPx.value = renderer.getPixelRatio() * Math.min(W, H) / 800;
+  shared.uFade.value = Math.min(1, frame / 90);
+  renderer.setRenderTarget(accum);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear();
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  renderer.clear();
+  renderer.render(toneScene, toneCam);
+  frame++;
+  requestAnimationFrame(loop);
+}
+window.__fairyShot = () => { const c = document.createElement("canvas"); c.width = renderer.domElement.width; c.height = renderer.domElement.height; const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height); g.drawImage(renderer.domElement, 0, 0); return c.toDataURL("image/png"); };  // 调试截图（要带 ?shot=1）
+window.__fairy = { gpu, vPos, vTarget, vVel, renderer, THREE, S, T };
+requestAnimationFrame(loop);
+try { parent.postMessage({ fairy: "ready" }, "*"); } catch (_) {}
+</script>
+</body>
+</html>

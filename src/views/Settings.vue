@@ -9,6 +9,10 @@ import TitleBarTabs from '@/components/TitleBarTabs.vue'
 import { useUpdater } from '@/composables/useUpdater'
 import PaletteSettings from '@/views/Palette.vue'
 import LlmSettings from '@/components/settings/LlmSettings.vue'
+import TranslateSettings from '@/components/settings/TranslateSettings.vue'
+import AssistantSettings from '@/components/settings/AssistantSettings.vue'
+import OrbSettings from '@/components/settings/OrbSettings.vue'
+import { settingsTab } from '@/lib/settingsNav'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SelectSeparator } from 'reka-ui'
@@ -300,13 +304,15 @@ onUnmounted(() => {
 <template>
   <ScrollArea class="h-full">
     <div class="max-w-3xl mx-auto px-8 py-8">
-      <Tabs default-value="general">
+      <Tabs v-model="settingsTab">
         <TitleBarTabs>
           <TabsTrigger value="general" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.general') }}</TabsTrigger>
           <TabsTrigger value="keys" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.keys') }}</TabsTrigger>
           <TabsTrigger value="sidebar" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.nav') }}</TabsTrigger>
           <TabsTrigger value="vault" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.vault') }}</TabsTrigger>
           <TabsTrigger value="palette" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('nav.palette') }}</TabsTrigger>
+          <TabsTrigger value="translate" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('nav.translate') }}</TabsTrigger>
+          <TabsTrigger value="assistant" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('nav.assistant') }}</TabsTrigger>
           <TabsTrigger value="llm" class="h-full px-4 rounded-[10px] hover:text-foreground">{{ t('settings.llm') }}</TabsTrigger>
         </TitleBarTabs>
 
@@ -577,6 +583,15 @@ onUnmounted(() => {
         <!-- ================= 笔记 ================= -->
         <TabsContent value="palette">
           <PaletteSettings />
+        </TabsContent>
+
+        <TabsContent value="translate">
+          <TranslateSettings />
+        </TabsContent>
+
+        <TabsContent value="assistant" class="space-y-6">
+          <AssistantSettings />
+          <OrbSettings />
         </TabsContent>
 
         <TabsContent value="llm">
