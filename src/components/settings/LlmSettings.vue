@@ -7,8 +7,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { LLM_DEFAULTS, listLocalModels, loadLlm, saveLlm, type LlmCfg, type LlmFeature, type LocalModel } from '@/lib/llm'
-import { loadAssistantCfg, saveAssistantCfg } from '@/lib/assistant'
+import { LLM_DEFAULTS, listLocalModels, loadLlm, saveLlm, syncTranslateCustom, type LlmCfg, type LlmFeature, type LocalModel } from '@/lib/llm'
 
 const cfg = ref<LlmCfg>({ ...LLM_DEFAULTS, think: { ...LLM_DEFAULTS.think } })
 const models = ref<LocalModel[] | null>(null)
@@ -33,9 +32,8 @@ async function save() {
   // 模型不支持思考，开关全按关存
   if (!canThink.value) cfg.value.think = { translate: false, prompt: false, notes: false }
   await saveLlm(cfg.value)
-  // 语音助手用同一个模型
-  const a = await loadAssistantCfg()
-  if (a.model !== cfg.value.model) await saveAssistantCfg({ ...a, model: cfg.value.model }).catch(() => {})
+  // 翻译的「AI 自定义接口」指到同一个本机模型
+  await syncTranslateCustom(cfg.value)
 }
 
 function gb(n: number) {

@@ -5,7 +5,7 @@
  *  - 翻译：翻译引擎链里的本机 AI 引擎，开不开思考看 think.translate（默认关，开了一句话要想十几秒）
  *  - 提示词：Anima 打磨，think.prompt
  *  - 笔记：改写、续写这些，think.notes
- *  - 语音助手：用同一个模型
+ *  - 翻译设置里的「AI 自定义接口」和这里是同一个本机模型，两边改了互相同步（syncTranslateCustom / fromTranslateCustom）
  * 本机没装 Ollama 或者没有这个模型时，这些功能自己退回原来的做法（翻译链、直译），不报错。
  */
 import { LazyStore } from '@tauri-apps/plugin-store'
@@ -39,6 +39,30 @@ export async function saveLlm(c: LlmCfg) {
   cache = c
   await store.set('config', c)
   await store.save()
+}
+
+/* ── 和翻译设置里的「AI 自定义接口」对齐：那边存的是 OpenAI 兼容地址（Ollama 是 <地址>/v1） ── */
+
+const settingsStore = new LazyStore('settings.json')
+type AiConfig = { api_key: string; api_url: string; model: string }
+
+/** 「大模型」改了：把翻译的「AI 自定义接口」也指到同一个本机模型（提前给翻译配好，不用再填一遍） */
+export async function syncTranslateCustom(c: LlmCfg) {
+  await settingsStore.init()
+  const cfgs = (await settingsStore.get<Record<string, AiConfig>>('translate_ai_configs')) ?? {}
+  const cur = cfgs.custom ?? { api_key: '', api_url: '', model: '' }
+  cfgs.custom = { api_key: cur.api_key || 'ollama', api_url: `${c.url.replace(/\/+$/, '')}/v1`, model: c.model }
+  await settingsStore.set('translate_ai_configs', cfgs)
+  await settingsStore.save()
+}
+
+/** 翻译那边改了「AI 自定义接口」、而且指的是本机：反过来更新「大模型」 */
+export async function fromTranslateCustom(cfg: AiConfig) {
+  const base = cfg.api_url.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '').replace(/\/v1$/, '')
+  if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(base)) return
+  const c = await loadLlm()
+  if (c.url === base && c.model === cfg.model) return
+  await saveLlm({ ...c, url: base, model: cfg.model || c.model })
 }
 
 /** 某个功能要不要开思考（模型不支持思考时永远是关） */

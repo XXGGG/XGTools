@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import InfoTip from '@/components/InfoTip.vue'
+import { fromTranslateCustom, loadLlm } from '@/lib/llm'
 import { useI18n } from '@/i18n'
 
 const { t } = useI18n()
@@ -99,6 +100,8 @@ async function save() {
   await store.set('translate_ai_configs', aiConfigs.value)
   await store.set('translate_ai_validated', aiValidated.value)
   await store.save()
+  // 「AI 自定义接口」指的是本机时，和「大模型」那页对齐
+  await fromTranslateCustom(aiConfigs.value.custom)
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -109,7 +112,16 @@ function debounceSave() {
 
 watch([chain, race], () => { if (loaded.value) void save() }, { deep: true })
 
-onMounted(async () => { await load(); void checkLocalModel() })
+onMounted(async () => {
+  await load()
+  // 「AI 自定义接口」还没配过：直接用「大模型」那页选好的本机模型，提前配好
+  if (!aiConfigs.value.custom.api_url) {
+    const c = await loadLlm()
+    aiConfigs.value.custom = { api_key: aiConfigs.value.custom.api_key || 'ollama', api_url: `${c.url.replace(/\/+$/, '')}/v1`, model: c.model }
+    await save()
+  }
+  void checkLocalModel()
+})
 
 async function fetchModels(engineId: string) {
   if (engineId === 'custom') return
