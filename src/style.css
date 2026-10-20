@@ -255,17 +255,33 @@ body.vibrancy:not(.palette-window):not(.tray-window) {
   --accent: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
 
-body.vibrancy .bg-card,
-body.vibrancy .bg-background,
 /*
-  浮层(右键菜单、下拉、气泡)不跟着底面的不透明度走。
-  它们是压在内容上面的临时表面 —— 底面调到 0 时,跟着透会让菜单文字和
-  它盖住的正文糊在一起,根本读不清。所以给一个下限:至少 88% 实心,
-  再叠一点毛玻璃兜住背后的高对比内容。
+  开了云母/亚克力：所有面板都和左边导航栏那两张一样，只淡淡染一层前景色、留一圈细边，
+  材质直接透过来（2026-10-20 用户要求「所有二级面板和右键的材质全部和选择的材质一致」——
+  以前卡片刷回 92% 实心，编辑器顶栏、底部状态栏、设置里的选项块看着是一块块白板）。
 */
-body.vibrancy .bg-popover {
-  background-color: color-mix(in srgb, var(--popover) 92%, transparent);
-  backdrop-filter: blur(12px) saturate(1.4);
+/* 只管面板。开关的圆点、滑块的圆钮这类小控件也用 bg-background 当底色，
+   被刷成 4% 就整个看不见了（开关打开时只剩一条白条，分不清开没开 —— 2026-10-20 用户截图报的），
+   所以它们排除在外，照组件自己的颜色走 */
+body.vibrancy .bg-card:not([data-slot$="-thumb"]),
+body.vibrancy .bg-background:not([data-slot$="-thumb"]) {
+  background-color: color-mix(in srgb, var(--foreground) 4%, transparent);
+  border-color: color-mix(in srgb, var(--foreground) 9%, transparent);
+}
+/*
+  浮层(右键菜单、下拉、气泡)也走同一种材质，只是它盖在内容上面：
+  对话框、窄窗口拉出来的抽屉同理：它们也是盖在内容上的。
+  注意：透明窗口的 WebView2 里 backdrop-filter **完全不生效**（2026-10-20 实测，盖在正文上的测试块字照样清楚），
+  毛玻璃只能靠底色的不透明度来近似 —— 55% 时背后的目录字清清楚楚地透出来，用户说看不清；85% 字还是透，最后定 95%。
+*/
+body.vibrancy .bg-popover,
+body.vibrancy [data-slot="dialog-content"],
+body.vibrancy [data-slot="alert-dialog-content"],
+body.vibrancy :is(.tree-drawer, .font-drawer, .flat-keep).bg-card,
+body.vibrancy :is(.tree-drawer, .font-drawer, .flat-keep).bg-background {
+  background-color: color-mix(in srgb, var(--popover) 95%, transparent);
+  border-color: color-mix(in srgb, var(--foreground) 10%, transparent);
+  backdrop-filter: blur(28px) saturate(1.8);
 }
 
 /* Tabs 里被选中的那一项要比 TabsList 再实一点,否则和背板糊在一起分不出选没选。
