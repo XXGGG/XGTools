@@ -663,7 +663,7 @@ onBeforeUnmount(() => {
 
         <section class="f-group fg fg-fav">
           <button @click="cat = 'fav'" class="cat-row cat-head" :class="cat === 'fav' ? 'is-active' : ''">
-            <span class="icon-[lucide--star] w-4 h-4 shrink-0" />
+            <span class="icon-[tabler--star-filled] w-4 h-4 shrink-0" />
             <span class="flex-1 truncate">{{ t('fonts.catFav') }}</span>
             <span class="cat-n">{{ settings.fontFavorites.length }}</span>
           </button>

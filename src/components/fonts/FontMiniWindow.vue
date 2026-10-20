@@ -27,7 +27,7 @@ const win = getCurrentWebviewWindow()
 
 type Tab = 'game' | 'video' | 'ps' | 'fav'
 const TABS: { id: Tab; icon: string; label: string }[] = [
-  { id: 'fav', icon: 'icon-[lucide--star]', label: 'fonts.catFav' },
+  { id: 'fav', icon: 'icon-[tabler--star-filled]', label: 'fonts.catFav' },
   { id: 'game', icon: 'icon-[lucide--gamepad-2]', label: 'fonts.groupGame' },
   { id: 'video', icon: 'icon-[lucide--clapperboard]', label: 'fonts.miniVideo' },
   { id: 'ps', icon: 'icon-[lucide--image]', label: 'fonts.groupPs' },

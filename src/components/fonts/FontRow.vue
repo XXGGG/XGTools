@@ -102,7 +102,7 @@ function onMove(e: PointerEvent) {
     <div class="w-[196px] shrink-0 min-w-0" :class="dim ? 'opacity-55' : ''">
       <div class="flex items-center gap-1.5 min-w-0">
         <span class="text-[14px] font-medium truncate" :title="name">{{ name }}</span>
-        <span v-if="favorite" class="icon-[lucide--star] w-3 h-3 shrink-0" :style="{ color: '#f2b21c' }" />
+        <span v-if="favorite" class="icon-[tabler--star-filled] w-3 h-3 shrink-0" :style="{ color: '#f2b21c' }" />
       </div>
       <div v-if="nameEn && nameEn !== name" class="text-[11.5px] text-muted-foreground truncate" :title="nameEn">
         {{ nameEn }}
@@ -130,7 +130,7 @@ function onMove(e: PointerEvent) {
       :class="selected ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'">
       <button @click.stop="emit('fav')" :title="favLabel" class="row-btn"
         :style="favorite ? { color: '#f2b21c' } : undefined">
-        <span class="icon-[lucide--star] w-4 h-4" />
+        <span :class="favorite ? 'icon-[tabler--star-filled]' : 'icon-[lucide--star]'" class="w-4 h-4" />
       </button>
       <button @click.stop="emit('copy')" :title="copyLabel" class="row-btn">
         <span class="icon-[lucide--copy] w-4 h-4" />
