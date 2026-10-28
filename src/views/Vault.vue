@@ -9,7 +9,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, useTemplate
 import { useI18n } from '@/i18n'
 import {
   vault, hasVault, activeTab, dirtyPaths, fileBadge, displayName,
-  restoreVault, bindVaultEvents, pickVault, toggleDir, collapseAll, expandAll, setSort,
+  restoreVault, bindVaultEvents, pickVault, toggleDir, refreshDir, collapseAll, expandAll, setSort,
   openFile, closeTab, closeAllTabs, saveActive, createEntry, createWithContent, clearVault,
   renameEntry, deleteEntry, moveEntry, revealEntry, copyPath, markEdited,
   trashList, trashRestore, trashPurge, type TrashItem,
@@ -1517,6 +1517,25 @@ const conflict = computed(() => vault.conflicts[0] ?? null)
           {{ t('vault.pickFolder') }}
         </button>
         <p v-if="vault.error" class="mt-4 text-xs text-red-500 wrap-break-word">{{ vault.error }}</p>
+      </div>
+    </div>
+
+    <!-- ═══════ 工作区文件夹找不到了 ═══════ -->
+    <div v-else-if="vault.rootMissing" class="flex-1 flex items-center justify-center">
+      <div class="max-w-sm text-center px-6">
+        <span class="icon-[lucide--folder-x] w-10 h-10 mx-auto block text-muted-foreground/60" />
+        <p class="mt-5 text-[15px] leading-relaxed">{{ t('vault.rootMissing') }}</p>
+        <p class="mt-2 text-xs text-muted-foreground break-all">{{ vault.root }}</p>
+        <div class="mt-5 flex items-center justify-center gap-2">
+          <button @click="refreshDir('')"
+            class="h-10 px-4 rounded-xl border border-border text-sm hover:bg-muted transition-colors">
+            {{ t('vault.retry') }}
+          </button>
+          <button @click="pickVault"
+            class="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium">
+            {{ t('vault.changeFolder') }}
+          </button>
+        </div>
       </div>
     </div>
 

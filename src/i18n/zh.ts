@@ -284,6 +284,8 @@ export const zh = {
     pickHint: '选一个文件夹当作笔记工作区。里面的 md 文件会显示在左边，随时可以换。',
     pickFolder: '选择文件夹',
     changeFolder: '换一个工作区',
+    rootMissing: '找不到这个工作区，文件夹可能被移动、改名或删掉了',
+    retry: '重试',
     newNote: '新建笔记',
     newFolder: '新建文件夹',
     newNoteName: '未命名.md',

@@ -290,6 +290,8 @@ export const en: Messages = {
     pickHint: 'Pick a folder to use as your notes workspace. Its markdown files show up on the left; you can switch any time.',
     pickFolder: 'Choose a folder',
     changeFolder: 'Switch workspace',
+    rootMissing: "Can't find this workspace. The folder may have been moved, renamed or deleted.",
+    retry: 'Retry',
     newNote: 'New note',
     newFolder: 'New folder',
     newNoteName: 'Untitled.md',

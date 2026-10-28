@@ -57,6 +57,8 @@ export const vault = reactive<{
   hits: Hit[]
   searching: boolean
   error: string
+  /** 工作区文件夹本身读不到了（被删、被改名、移动硬盘没插）。笔记页中间改成「找不到工作区」 */
+  rootMissing: boolean
   loading: boolean
   /**
    * 外部改动等你拍板的清单。
@@ -78,6 +80,7 @@ export const vault = reactive<{
   searching: false,
   conflicts: [],
   error: '',
+  rootMissing: false,
   loading: false,
 })
 
@@ -370,8 +373,11 @@ export async function refreshDir(rel: string) {
     const list = await invoke<Entry[]>('vault_list', { root: vault.root, rel })
     vault.children = { ...vault.children, [rel]: sortEntries(list) }
     vault.error = ''
+    if (rel === '') vault.rootMissing = false
   } catch (e) {
-    vault.error = String(e)
+    // 根目录都列不出来 = 工作区没了。不往目录栏底下塞一行红字，交给页面中间的空状态
+    if (rel === '') vault.rootMissing = true
+    else vault.error = String(e)
   } finally {
     vault.loading = false
   }
