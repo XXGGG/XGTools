@@ -25,6 +25,7 @@ mod vault_history;
 mod vault_trash;
 mod vault_watch;
 mod file_search_commands;
+mod skills_commands;
 mod tray;
 
 #[cfg(windows)]
@@ -185,6 +186,10 @@ pub fn run() {
             desktop_commands::desktop_icons_visible,
             desktop_commands::desktop_icons_set,
             desktop_commands::shell_open_path,
+            // Skills 页
+            skills_commands::skills_scan,
+            skills_commands::skills_usage,
+            skills_commands::skills_read,
             desktop_commands::file_icon,
             system_theme::system_theme_is_dark,
             system_theme::system_theme_set,

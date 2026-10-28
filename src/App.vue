@@ -90,6 +90,7 @@ import TranslateView from './views/Translate.vue'
 const ConvertView = defineAsyncComponent(() => import('./views/Convert.vue'))
 const AudioView = defineAsyncComponent(() => import('./views/Audio.vue'))
 const FontsView = defineAsyncComponent(() => import('./views/Fonts.vue'))
+const SkillsView = defineAsyncComponent(() => import('./views/Skills.vue'))
 const PromptView = defineAsyncComponent(() => import('./views/Prompt.vue'))
 import KeyVisualizerWindow from './KeyVisualizerWindow.vue'
 import DockWindow from './dock/DockWindow.vue'
@@ -225,6 +226,8 @@ onMounted(async () => {
   void import('./lib/autoTheme').then(m => m.startAutoTheme())
   // 桌面格子摆出来
   void import('./lib/fences').then(m => m.restoreFences())
+  // Skills 页：用户开过自动扫描的，开软件后在后台刷新一次（晚几秒，别跟启动抢资源）
+  window.setTimeout(() => { void import('./composables/useSkills').then(m => m.autoRefreshSkills()) }, 4000)
   // 记住停在哪一页，给「启动时打开：上次的页面」用（首页不算）
   watch(currentView, (v) => { if (v && v !== 'Home') settings.lastPage = v })
 
@@ -384,6 +387,7 @@ onMounted(async () => {
             <AudioView v-else-if="currentView === 'Audio'" />
             <FontsView v-else-if="currentView === 'Fonts'" />
             <PromptView v-else-if="currentView === 'Prompt'" />
+            <SkillsView v-else-if="currentView === 'Skills'" />
           </div>
         </Transition>
     </main>

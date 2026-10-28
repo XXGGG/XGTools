@@ -7871,6 +7871,7 @@ dependencies = [
  "futures-util",
  "image",
  "lnk",
+ "memchr",
  "notify",
  "num_cpus",
  "ort",
