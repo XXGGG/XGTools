@@ -973,7 +973,7 @@ export const en: Messages = {
     animaPlainBy: 'Translated by {e}',
     animaPlainTip: 'No AI engine is set up, so this is a plain translation without Anima formatting. Add an AI engine (online or local) in translation settings to get tags plus description.',
     modeTags: 'Tags',
-    animaPlaceholder: 'Describe the picture, e.g. a girl gripping a red candle (Ctrl+Enter to run)',
+    animaPlaceholder: 'Describe the picture, e.g. a girl gripping a red candle (Enter to run, Shift+Enter for a new line)',
     anima_base: 'Base',
     anima_aesthetic: 'Aesthetic',
     anima_turbo: 'Turbo',

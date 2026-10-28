@@ -65,6 +65,13 @@ onMounted(async () => { hasAi.value = !!(await pickAiEngine().catch(() => null))
 const busy = ref(false)
 const error = ref('')
 
+/** 回车直接翻译，Shift+回车换行；中文输入法还在选字时的回车不算 */
+function onEnter(e: KeyboardEvent) {
+  if (e.shiftKey || e.isComposing) return
+  e.preventDefault()
+  run()
+}
+
 async function run() {
   if (!input.value.trim() || busy.value) return
   busy.value = true
@@ -183,7 +190,7 @@ onMounted(() => { (inputEl.value?.$el as HTMLTextAreaElement | undefined)?.focus
     <div class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
       <Textarea v-if="showReminders" v-model="reminders" class="anima-reminders" :placeholder="t('prompt.animaRemindersPlaceholder')" />
       <Textarea ref="inputEl" v-model="input" class="anima-input" :placeholder="t('prompt.animaPlaceholder')"
-        @keydown.ctrl.enter.prevent="run" />
+        @keydown.enter="onEnter" />
       <div class="flex items-center gap-2 flex-wrap">
         <template v-if="result && currentText">
           <Button variant="outline" size="sm" @click="copyText(currentText, tab === 'tags' ? 'tags' : tab === 'text' ? 'opt' : 'lit')">

@@ -975,7 +975,7 @@ export const zh = {
     animaPlainBy: '由 {e} 直译',
     animaPlainTip: '没有配置 AI 引擎，所以只做了直译，没有按 Anima 的写法整理。在翻译设置里配一个 AI 引擎（在线的、本机的都行），就能整理成标签加描述。',
     modeTags: '标签',
-    animaPlaceholder: '用中文写画面，比如：一个女孩手里紧紧握着一根红色的蜡烛（Ctrl+Enter 开始）',
+    animaPlaceholder: '用中文写画面，比如：一个女孩手里紧紧握着一根红色的蜡烛（回车开始，Shift+回车换行）',
     anima_base: 'Base',
     anima_aesthetic: 'Aesthetic',
     anima_turbo: 'Turbo',
