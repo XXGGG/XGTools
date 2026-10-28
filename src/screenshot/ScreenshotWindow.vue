@@ -28,58 +28,58 @@ const showToolbar = ref(false)
 const toolbarX = ref(0)
 const toolbarY = ref(0)
 /**
- * 画框画线时笔尖快碰到工具栏，工具栏临时让开（这一笔画完再回原位）。
- * 不让的话画到工具栏底下那块就被它挡住，只能先拖走工具栏再画 —— 2026-10-19 用户提的。
+ * 画框画线时笔尖快碰到工具栏 / 属性面板，它们就躲开，躲到哪就待在哪，不弹回来（学键盘桌宠躲鼠标）。
+ * 2026-10-20 用户定的规矩：
+ *   - 只有**在选框里面**的才躲；本来就在框外的不挡画，一动不动
+ *   - 一级工具栏只上下躲（框内顶部 ↔ 框内底部），左右居中，躲完还在框里
+ *   - 二级面板（颜色、粗细）在框内右下角 ↔ 左下角之间躲
  */
-const tbDodge = ref<{ x: number; y: number } | null>(null)
-const tbLeft = computed(() => tbDodge.value?.x ?? toolbarX.value)
-const tbTop = computed(() => tbDodge.value?.y ?? toolbarY.value)
-/** 右边那块属性面板（颜色、粗细、线条风格）同样让开：在它原本位置上额外挪一段 */
-const panelDodge = ref<{ dx: number; dy: number } | null>(null)
+const DODGE_M = 28 // 笔尖离它还有这么远就开始躲
+const DODGE_PAD = 8 // 躲到框内时离框边留的距离
+
+function nearPen(px: number, py: number, x: number, y: number, w: number, h: number) {
+  const M = DODGE_M
+  return px > x - M && px < x + w + M && py > y - M && py < y + h + M
+}
+
+function insideSel(x: number, y: number, w: number, h: number) {
+  if (!selMgr) return false
+  const r = selMgr.rect
+  return x >= r.x - 1 && y >= r.y - 1 && x + w <= r.x + r.w + 1 && y + h <= r.y + r.h + 1
+}
 
 function dodgePanel(px: number, py: number) {
   const el = textPanelRef.value
-  if (!el) return
-  const M = 28
-  const r = el.getBoundingClientRect()
-  const near = (x: number, y: number) => px > x - M && px < x + r.width + M && py > y - M && py < y + r.height + M
-  if (!near(r.left, r.top)) return
-  const screenW = imgWidth / scaleFactor
-  const top = workTop + 4
-  const bottom = (workBottom || imgHeight / scaleFactor) - 4
-  const tries = [
-    { x: px - M - r.width - 8, y: r.top },
-    { x: px + M + 8, y: r.top },
-    { x: r.left, y: py - M - r.height - 8 },
-    { x: r.left, y: py + M + 8 },
-  ].map(c => ({ x: Math.max(4, Math.min(c.x, screenW - r.width - 4)), y: Math.max(top, Math.min(c.y, bottom - r.height)) }))
-  const ok = tries.find(c => !near(c.x, c.y))
+  if (!el || !selMgr) return
+  const b = el.getBoundingClientRect()
+  if (!nearPen(px, py, b.left, b.top, b.width, b.height) || !insideSel(b.left, b.top, b.width, b.height)) return
+  const r = selMgr.rect
+  const y = r.y + r.h - b.height - DODGE_PAD
+  const spots = [
+    { x: r.x + r.w - b.width - DODGE_PAD, y }, // 右下角
+    { x: r.x + DODGE_PAD, y }, // 左下角
+  ]
+  const ok = spots.find(c => !nearPen(px, py, c.x, c.y, b.width, b.height))
   if (!ok) return
-  const cur = panelDodge.value ?? { dx: 0, dy: 0 }
-  panelDodge.value = { dx: cur.dx + ok.x - r.left, dy: cur.dy + ok.y - r.top }
+  panelTransX.value += ok.x - b.left
+  panelTransY.value += ok.y - b.top
 }
 
 function dodgeToolbar(px: number, py: number) {
   const el = document.querySelector('.toolbar') as HTMLElement | null
-  if (!el) return
+  if (!el || !selMgr) return
   const w = el.offsetWidth, h = el.offsetHeight
-  const M = 28 // 笔尖离工具栏还有这么远就开始让
-  const cur = tbDodge.value ?? { x: toolbarX.value, y: toolbarY.value }
-  const near = (x: number, y: number) => px > x - M && px < x + w + M && py > y - M && py < y + h + M
-  if (!near(cur.x, cur.y)) return
-  const screenW = imgWidth / scaleFactor
-  const top = workTop + 4
-  const bottom = (workBottom || imgHeight / scaleFactor) - 4
-  // 先试原位置的上下（翻到笔尖另一侧），再试左右，挑第一个不挡笔尖的
-  const home = { x: toolbarX.value, y: toolbarY.value }
-  const tries = [
-    { x: home.x, y: py - M - h - 8 },
-    { x: home.x, y: py + M + 8 },
-    { x: px - M - w - 8, y: home.y },
-    { x: px + M + 8, y: home.y },
-  ].map(c => ({ x: Math.max(4, Math.min(c.x, screenW - w - 4)), y: Math.max(top, Math.min(c.y, bottom - h)) }))
-  const ok = tries.find(c => !near(c.x, c.y))
-  if (ok) tbDodge.value = ok
+  if (!nearPen(px, py, toolbarX.value, toolbarY.value, w, h) || !insideSel(toolbarX.value, toolbarY.value, w, h)) return
+  const r = selMgr.rect
+  const x = r.x + (r.w - w) / 2
+  const spots = [
+    { x, y: r.y + DODGE_PAD }, // 框内顶部
+    { x, y: r.y + r.h - h - DODGE_PAD }, // 框内底部
+  ]
+  const ok = spots.find(c => !nearPen(px, py, c.x, c.y, w, h))
+  if (!ok) return
+  toolbarX.value = ok.x
+  toolbarY.value = ok.y
 }
 
 // 工具选项面板
@@ -663,8 +663,8 @@ function updateToolbarPosition() {
   const toolbarW = toolbarEl ? toolbarEl.offsetWidth : 700
   const toolbarH = toolbarEl?.offsetHeight || 48
 
-  // 水平定位：选区右对齐（仿 Snow-Shot: max_x - toolbarWidth）
-  let tx = r.x + r.w - toolbarW
+  // 水平定位：对着选区左右居中（2026-10-20 用户要的，原来是仿 Snow-Shot 右对齐）
+  let tx = r.x + (r.w - toolbarW) / 2
   tx = Math.max(4, Math.min(tx, screenW - toolbarW - 4))
 
   // 垂直定位：优先选区下方 → 放不下翻到上方 → 都不行就放选区里面靠底
@@ -1646,8 +1646,6 @@ function onMouseUp(e: MouseEvent) {
 
   if (annMgr.isResizing || annMgr.isMovingSelected || annMgr.isDrawing) {
     annMgr.handleMouseUp(e)
-    tbDodge.value = null
-    panelDodge.value = null
     // 画完/缩放后，回填属性到面板
     const sel = annMgr.getSelected()
     if (sel) {
@@ -2389,7 +2387,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
     <div
       v-if="showToolbar && recordMode"
       class="toolbar"
-      :style="{ left: tbLeft + 'px', top: tbTop + 'px' }"
+      :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
       @mousedown.stop
     >
       <span class="toolbar-grip icon-[lucide--grip-vertical]" :title="t('shot.dragToolbar')"
@@ -2417,7 +2415,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
     <div
       v-if="showToolbar && !recordMode"
       class="toolbar"
-      :style="{ left: tbLeft + 'px', top: tbTop + 'px' }"
+      :style="{ left: toolbarX + 'px', top: toolbarY + 'px' }"
       @mousedown.stop
     >
       <!-- 抓手:按住拖动整条工具栏 -->
@@ -2514,7 +2512,7 @@ function pickFromGroup(gid: string, tool: DrawTool) {
       v-if="showToolbar && showFloatingPanel"
       ref="textPanelRef"
       class="tool-panel"
-      :style="{ left: panelBaseX + 'px', top: panelBaseY + 'px', transform: `translate(${panelTransX + (panelDodge?.dx ?? 0)}px, ${panelTransY + (panelDodge?.dy ?? 0)}px)` }"
+      :style="{ left: panelBaseX + 'px', top: panelBaseY + 'px', transform: `translate(${panelTransX}px, ${panelTransY}px)` }"
       @mousedown.stop="onPanelMouseDown"
     >
       <!-- 拖拽手柄 -->
